@@ -1,0 +1,855 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>操作系统算法动画学习平台</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0e14;
+            --fg: #ffffff;
+            --muted: #9ca3af;
+            --accent: #60a5fa;
+            --card: #1a1f2e;
+            --border: #3b4252;
+            
+            --scheduling-color: #60a5fa;
+            --process-color: #a78bfa;
+            --concurrency-color: #f97316;
+            --memory-color: #22c55e;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Noto Sans SC', sans-serif;
+            background: var(--bg);
+            color: var(--fg);
+            min-height: 100vh;
+        }
+        
+        .bg-layer {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            overflow: hidden;
+        }
+        
+        .bg-gradient {
+            position: absolute;
+            inset: 0;
+            background: 
+                radial-gradient(ellipse 60% 40% at 50% 0%, rgba(96, 165, 250, 0.1) 0%, transparent 60%),
+                radial-gradient(ellipse 40% 30% at 20% 80%, rgba(167, 139, 250, 0.08) 0%, transparent 50%),
+                radial-gradient(ellipse 40% 30% at 80% 80%, rgba(34, 197, 94, 0.08) 0%, transparent 50%);
+        }
+        
+        .bg-grid {
+            position: absolute;
+            inset: 0;
+            background-image: 
+                linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+            background-size: 50px 50px;
+        }
+        
+        .floating-particles {
+            position: absolute;
+            inset: 0;
+            overflow: hidden;
+            pointer-events: none;
+        }
+        
+        .particle {
+            position: absolute;
+            width: 4px;
+            height: 4px;
+            background: rgba(96, 165, 250, 0.3);
+            border-radius: 50%;
+            animation: float 20s infinite;
+        }
+        
+        @keyframes float {
+            0%, 100% { transform: translateY(100vh) rotate(0deg); opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { transform: translateY(-100vh) rotate(720deg); opacity: 0; }
+        }
+        
+        .main-container {
+            position: relative;
+            z-index: 1;
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 50px;
+        }
+        
+        .main-title {
+            font-size: clamp(2rem, 5vw, 3.5rem);
+            font-weight: 900;
+            letter-spacing: -0.02em;
+            background: linear-gradient(135deg, var(--fg), var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 12px;
+        }
+        
+        .subtitle {
+            font-size: clamp(1rem, 2vw, 1.2rem);
+            color: var(--muted);
+            font-weight: 400;
+        }
+        
+        .stats-bar {
+            display: flex;
+            justify-content: center;
+            gap: 40px;
+            margin-top: 24px;
+            flex-wrap: wrap;
+        }
+        
+        .stat-item {
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 900;
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--accent);
+        }
+        
+        .stat-label {
+            font-size: 0.85rem;
+            color: var(--muted);
+            margin-top: 4px;
+        }
+        
+        .content {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .category-section {
+            margin-bottom: 40px;
+        }
+        
+        .category-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid var(--border);
+        }
+        
+        .category-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+        }
+        
+        .category-icon.scheduling { background: linear-gradient(135deg, var(--scheduling-color), #2563eb); }
+        .category-icon.process { background: linear-gradient(135deg, var(--process-color), #7c3aed); }
+        .category-icon.concurrency { background: linear-gradient(135deg, var(--concurrency-color), #ea580c); }
+        .category-icon.memory { background: linear-gradient(135deg, var(--memory-color), #16a34a); }
+        
+        .category-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+        
+        .category-title.scheduling { color: var(--scheduling-color); }
+        .category-title.process { color: var(--process-color); }
+        .category-title.concurrency { color: var(--concurrency-color); }
+        .category-title.memory { color: var(--memory-color); }
+        
+        .category-desc {
+            font-size: 0.9rem;
+            color: var(--muted);
+            margin-left: auto;
+        }
+        
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 20px;
+        }
+        
+        .card {
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 16px;
+            padding: 24px;
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            cursor: pointer;
+            text-decoration: none;
+            color: inherit;
+            display: block;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, var(--accent), transparent);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .card:hover {
+            border-color: var(--accent);
+            transform: translateY(-8px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+        }
+        
+        .card:hover::before {
+            opacity: 1;
+        }
+        
+        .card.scheduling:hover { border-color: var(--scheduling-color); }
+        .card.scheduling:hover::before { background: linear-gradient(90deg, var(--scheduling-color), transparent); }
+        
+        .card.process:hover { border-color: var(--process-color); }
+        .card.process:hover::before { background: linear-gradient(90deg, var(--process-color), transparent); }
+        
+        .card.concurrency:hover { border-color: var(--concurrency-color); }
+        .card.concurrency:hover::before { background: linear-gradient(90deg, var(--concurrency-color), transparent); }
+        
+        .card.memory:hover { border-color: var(--memory-color); }
+        .card.memory:hover::before { background: linear-gradient(90deg, var(--memory-color), transparent); }
+        
+        .card-header {
+            display: flex;
+            align-items: flex-start;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+        
+        .card-icon {
+            width: 56px;
+            height: 56px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.8rem;
+            flex-shrink: 0;
+        }
+        
+        .card-icon.scheduling { background: rgba(96, 165, 250, 0.15); }
+        .card-icon.process { background: rgba(167, 139, 250, 0.15); }
+        .card-icon.concurrency { background: rgba(249, 115, 22, 0.15); }
+        .card-icon.memory { background: rgba(34, 197, 94, 0.15); }
+        
+        .card-title-group {
+            flex: 1;
+        }
+        
+        .card-title {
+            font-size: 1.2rem;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+        
+        .card-subtitle {
+            font-size: 0.85rem;
+            color: var(--muted);
+        }
+        
+        .card-tags {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 16px;
+        }
+        
+        .tag {
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+        }
+        
+        .tag.scheduling { color: var(--scheduling-color); border-color: rgba(96, 165, 250, 0.3); }
+        .tag.process { color: var(--process-color); border-color: rgba(167, 139, 250, 0.3); }
+        .tag.concurrency { color: var(--concurrency-color); border-color: rgba(249, 115, 22, 0.3); }
+        .tag.memory { color: var(--memory-color); border-color: rgba(34, 197, 94, 0.3); }
+        
+        .card-desc {
+            font-size: 0.9rem;
+            color: var(--muted);
+            line-height: 1.6;
+            margin-bottom: 16px;
+        }
+        
+        .card-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 16px;
+            border-top: 1px solid var(--border);
+        }
+        
+        .card-meta {
+            display: flex;
+            gap: 16px;
+            font-size: 0.8rem;
+            color: var(--muted);
+        }
+        
+        .meta-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        .card-arrow {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.05);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+        
+        .card:hover .card-arrow {
+            background: var(--accent);
+            transform: translateX(4px);
+        }
+        
+        .card.scheduling:hover .card-arrow { background: var(--scheduling-color); }
+        .card.process:hover .card-arrow { background: var(--process-color); }
+        .card.concurrency:hover .card-arrow { background: var(--concurrency-color); }
+        .card.memory:hover .card-arrow { background: var(--memory-color); }
+        
+        .footer {
+            text-align: center;
+            padding: 40px 20px;
+            margin-top: 40px;
+            border-top: 1px solid var(--border);
+        }
+        
+        .footer-text {
+            color: var(--muted);
+            font-size: 0.9rem;
+        }
+        
+        .footer-link {
+            color: var(--accent);
+            text-decoration: none;
+        }
+        
+        .footer-link:hover {
+            text-decoration: underline;
+        }
+        
+        @media (max-width: 768px) {
+            .stats-bar {
+                gap: 20px;
+            }
+            
+            .category-header {
+                flex-wrap: wrap;
+            }
+            
+            .category-desc {
+                margin-left: 0;
+                width: 100%;
+                margin-top: 8px;
+            }
+            
+            .cards-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-layer">
+        <div class="bg-gradient"></div>
+        <div class="bg-grid"></div>
+        <div class="floating-particles" id="particles"></div>
+    </div>
+    
+    <div class="main-container">
+        <header class="header">
+            <h1 class="main-title">操作系统算法动画学习平台</h1>
+            <p class="subtitle">通过交互式动画深入理解操作系统核心算法</p>
+            <div class="stats-bar">
+                <div class="stat-item">
+                    <div class="stat-value">9</div>
+                    <div class="stat-label">动画模块</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">5</div>
+                    <div class="stat-label">知识分类</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">100%</div>
+                    <div class="stat-label">可视化</div>
+                </div>
+            </div>
+        </header>
+        
+        <main class="content">
+            <section class="category-section">
+                <div class="category-header">
+                    <div class="category-icon scheduling">⚡</div>
+                    <h2 class="category-title scheduling">进程调度算法</h2>
+                    <span class="category-desc">Process Scheduling Algorithms</span>
+                </div>
+                <div class="cards-grid">
+                    <a href="FCFS调度算法.html" class="card scheduling">
+                        <div class="card-header">
+                            <div class="card-icon scheduling">🚶</div>
+                            <div class="card-title-group">
+                                <h3 class="card-title">FCFS 先来先服务</h3>
+                                <p class="card-subtitle">First Come First Serve</p>
+                            </div>
+                        </div>
+                        <div class="card-tags">
+                            <span class="tag scheduling">非抢占式</span>
+                            <span class="tag scheduling">公平简单</span>
+                        </div>
+                        <p class="card-desc">按照作业到达顺序依次执行，是最简单、最公平的调度算法，但可能导致长作业阻塞短作业。</p>
+                        <div class="card-footer">
+                            <div class="card-meta">
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <polyline points="12 6 12 12 16 14"/>
+                                    </svg>
+                                    ~75秒
+                                </span>
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                    </svg>
+                                    5场景
+                                </span>
+                            </div>
+                            <div class="card-arrow">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="5" y1="12" x2="19" y2="12"/>
+                                    <polyline points="12 5 19 12 12 19"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </a>
+                    
+                    <a href="SJF或SPF调度算法.html" class="card scheduling">
+                        <div class="card-header">
+                            <div class="card-icon scheduling">📏</div>
+                            <div class="card-title-group">
+                                <h3 class="card-title">SJF/SPF 短作业优先</h3>
+                                <p class="card-subtitle">Shortest Job/Process First</p>
+                            </div>
+                        </div>
+                        <div class="card-tags">
+                            <span class="tag scheduling">非抢占式</span>
+                            <span class="tag scheduling">平均等待最短</span>
+                        </div>
+                        <p class="card-desc">优先选择运行时间最短的作业执行，可获得最短平均等待时间，但可能导致长作业饥饿。</p>
+                        <div class="card-footer">
+                            <div class="card-meta">
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <polyline points="12 6 12 12 16 14"/>
+                                    </svg>
+                                    ~85秒
+                                </span>
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                    </svg>
+                                    5场景
+                                </span>
+                            </div>
+                            <div class="card-arrow">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="5" y1="12" x2="19" y2="12"/>
+                                    <polyline points="12 5 19 12 12 19"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </a>
+                    
+                    <a href="RR调度算法.html" class="card scheduling">
+                        <div class="card-header">
+                            <div class="card-icon scheduling">🔄</div>
+                            <div class="card-title-group">
+                                <h3 class="card-title">RR 时间轮转</h3>
+                                <p class="card-subtitle">Round Robin</p>
+                            </div>
+                        </div>
+                        <div class="card-tags">
+                            <span class="tag scheduling">抢占式</span>
+                            <span class="tag scheduling">公平轮转</span>
+                        </div>
+                        <p class="card-desc">为每个进程分配固定时间片，时间片用完立即切换，是交互式系统最常用的调度算法。</p>
+                        <div class="card-footer">
+                            <div class="card-meta">
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <polyline points="12 6 12 12 16 14"/>
+                                    </svg>
+                                    ~90秒
+                                </span>
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                    </svg>
+                                    6场景
+                                </span>
+                            </div>
+                            <div class="card-arrow">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="5" y1="12" x2="19" y2="12"/>
+                                    <polyline points="12 5 19 12 12 19"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </a>
+                </div>
+            </section>
+            
+            <section class="category-section">
+                <div class="category-header">
+                    <div class="category-icon process">📊</div>
+                    <h2 class="category-title process">进程状态模型</h2>
+                    <span class="category-desc">Process State Model</span>
+                </div>
+                <div class="cards-grid">
+                    <a href="进程三状态.html" class="card process">
+                        <div class="card-header">
+                            <div class="card-icon process">🔄</div>
+                            <div class="card-title-group">
+                                <h3 class="card-title">进程状态转换</h3>
+                                <p class="card-subtitle">Process State Transitions</p>
+                            </div>
+                        </div>
+                        <div class="card-tags">
+                            <span class="tag process">三状态</span>
+                            <span class="tag process">五状态</span>
+                            <span class="tag process">七状态</span>
+                        </div>
+                        <p class="card-desc">展示进程在运行、就绪、阻塞等状态之间的转换过程，包含三状态、五状态、七状态模型。</p>
+                        <div class="card-footer">
+                            <div class="card-meta">
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <polyline points="12 6 12 12 16 14"/>
+                                    </svg>
+                                    动态演示
+                                </span>
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                    </svg>
+                                    3模型
+                                </span>
+                            </div>
+                            <div class="card-arrow">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="5" y1="12" x2="19" y2="12"/>
+                                    <polyline points="12 5 19 12 12 19"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </a>
+                </div>
+            </section>
+            
+            <section class="category-section">
+                <div class="category-header">
+                    <div class="category-icon concurrency">🔗</div>
+                    <h2 class="category-title concurrency">并发与同步</h2>
+                    <span class="category-desc">Concurrency & Synchronization</span>
+                </div>
+                <div class="cards-grid">
+                    <a href="生产者消费者问题.html" class="card concurrency">
+                        <div class="card-header">
+                            <div class="card-icon concurrency">🏭</div>
+                            <div class="card-title-group">
+                                <h3 class="card-title">生产者-消费者问题</h3>
+                                <p class="card-subtitle">Producer-Consumer Problem</p>
+                            </div>
+                        </div>
+                        <div class="card-tags">
+                            <span class="tag concurrency">信号量</span>
+                            <span class="tag concurrency">互斥锁</span>
+                            <span class="tag concurrency">经典问题</span>
+                        </div>
+                        <p class="card-desc">通过厨师生产披萨、食客消费披萨的场景，演示同步信号量和互斥锁的核心原理。</p>
+                        <div class="card-footer">
+                            <div class="card-meta">
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <polyline points="12 6 12 12 16 14"/>
+                                    </svg>
+                                    ~100秒
+                                </span>
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                    </svg>
+                                    6场景
+                                </span>
+                            </div>
+                            <div class="card-arrow">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="5" y1="12" x2="19" y2="12"/>
+                                    <polyline points="12 5 19 12 12 19"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </a>
+                </div>
+            </section>
+            
+            <section class="category-section">
+                <div class="category-header">
+                    <div class="category-icon memory">💾</div>
+                    <h2 class="category-title memory">内存管理</h2>
+                    <span class="category-desc">Memory Management</span>
+                </div>
+                <div class="cards-grid">
+                    <a href="OPT最佳置换算法.html" class="card memory">
+                        <div class="card-header">
+                            <div class="card-icon memory">🔮</div>
+                            <div class="card-title-group">
+                                <h3 class="card-title">OPT 最佳置换算法</h3>
+                                <p class="card-subtitle">Optimal Page Replacement</p>
+                            </div>
+                        </div>
+                        <div class="card-tags">
+                            <span class="tag memory">理论最优</span>
+                            <span class="tag memory">上帝视角</span>
+                        </div>
+                        <p class="card-desc">拥有预知未来的"上帝视角"，选择未来最长时间不被访问的页面淘汰，是衡量其他算法的理论标杆。</p>
+                        <div class="card-footer">
+                            <div class="card-meta">
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <polyline points="12 6 12 12 16 14"/>
+                                    </svg>
+                                    ~90秒
+                                </span>
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                    </svg>
+                                    5场景
+                                </span>
+                            </div>
+                            <div class="card-arrow">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="5" y1="12" x2="19" y2="12"/>
+                                    <polyline points="12 5 19 12 12 19"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </a>
+                    
+                    <a href="LRU最近最少使用页面置换算法.html" class="card memory">
+                        <div class="card-header">
+                            <div class="card-icon memory">📒</div>
+                            <div class="card-title-group">
+                                <h3 class="card-title">LRU 最近最少使用</h3>
+                                <p class="card-subtitle">Least Recently Used</p>
+                            </div>
+                        </div>
+                        <div class="card-tags">
+                            <span class="tag memory">现实最优</span>
+                            <span class="tag memory">命中续命</span>
+                        </div>
+                        <p class="card-desc">像一位细心记账员，只回顾历史使用记录，淘汰最近最少使用的页面，是现实中最常用的置换算法。</p>
+                        <div class="card-footer">
+                            <div class="card-meta">
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <polyline points="12 6 12 12 16 14"/>
+                                    </svg>
+                                    ~95秒
+                                </span>
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                    </svg>
+                                    5场景
+                                </span>
+                            </div>
+                            <div class="card-arrow">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="5" y1="12" x2="19" y2="12"/>
+                                    <polyline points="12 5 19 12 12 19"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </a>
+                    
+                    <a href="FIFO先进先出页面置换算法.html" class="card memory">
+                        <div class="card-header">
+                            <div class="card-icon memory">👮</div>
+                            <div class="card-title-group">
+                                <h3 class="card-title">FIFO 先进先出</h3>
+                                <p class="card-subtitle">First In First Out</p>
+                            </div>
+                        </div>
+                        <div class="card-tags">
+                            <span class="tag memory">简单死板</span>
+                            <span class="tag memory">贝莱迪异常</span>
+                        </div>
+                        <p class="card-desc">像一位严守规则的耿直保安，只认进场先后顺序，先进先出最老先淘汰，存在贝莱迪异常缺陷。</p>
+                        <div class="card-footer">
+                            <div class="card-meta">
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <polyline points="12 6 12 12 16 14"/>
+                                    </svg>
+                                    ~70秒
+                                </span>
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                    </svg>
+                                    5场景
+                                </span>
+                            </div>
+                            <div class="card-arrow">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="5" y1="12" x2="19" y2="12"/>
+                                    <polyline points="12 5 19 12 12 19"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </a>
+                </div>
+            </section>
+            
+            <section class="category-section">
+                <div class="category-header">
+                    <div class="category-icon scheduling">💿</div>
+                    <h2 class="category-title scheduling">磁盘调度算法</h2>
+                    <span class="category-desc">Disk Scheduling Algorithms</span>
+                </div>
+                <div class="cards-grid">
+                    <a href="SCAN磁盘调度算法.html" class="card scheduling">
+                        <div class="card-header">
+                            <div class="card-icon scheduling">🛗</div>
+                            <div class="card-title-group">
+                                <h3 class="card-title">SCAN 电梯算法</h3>
+                                <p class="card-subtitle">Elevator Algorithm</p>
+                            </div>
+                        </div>
+                        <div class="card-tags">
+                            <span class="tag scheduling">固定方向</span>
+                            <span class="tag scheduling">无饥饿</span>
+                        </div>
+                        <p class="card-desc">像守规矩的电梯司机，固定方向扫描，顺路处理所有请求，抵达端点强制掉头，彻底杜绝请求饥饿。</p>
+                        <div class="card-footer">
+                            <div class="card-meta">
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <polyline points="12 6 12 12 16 14"/>
+                                    </svg>
+                                    ~90秒
+                                </span>
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                    </svg>
+                                    4场景
+                                </span>
+                            </div>
+                            <div class="card-arrow">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="5" y1="12" x2="19" y2="12"/>
+                                    <polyline points="12 5 19 12 12 19"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </a>
+                </div>
+            </section>
+        </main>
+        
+        <footer class="footer">
+            <p class="footer-text">
+                操作系统算法动画学习平台 · 
+                <a href="https://github.com" class="footer-link">GitHub</a> · 
+                适配投影展示 · 大字体 · 高对比度
+            </p>
+        </footer>
+    </div>
+    
+    <script>
+        function createParticles() {
+            const container = document.getElementById('particles');
+            const particleCount = 20;
+            
+            for (let i = 0; i < particleCount; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'particle';
+                particle.style.left = Math.random() * 100 + '%';
+                particle.style.animationDelay = Math.random() * 20 + 's';
+                particle.style.animationDuration = (15 + Math.random() * 10) + 's';
+                
+                const colors = [
+                    'rgba(96, 165, 250, 0.3)',
+                    'rgba(167, 139, 250, 0.3)',
+                    'rgba(249, 115, 22, 0.3)',
+                    'rgba(34, 197, 94, 0.3)'
+                ];
+                particle.style.background = colors[Math.floor(Math.random() * colors.length)];
+                
+                container.appendChild(particle);
+            }
+        }
+        
+        document.addEventListener('DOMContentLoaded', createParticles);
+    </script>
+</body>
+</html>

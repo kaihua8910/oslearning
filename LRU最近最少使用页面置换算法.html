@@ -1,0 +1,1351 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LRU 最近最少使用页面置换算法</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0e14;
+            --fg: #ffffff;
+            --muted: #9ca3af;
+            --accent: #60a5fa;
+            --card: #1a1f2e;
+            --border: #3b4252;
+            
+            --hit-color: #22c55e;
+            --miss-color: #ef4444;
+            --clock-color: #fbbf24;
+            --accountant-color: #8b5cf6;
+            --bright: #ffffff;
+            --dim: #6b7280;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Noto Sans SC', sans-serif;
+            background: var(--bg);
+            color: var(--fg);
+            min-height: 100vh;
+            overflow: hidden;
+        }
+        
+        .bg-layer {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            overflow: hidden;
+        }
+        
+        .bg-gradient {
+            position: absolute;
+            inset: 0;
+            background: 
+                radial-gradient(ellipse 50% 40% at 50% 0%, rgba(139, 92, 246, 0.12) 0%, transparent 60%),
+                radial-gradient(ellipse 40% 30% at 20% 80%, rgba(59, 130, 246, 0.08) 0%, transparent 50%),
+                radial-gradient(ellipse 40% 30% at 80% 80%, rgba(34, 197, 94, 0.08) 0%, transparent 50%);
+        }
+        
+        .bg-grid {
+            position: absolute;
+            inset: 0;
+            background-image: 
+                linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+        
+        .main-container {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding: 12px 20px;
+        }
+        
+        .header {
+            text-align: center;
+            opacity: 0;
+            transform: translateY(-30px);
+            transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .header.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .main-title {
+            font-size: clamp(1.4rem, 3vw, 2rem);
+            font-weight: 900;
+            letter-spacing: -0.02em;
+            background: linear-gradient(135deg, var(--fg), var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .subtitle {
+            font-size: clamp(0.8rem, 1.4vw, 0.95rem);
+            color: var(--accountant-color);
+            margin-top: 4px;
+            font-weight: 600;
+        }
+        
+        .control-bar {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin-top: 8px;
+        }
+        
+        .control-btn {
+            padding: 6px 16px;
+            border-radius: 30px;
+            border: 2px solid var(--border);
+            background: var(--card);
+            color: var(--fg);
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: inherit;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .control-btn:hover {
+            border-color: var(--accent);
+            transform: translateY(-2px);
+        }
+        
+        .control-btn.active {
+            background: linear-gradient(135deg, var(--accent), #EA580C);
+            border-color: transparent;
+            color: white;
+        }
+        
+        .control-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .hint-container {
+            text-align: center;
+            margin-top: 6px;
+            min-height: 32px;
+        }
+        
+        .hint-box {
+            display: inline-block;
+            background: var(--card);
+            border: 2px solid var(--border);
+            padding: 6px 16px;
+            border-radius: 10px;
+            font-size: 0.95rem;
+            font-weight: 500;
+            max-width: min(700px, 90vw);
+            text-align: center;
+            opacity: 0;
+            transform: translateY(-15px);
+            transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .hint-box.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .stage {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            margin-top: 8px;
+            min-height: 0;
+        }
+        
+        .sequence-panel {
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            padding: 12px 16px;
+            opacity: 0;
+            transform: translateY(-20px);
+            transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .sequence-panel.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .sequence-title {
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: var(--fg);
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .sequence-container {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        
+        .sequence-item {
+            width: 55px;
+            height: 55px;
+            border-radius: 10px;
+            border: 2px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+            transition: all 0.4s ease;
+            background: var(--card);
+        }
+        
+        .sequence-item.pending {
+            color: var(--muted);
+            border-color: var(--border);
+        }
+        
+        .sequence-item.current {
+            color: var(--clock-color);
+            border-color: var(--clock-color);
+            background: rgba(251, 191, 36, 0.15);
+            box-shadow: 0 0 20px rgba(251, 191, 36, 0.3);
+        }
+        
+        .sequence-item.processed {
+            color: var(--dim);
+            border-color: transparent;
+            opacity: 0.5;
+        }
+        
+        .memory-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+            opacity: 0;
+            transform: scale(0.95);
+            transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .memory-panel.visible {
+            opacity: 1;
+            transform: scale(1);
+        }
+        
+        .memory-area {
+            display: flex;
+            gap: 24px;
+            align-items: flex-start;
+        }
+        
+        .accountant-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            opacity: 0;
+            transform: translateX(-20px);
+            transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .accountant-container.visible {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        
+        .accountant-icon {
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--accountant-color), #6d28d9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            position: relative;
+            transition: all 0.4s ease;
+        }
+        
+        .accountant-icon.thinking {
+            animation: thinking 1s ease-in-out infinite;
+        }
+        
+        @keyframes thinking {
+            0%, 100% { transform: rotate(-5deg); }
+            50% { transform: rotate(5deg); }
+        }
+        
+        .accountant-label {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--accountant-color);
+        }
+        
+        .frames-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .frames-title {
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: var(--fg);
+        }
+        
+        .frames {
+            display: flex;
+            gap: 16px;
+        }
+        
+        .frame-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .frame {
+            width: 90px;
+            height: 90px;
+            border-radius: 12px;
+            border: 3px solid var(--border);
+            background: var(--card);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.2rem;
+            font-weight: 900;
+            font-family: 'JetBrains Mono', monospace;
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            position: relative;
+        }
+        
+        .frame.hit {
+            border-color: var(--hit-color);
+            background: rgba(34, 197, 94, 0.15);
+            box-shadow: 0 0 25px rgba(34, 197, 94, 0.4);
+        }
+        
+        .frame.miss {
+            border-color: var(--miss-color);
+            background: rgba(248, 113, 113, 0.15);
+            box-shadow: 0 0 25px rgba(248, 113, 113, 0.4);
+        }
+        
+        .frame.replace {
+            animation: replacePulse 0.5s ease;
+        }
+        
+        @keyframes replacePulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+        
+        .frame .page-value {
+            opacity: 0;
+            transform: translateY(-20px);
+            transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .frame .page-value.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .frame .page-value.removing {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        
+        .frame.active-0 {
+            opacity: 1;
+        }
+        
+        .frame.active-1 {
+            opacity: 0.85;
+        }
+        
+        .frame.active-2 {
+            opacity: 0.65;
+        }
+        
+        .frame.active-3 {
+            opacity: 0.45;
+        }
+        
+        .frame-label {
+            font-size: 0.7rem;
+            color: var(--muted);
+        }
+        
+        .clock-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+        }
+        
+        .clock-icon {
+            font-size: 1rem;
+        }
+        
+        .clock-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--clock-color);
+            min-width: 40px;
+            text-align: center;
+        }
+        
+        .clock-value.dim {
+            color: var(--dim);
+        }
+        
+        .analysis-bubble {
+            background: var(--card);
+            border: 2px solid var(--accent);
+            padding: 6px 10px;
+            border-radius: 8px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            white-space: nowrap;
+            opacity: 0;
+            transition: all 0.3s ease;
+            position: absolute;
+            top: -45px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+        }
+        
+        .analysis-bubble.visible {
+            opacity: 1;
+        }
+        
+        .counter-panel {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .counter-panel.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .counter-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        .counter-label {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--fg);
+        }
+        
+        .counter-value {
+            width: 70px;
+            height: 70px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            font-weight: 900;
+            font-family: 'JetBrains Mono', monospace;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .counter-value.fault {
+            background: rgba(248, 113, 113, 0.2);
+            border: 2px solid var(--miss-color);
+            color: var(--miss-color);
+        }
+        
+        .counter-value.hit {
+            background: rgba(34, 197, 94, 0.2);
+            border: 2px solid var(--hit-color);
+            color: var(--hit-color);
+        }
+        
+        .counter-value.pulse {
+            animation: counterPulse 0.3s ease;
+        }
+        
+        @keyframes counterPulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.2); }
+        }
+        
+        .status-text {
+            font-size: 0.85rem;
+            color: var(--fg);
+            text-align: center;
+            margin-top: 8px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .status-text.visible {
+            opacity: 1;
+        }
+        
+        .status-text .hit-text { color: var(--hit-color); font-weight: 700; }
+        .status-text .miss-text { color: var(--miss-color); font-weight: 700; }
+        
+        .comparison-panel {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            padding: 12px 16px;
+            opacity: 0;
+            transform: translateX(20px);
+            transition: all 0.5s ease;
+            z-index: 20;
+        }
+        
+        .comparison-panel.visible {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        
+        .comparison-title {
+            font-size: 0.8rem;
+            font-weight: 700;
+            color: var(--fg);
+            margin-bottom: 8px;
+        }
+        
+        .comparison-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin: 4px 0;
+            font-size: 0.85rem;
+        }
+        
+        .comparison-label {
+            min-width: 50px;
+        }
+        
+        .comparison-label.fifo { color: var(--miss-color); }
+        .comparison-label.lru { color: var(--hit-color); }
+        
+        .comparison-value {
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        .summary-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(10, 14, 20, 0.95);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.5s ease;
+            z-index: 100;
+        }
+        
+        .summary-overlay.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        
+        .summary-card {
+            background: var(--card);
+            border: 3px solid var(--border);
+            border-radius: 16px;
+            padding: 24px 32px;
+            max-width: 600px;
+            transform: scale(0.9);
+            transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+            text-align: center;
+        }
+        
+        .summary-overlay.visible .summary-card {
+            transform: scale(1);
+        }
+        
+        .summary-title {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: var(--accountant-color);
+            margin-bottom: 16px;
+        }
+        
+        .summary-text {
+            font-size: 1rem;
+            line-height: 1.8;
+            color: var(--fg);
+        }
+        
+        .summary-text .highlight {
+            color: var(--accountant-color);
+            font-weight: 700;
+        }
+        
+        .summary-text .key {
+            color: var(--hit-color);
+            font-weight: 700;
+        }
+        
+        .progress-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: var(--border);
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accountant-color), var(--accent));
+            width: 0%;
+            transition: width 0.1s linear;
+        }
+        
+        .scene-indicator {
+            position: fixed;
+            bottom: 10px;
+            right: 16px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            padding: 5px 12px;
+            border-radius: 16px;
+            font-size: 0.8rem;
+            color: var(--fg);
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        @media (max-width: 768px) {
+            .memory-area {
+                flex-direction: column;
+                gap: 16px;
+            }
+            
+            .frame {
+                width: 70px;
+                height: 70px;
+                font-size: 1.8rem;
+            }
+            
+            .sequence-item {
+                width: 45px;
+                height: 45px;
+                font-size: 1.2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-layer">
+        <div class="bg-gradient"></div>
+        <div class="bg-grid"></div>
+    </div>
+    
+    <div class="main-container">
+        <div class="header" id="header">
+            <h1 class="main-title">LRU 最近最少使用算法</h1>
+            <p class="subtitle">会记账的现实最优算法 · 淘汰最久未用页面</p>
+        </div>
+        
+        <div class="control-bar">
+            <button class="control-btn" id="playBtn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <polygon points="5,3 19,12 5,21"/>
+                </svg>
+                播放
+            </button>
+            <button class="control-btn" id="pauseBtn" disabled>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <rect x="6" y="4" width="4" height="16"/>
+                    <rect x="14" y="4" width="4" height="16"/>
+                </svg>
+                暂停
+            </button>
+            <button class="control-btn" id="resetBtn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                    <path d="M3 3v5h5"/>
+                </svg>
+                重置
+            </button>
+            <button class="control-btn" id="prevBtn" disabled>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <polygon points="19,3 5,12 19,21"/>
+                </svg>
+                上一场景
+            </button>
+            <button class="control-btn" id="nextBtn">
+                下一场景
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <polygon points="5,3 19,12 5,21"/>
+                </svg>
+            </button>
+        </div>
+        
+        <div class="hint-container">
+            <div class="hint-box" id="hintBox"></div>
+        </div>
+        
+        <div class="stage" id="stage">
+            <div class="sequence-panel" id="sequencePanel">
+                <div class="sequence-title">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="8" y1="6" x2="21" y2="6"/>
+                        <line x1="8" y1="12" x2="21" y2="12"/>
+                        <line x1="8" y1="18" x2="21" y2="18"/>
+                    </svg>
+                    页面请求序列
+                </div>
+                <div class="sequence-container" id="sequenceContainer">
+                    <div class="sequence-item pending" id="seq0">1</div>
+                    <div class="sequence-item pending" id="seq1">8</div>
+                    <div class="sequence-item pending" id="seq2">2</div>
+                    <div class="sequence-item pending" id="seq3">1</div>
+                    <div class="sequence-item pending" id="seq4">9</div>
+                    <div class="sequence-item pending" id="seq5">7</div>
+                </div>
+            </div>
+            
+            <div class="memory-panel" id="memoryPanel">
+                <div class="memory-area">
+                    <div class="accountant-container" id="accountantContainer">
+                        <div class="accountant-icon" id="accountantIcon">📒</div>
+                        <span class="accountant-label">LRU记账员</span>
+                    </div>
+                    
+                    <div class="frames-container">
+                        <div class="frames-title">物理内存块 (Frames) = 3</div>
+                        <div class="frames" id="frames">
+                            <div class="frame-wrapper">
+                                <div class="frame" id="frame0">
+                                    <span class="page-value" id="page0"></span>
+                                    <div class="analysis-bubble" id="analysis0"></div>
+                                </div>
+                                <div class="clock-container">
+                                    <span class="clock-icon">🕐</span>
+                                    <span class="clock-value" id="clock0">0s</span>
+                                </div>
+                                <span class="frame-label">块0</span>
+                            </div>
+                            <div class="frame-wrapper">
+                                <div class="frame" id="frame1">
+                                    <span class="page-value" id="page1"></span>
+                                    <div class="analysis-bubble" id="analysis1"></div>
+                                </div>
+                                <div class="clock-container">
+                                    <span class="clock-icon">🕐</span>
+                                    <span class="clock-value" id="clock1">0s</span>
+                                </div>
+                                <span class="frame-label">块1</span>
+                            </div>
+                            <div class="frame-wrapper">
+                                <div class="frame" id="frame2">
+                                    <span class="page-value" id="page2"></span>
+                                    <div class="analysis-bubble" id="analysis2"></div>
+                                </div>
+                                <div class="clock-container">
+                                    <span class="clock-icon">🕐</span>
+                                    <span class="clock-value" id="clock2">0s</span>
+                                </div>
+                                <span class="frame-label">块2</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="status-text" id="statusText"></div>
+            </div>
+            
+            <div class="counter-panel" id="counterPanel">
+                <div class="counter-item">
+                    <span class="counter-label">缺页次数</span>
+                    <div class="counter-value fault" id="faultCounter">0</div>
+                </div>
+                <div class="counter-item">
+                    <span class="counter-label">命中次数</span>
+                    <div class="counter-value hit" id="hitCounter">0</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="comparison-panel" id="comparisonPanel">
+        <div class="comparison-title">算法对比</div>
+        <div class="comparison-row">
+            <span class="comparison-label fifo">FIFO</span>
+            <span class="comparison-value">缺页: 5次</span>
+        </div>
+        <div class="comparison-row">
+            <span class="comparison-label lru">LRU</span>
+            <span class="comparison-value" id="lruCompare">缺页: 4次 ✓</span>
+        </div>
+    </div>
+    
+    <div class="summary-overlay" id="summaryOverlay">
+        <div class="summary-card">
+            <h2 class="summary-title">LRU 核心总结</h2>
+            <p class="summary-text">
+                LRU是<span class="highlight">现实中最常用的页面置换算法</span>，像一位细心记账员，只回顾页面的历史使用记录。<br><br>
+                置换规则：<span class="key">淘汰最近最少使用的页面</span><br><br>
+                核心机制：<span class="highlight">命中续命</span>——被访问的页面时钟归零，重新变活跃。<br><br>
+                优势：保留高频使用页面，缺页率低于FIFO。<br>
+                局限：实现成本较高，需要记录页面使用历史。
+            </p>
+        </div>
+    </div>
+    
+    <div class="progress-bar">
+        <div class="progress-fill" id="progressFill"></div>
+    </div>
+    
+    <div class="scene-indicator" id="sceneIndicator">场景 1/5</div>
+    
+    <script>
+        const dom = {};
+        
+        const pageSequence = [1, 8, 2, 1, 9, 7];
+        
+        let appState = {
+            currentScene: 0,
+            isPlaying: false,
+            isPaused: false,
+            sceneTimeout: null,
+            actionTimeouts: [],
+            sceneStartTime: 0,
+            progressInterval: null,
+            currentIndex: 0,
+            frames: [null, null, null],
+            clocks: [0, 0, 0],
+            faultCount: 0,
+            hitCount: 0,
+            occupiedFrames: 0
+        };
+        
+        const scenes = [
+            {
+                name: '逻辑揭秘',
+                duration: 15000,
+                actions: [
+                    { time: 0, type: 'showHeader' },
+                    { time: 300, type: 'showHint', text: 'LRU——会记账的现实最优算法...' },
+                    { time: 500, type: 'showSequencePanel' },
+                    { time: 800, type: 'showMemoryPanel' },
+                    { time: 1000, type: 'showAccountant' },
+                    { time: 1200, type: 'showCounterPanel' },
+                    { time: 2000, type: 'showHint', text: 'LRU只回顾历史使用记录，淘汰最近最少使用的页面。' },
+                    { time: 5000, type: 'showHint', text: '每个页面下方有时钟，记录距上次使用的闲置时长。' },
+                    { time: 8000, type: 'showHint', text: '闲置越久，页面越暗淡——这就是"最近最少使用"的直观体现。' },
+                    { time: 12000, type: 'showHint', text: '序列: 1, 8, 2, 1, 9, 7' }
+                ]
+            },
+            {
+                name: '新成员入住',
+                duration: 15000,
+                actions: [
+                    { time: 0, type: 'showHint', text: '初始内存为空，新页面进入都会产生缺页...' },
+                    { time: 1000, type: 'setCurrentIndex', index: 0 },
+                    { time: 1500, type: 'loadPage', frame: 0, page: 1 },
+                    { time: 2000, type: 'incrementFault' },
+                    { time: 2500, type: 'showStatus', text: '页面 <span class="miss-text">1</span> 进入块0，<span class="miss-text">缺页</span>', isHit: false },
+                    { time: 3500, type: 'setCurrentIndex', index: 1 },
+                    { time: 4000, type: 'loadPage', frame: 1, page: 8 },
+                    { time: 4500, type: 'incrementClocks', exclude: 1 },
+                    { time: 5000, type: 'incrementFault' },
+                    { time: 5500, type: 'updateFrameBrightness' },
+                    { time: 6000, type: 'showStatus', text: '页面 <span class="miss-text">8</span> 进入块1，<span class="miss-text">缺页</span>', isHit: false },
+                    { time: 7000, type: 'setCurrentIndex', index: 2 },
+                    { time: 7500, type: 'loadPage', frame: 2, page: 2 },
+                    { time: 8000, type: 'incrementClocks', exclude: 2 },
+                    { time: 8500, type: 'incrementFault' },
+                    { time: 9000, type: 'updateFrameBrightness' },
+                    { time: 9500, type: 'showStatus', text: '页面 <span class="miss-text">2</span> 进入块2，<span class="miss-text">缺页</span>，内存满员！', isHit: false },
+                    { time: 12000, type: 'showHint', text: '三个物理块已满：1(0s), 8(1s), 2(1s)' }
+                ]
+            },
+            {
+                name: '关键的命中续命',
+                duration: 20000,
+                actions: [
+                    { time: 0, type: 'showHint', text: '这是LRU最核心的一步——命中续命机制！' },
+                    { time: 1000, type: 'setCurrentIndex', index: 3 },
+                    { time: 1500, type: 'hitPage', frame: 0 },
+                    { time: 2000, type: 'resetClock', frame: 0 },
+                    { time: 2500, type: 'incrementHit' },
+                    { time: 3000, type: 'incrementClocks', exclude: 0 },
+                    { time: 3500, type: 'updateFrameBrightness' },
+                    { time: 4000, type: 'showStatus', text: '页面1命中！时钟<span class="hit-text">归零</span>，亮度恢复，<span class="hit-text">续命</span>成功！', isHit: true },
+                    { time: 6000, type: 'showHint', text: '命中后，页面1的时钟归零，亮度拉满，变成最活跃的页面！' },
+                    { time: 9000, type: 'showHint', text: '其他页面时钟正常累加：8→2s, 2→2s' }
+                ]
+            },
+            {
+                name: '无情的淘汰抉择',
+                duration: 25000,
+                actions: [
+                    { time: 0, type: 'showHint', text: '新页面9要进入，内存已满必须淘汰...' },
+                    { time: 1000, type: 'setCurrentIndex', index: 4 },
+                    { time: 2000, type: 'showAccountantThinking' },
+                    { time: 3000, type: 'showHint', text: '记账员翻看账本：页面1(0s高亮)、2(2s稍暗)、8(3s最暗淡)' },
+                    { time: 5000, type: 'showAnalysis', frame: 0, text: '0s 最新!' },
+                    { time: 5500, type: 'showAnalysis', frame: 1, text: '3s 最久!' },
+                    { time: 6000, type: 'showAnalysis', frame: 2, text: '2s 中等' },
+                    { time: 7500, type: 'hideAnalysis' },
+                    { time: 8000, type: 'showHint', text: '页面8闲置最久(3s)，是最近最少使用的页面，淘汰8！' },
+                    { time: 10000, type: 'replacePage', frame: 1, newPage: 9 },
+                    { time: 10500, type: 'resetClock', frame: 1 },
+                    { time: 11000, type: 'incrementFault' },
+                    { time: 11500, type: 'incrementClocks', exclude: 1 },
+                    { time: 12000, type: 'updateFrameBrightness' },
+                    { time: 12500, type: 'showStatus', text: '淘汰页面8，页面9进入块1，<span class="miss-text">缺页</span>', isHit: false },
+                    { time: 15000, type: 'showAccountantThinking', thinking: false },
+                    { time: 16000, type: 'setCurrentIndex', index: 5 },
+                    { time: 17000, type: 'showHint', text: '继续执行页面7请求...' },
+                    { time: 19000, type: 'showAccountantThinking' },
+                    { time: 21000, type: 'showAnalysis', frame: 0, text: '1s' },
+                    { time: 21500, type: 'showAnalysis', frame: 1, text: '1s' },
+                    { time: 22000, type: 'showAnalysis', frame: 2, text: '2s 最久!' },
+                    { time: 23000, type: 'hideAnalysis' },
+                    { time: 23500, type: 'showHint', text: '页面2闲置最久(2s)，淘汰2，页面7进入！' },
+                    { time: 25000, type: 'replacePage', frame: 2, newPage: 7 },
+                    { time: 25500, type: 'resetClock', frame: 2 },
+                    { time: 26000, type: 'incrementFault' },
+                    { time: 26500, type: 'showStatus', text: '淘汰页面2，页面7进入块2，<span class="miss-text">缺页</span>', isHit: false }
+                ]
+            },
+            {
+                name: '对比与总结',
+                duration: 15000,
+                actions: [
+                    { time: 0, type: 'showComparison' },
+                    { time: 2000, type: 'showHint', text: '对比FIFO：FIFO只淘汰最早进入的，不管页面是否常用。' },
+                    { time: 5000, type: 'showHint', text: 'LRU更聪明：淘汰闲置最久的冷门页面，保住高频使用的热门页面。' },
+                    { time: 8000, type: 'showHint', text: '虽然达不到OPT的理想缺页率，但却是现实中最稳定、最常用的最优解！' },
+                    { time: 11000, type: 'showSummary' },
+                    { time: 13000, type: 'showHint', text: 'LRU——以历史推测未来，现实最常用的页面置换算法。' }
+                ]
+            }
+        ];
+        
+        function initialize() {
+            dom.header = document.getElementById('header');
+            dom.hintBox = document.getElementById('hintBox');
+            dom.sequencePanel = document.getElementById('sequencePanel');
+            dom.memoryPanel = document.getElementById('memoryPanel');
+            dom.accountantContainer = document.getElementById('accountantContainer');
+            dom.accountantIcon = document.getElementById('accountantIcon');
+            dom.frames = [
+                document.getElementById('frame0'),
+                document.getElementById('frame1'),
+                document.getElementById('frame2')
+            ];
+            dom.pages = [
+                document.getElementById('page0'),
+                document.getElementById('page1'),
+                document.getElementById('page2')
+            ];
+            dom.clocks = [
+                document.getElementById('clock0'),
+                document.getElementById('clock1'),
+                document.getElementById('clock2')
+            ];
+            dom.analysisBubbles = [
+                document.getElementById('analysis0'),
+                document.getElementById('analysis1'),
+                document.getElementById('analysis2')
+            ];
+            dom.counterPanel = document.getElementById('counterPanel');
+            dom.faultCounter = document.getElementById('faultCounter');
+            dom.hitCounter = document.getElementById('hitCounter');
+            dom.statusText = document.getElementById('statusText');
+            dom.comparisonPanel = document.getElementById('comparisonPanel');
+            dom.summaryOverlay = document.getElementById('summaryOverlay');
+            dom.progressFill = document.getElementById('progressFill');
+            dom.sceneIndicator = document.getElementById('sceneIndicator');
+            dom.playBtn = document.getElementById('playBtn');
+            dom.pauseBtn = document.getElementById('pauseBtn');
+            dom.resetBtn = document.getElementById('resetBtn');
+            dom.prevBtn = document.getElementById('prevBtn');
+            dom.nextBtn = document.getElementById('nextBtn');
+            dom.seqItems = [];
+            for (let i = 0; i < 6; i++) {
+                dom.seqItems.push(document.getElementById(`seq${i}`));
+            }
+            
+            dom.playBtn.addEventListener('click', startPlayback);
+            dom.pauseBtn.addEventListener('click', pausePlayback);
+            dom.resetBtn.addEventListener('click', resetAll);
+            dom.prevBtn.addEventListener('click', prevScene);
+            dom.nextBtn.addEventListener('click', nextScene);
+            
+            updateSceneIndicator();
+        }
+        
+        function showHeader() {
+            dom.header.classList.add('visible');
+        }
+        
+        function showHint(text) {
+            dom.hintBox.textContent = text;
+            dom.hintBox.classList.add('visible');
+        }
+        
+        function showSequencePanel() {
+            dom.sequencePanel.classList.add('visible');
+        }
+        
+        function showMemoryPanel() {
+            dom.memoryPanel.classList.add('visible');
+        }
+        
+        function showAccountant() {
+            dom.accountantContainer.classList.add('visible');
+        }
+        
+        function showAccountantThinking(thinking = true) {
+            if (thinking) {
+                dom.accountantIcon.classList.add('thinking');
+            } else {
+                dom.accountantIcon.classList.remove('thinking');
+            }
+        }
+        
+        function showCounterPanel() {
+            dom.counterPanel.classList.add('visible');
+        }
+        
+        function setCurrentIndex(index) {
+            dom.seqItems.forEach((item, i) => {
+                item.classList.remove('current', 'processed', 'pending');
+                if (i < index) {
+                    item.classList.add('processed');
+                } else if (i === index) {
+                    item.classList.add('current');
+                } else {
+                    item.classList.add('pending');
+                }
+            });
+            appState.currentIndex = index;
+        }
+        
+        function loadPage(frame, page) {
+            appState.frames[frame] = page;
+            appState.clocks[frame] = 0;
+            appState.occupiedFrames++;
+            dom.pages[frame].textContent = page;
+            dom.pages[frame].classList.add('visible');
+            dom.pages[frame].classList.remove('removing');
+            dom.frames[frame].classList.add('miss');
+            setTimeout(() => dom.frames[frame].classList.remove('miss'), 800);
+            updateClockDisplay(frame);
+        }
+        
+        function replacePage(frame, newPage) {
+            dom.pages[frame].classList.add('removing');
+            setTimeout(() => {
+                dom.pages[frame].classList.remove('removing');
+                appState.frames[frame] = newPage;
+                appState.clocks[frame] = 0;
+                dom.pages[frame].textContent = newPage;
+                dom.pages[frame].classList.add('visible');
+                dom.frames[frame].classList.add('replace', 'miss');
+                setTimeout(() => dom.frames[frame].classList.remove('replace', 'miss'), 500);
+            }, 400);
+            updateClockDisplay(frame);
+        }
+        
+        function hitPage(frame) {
+            dom.frames[frame].classList.add('hit');
+            setTimeout(() => dom.frames[frame].classList.remove('hit'), 800);
+        }
+        
+        function resetClock(frame) {
+            appState.clocks[frame] = 0;
+            updateClockDisplay(frame);
+        }
+        
+        function incrementClocks(exclude) {
+            for (let i = 0; i < 3; i++) {
+                if (i !== exclude && appState.frames[i] !== null) {
+                    appState.clocks[i]++;
+                }
+            }
+            for (let i = 0; i < 3; i++) {
+                updateClockDisplay(i);
+            }
+        }
+        
+        function updateClockDisplay(frame) {
+            dom.clocks[frame].textContent = appState.clocks[frame] + 's';
+            if (appState.clocks[frame] >= 2) {
+                dom.clocks[frame].classList.add('dim');
+            } else {
+                dom.clocks[frame].classList.remove('dim');
+            }
+        }
+        
+        function updateFrameBrightness() {
+            for (let i = 0; i < 3; i++) {
+                dom.frames[i].classList.remove('active-0', 'active-1', 'active-2', 'active-3');
+                if (appState.frames[i] !== null) {
+                    const level = Math.min(appState.clocks[i], 3);
+                    dom.frames[i].classList.add(`active-${level}`);
+                }
+            }
+        }
+        
+        function incrementFault() {
+            appState.faultCount++;
+            dom.faultCounter.textContent = appState.faultCount;
+            dom.faultCounter.classList.add('pulse');
+            setTimeout(() => dom.faultCounter.classList.remove('pulse'), 300);
+        }
+        
+        function incrementHit() {
+            appState.hitCount++;
+            dom.hitCounter.textContent = appState.hitCount;
+            dom.hitCounter.classList.add('pulse');
+            setTimeout(() => dom.hitCounter.classList.remove('pulse'), 300);
+        }
+        
+        function showStatus(text, isHit) {
+            dom.statusText.innerHTML = text;
+            dom.statusText.classList.add('visible');
+        }
+        
+        function showAnalysis(frame, text) {
+            dom.analysisBubbles[frame].textContent = text;
+            dom.analysisBubbles[frame].classList.add('visible');
+        }
+        
+        function hideAnalysis() {
+            dom.analysisBubbles.forEach(bubble => bubble.classList.remove('visible'));
+        }
+        
+        function showComparison() {
+            dom.comparisonPanel.classList.add('visible');
+        }
+        
+        function showSummary() {
+            dom.summaryOverlay.classList.add('visible');
+        }
+        
+        function executeAction(action) {
+            switch (action.type) {
+                case 'showHeader': showHeader(); break;
+                case 'showHint': showHint(action.text); break;
+                case 'showSequencePanel': showSequencePanel(); break;
+                case 'showMemoryPanel': showMemoryPanel(); break;
+                case 'showAccountant': showAccountant(); break;
+                case 'showAccountantThinking': showAccountantThinking(action.thinking); break;
+                case 'showCounterPanel': showCounterPanel(); break;
+                case 'setCurrentIndex': setCurrentIndex(action.index); break;
+                case 'loadPage': loadPage(action.frame, action.page); break;
+                case 'replacePage': replacePage(action.frame, action.newPage); break;
+                case 'hitPage': hitPage(action.frame); break;
+                case 'resetClock': resetClock(action.frame); break;
+                case 'incrementClocks': incrementClocks(action.exclude); break;
+                case 'updateFrameBrightness': updateFrameBrightness(); break;
+                case 'incrementFault': incrementFault(); break;
+                case 'incrementHit': incrementHit(); break;
+                case 'showStatus': showStatus(action.text, action.isHit); break;
+                case 'showAnalysis': showAnalysis(action.frame, action.text); break;
+                case 'hideAnalysis': hideAnalysis(); break;
+                case 'showComparison': showComparison(); break;
+                case 'showSummary': showSummary(); break;
+            }
+        }
+        
+        function runScene(sceneIndex) {
+            const scene = scenes[sceneIndex];
+            appState.sceneStartTime = Date.now();
+            
+            scene.actions.forEach(action => {
+                const timeout = setTimeout(() => {
+                    if (appState.isPlaying && !appState.isPaused) {
+                        executeAction(action);
+                    }
+                }, action.time);
+                appState.actionTimeouts.push(timeout);
+            });
+            
+            appState.progressInterval = setInterval(() => {
+                if (appState.isPlaying && !appState.isPaused) {
+                    const elapsed = Date.now() - appState.sceneStartTime;
+                    const progress = Math.min((elapsed / scene.duration) * 100, 100);
+                    dom.progressFill.style.width = `${(sceneIndex / scenes.length) * 100 + (progress / scenes.length)}%`;
+                }
+            }, 50);
+            
+            appState.sceneTimeout = setTimeout(() => {
+                clearInterval(appState.progressInterval);
+                if (appState.currentScene < scenes.length - 1) {
+                    appState.currentScene++;
+                    updateSceneIndicator();
+                    runScene(appState.currentScene);
+                } else {
+                    stopPlayback();
+                }
+            }, scene.duration);
+        }
+        
+        function startPlayback() {
+            if (appState.isPlaying) return;
+            
+            appState.isPlaying = true;
+            appState.isPaused = false;
+            
+            dom.playBtn.disabled = true;
+            dom.pauseBtn.disabled = false;
+            dom.prevBtn.disabled = false;
+            dom.nextBtn.disabled = false;
+            
+            runScene(appState.currentScene);
+        }
+        
+        function pausePlayback() {
+            appState.isPaused = !appState.isPaused;
+            
+            if (appState.isPaused) {
+                dom.pauseBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>继续`;
+            } else {
+                dom.pauseBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>暂停`;
+            }
+        }
+        
+        function stopPlayback() {
+            appState.isPlaying = false;
+            appState.isPaused = false;
+            
+            clearTimeout(appState.sceneTimeout);
+            appState.actionTimeouts.forEach(clearTimeout);
+            appState.actionTimeouts = [];
+            clearInterval(appState.progressInterval);
+            
+            dom.playBtn.disabled = false;
+            dom.pauseBtn.disabled = true;
+            dom.pauseBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>暂停`;
+        }
+        
+        function resetAll() {
+            stopPlayback();
+            
+            appState.currentScene = 0;
+            appState.currentIndex = 0;
+            appState.frames = [null, null, null];
+            appState.clocks = [0, 0, 0];
+            appState.faultCount = 0;
+            appState.hitCount = 0;
+            appState.occupiedFrames = 0;
+            
+            dom.header.classList.remove('visible');
+            dom.hintBox.classList.remove('visible');
+            dom.sequencePanel.classList.remove('visible');
+            dom.memoryPanel.classList.remove('visible');
+            dom.accountantContainer.classList.remove('visible');
+            dom.counterPanel.classList.remove('visible');
+            dom.comparisonPanel.classList.remove('visible');
+            dom.summaryOverlay.classList.remove('visible');
+            dom.progressFill.style.width = '0%';
+            dom.statusText.classList.remove('visible');
+            
+            dom.faultCounter.textContent = '0';
+            dom.hitCounter.textContent = '0';
+            
+            dom.seqItems.forEach((item, i) => {
+                item.classList.remove('current', 'processed');
+                item.classList.add('pending');
+            });
+            
+            dom.pages.forEach(page => {
+                page.textContent = '';
+                page.classList.remove('visible', 'removing');
+            });
+            
+            dom.frames.forEach(frame => {
+                frame.classList.remove('hit', 'miss', 'replace', 'active-0', 'active-1', 'active-2', 'active-3');
+                frame.classList.add('active-0');
+            });
+            
+            dom.clocks.forEach(clock => {
+                clock.textContent = '0s';
+                clock.classList.remove('dim');
+            });
+            
+            dom.analysisBubbles.forEach(bubble => bubble.classList.remove('visible'));
+            dom.accountantIcon.classList.remove('thinking');
+            
+            updateSceneIndicator();
+        }
+        
+        function prevScene() {
+            if (appState.currentScene > 0) {
+                stopPlayback();
+                resetAll();
+                appState.currentScene--;
+                updateSceneIndicator();
+                startPlayback();
+            }
+        }
+        
+        function nextScene() {
+            if (appState.currentScene < scenes.length - 1) {
+                stopPlayback();
+                resetAll();
+                appState.currentScene++;
+                updateSceneIndicator();
+                startPlayback();
+            }
+        }
+        
+        function updateSceneIndicator() {
+            dom.sceneIndicator.textContent = `场景 ${appState.currentScene + 1}/${scenes.length}: ${scenes[appState.currentScene].name}`;
+        }
+        
+        document.addEventListener('DOMContentLoaded', initialize);
+    </script>
+</body>
+</html>

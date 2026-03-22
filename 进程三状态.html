@@ -1,0 +1,2457 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>进程状态模型</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0e14;
+            --fg: #ffffff;
+            --muted: #9ca3af;
+            --accent: #60a5fa;
+            --card: #1a1f2e;
+            --border: #3b4252;
+            
+            --new-primary: #c084fc;
+            --new-secondary: #9333ea;
+            --new-glow: rgba(192, 132, 252, 0.35);
+            
+            --running-primary: #4ade80;
+            --running-secondary: #16a34a;
+            --running-glow: rgba(74, 222, 128, 0.35);
+            
+            --ready-primary: #60a5fa;
+            --ready-secondary: #2563eb;
+            --ready-glow: rgba(96, 165, 250, 0.35);
+            
+            --blocked-primary: #fb923c;
+            --blocked-secondary: #ea580c;
+            --blocked-glow: rgba(251, 146, 60, 0.35);
+            
+            --terminated-primary: #f87171;
+            --terminated-secondary: #dc2626;
+            --terminated-glow: rgba(248, 113, 113, 0.35);
+            
+            --ready-suspend-primary: #818cf8;
+            --ready-suspend-secondary: #6366f1;
+            --ready-suspend-glow: rgba(129, 140, 248, 0.35);
+            
+            --blocked-suspend-primary: #f472b6;
+            --blocked-suspend-secondary: #db2777;
+            --blocked-suspend-glow: rgba(244, 114, 182, 0.35);
+            
+            --long-sched-color: #c084fc;
+            --mid-sched-color: #fbbf24;
+            --short-sched-color: #4ade80;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Noto Sans SC', sans-serif;
+            background: var(--bg);
+            color: var(--fg);
+            min-height: 100vh;
+            overflow: hidden;
+        }
+        
+        .bg-layer {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            overflow: hidden;
+        }
+        
+        .bg-gradient {
+            position: absolute;
+            inset: 0;
+            background: 
+                radial-gradient(ellipse 60% 40% at 50% 0%, rgba(96, 165, 250, 0.12) 0%, transparent 60%),
+                radial-gradient(ellipse 50% 30% at 10% 90%, rgba(74, 222, 128, 0.1) 0%, transparent 50%),
+                radial-gradient(ellipse 50% 30% at 90% 90%, rgba(251, 146, 60, 0.1) 0%, transparent 50%);
+        }
+        
+        .bg-grid {
+            position: absolute;
+            inset: 0;
+            background-image: 
+                linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
+            background-size: 50px 50px;
+        }
+        
+        .main-container {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding: 16px 24px;
+        }
+        
+        .header {
+            text-align: center;
+            opacity: 0;
+            transform: translateY(-30px);
+            transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .header.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .main-title {
+            font-size: clamp(1.8rem, 4.5vw, 2.8rem);
+            font-weight: 900;
+            letter-spacing: -0.02em;
+            color: var(--fg);
+            text-shadow: 0 2px 20px rgba(96, 165, 250, 0.3);
+        }
+        
+        .model-switcher {
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+            margin-top: 12px;
+        }
+        
+        .model-btn {
+            padding: 10px 28px;
+            border-radius: 30px;
+            border: 2px solid var(--border);
+            background: var(--card);
+            color: var(--muted);
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: inherit;
+        }
+        
+        .model-btn:hover {
+            border-color: var(--accent);
+            color: var(--fg);
+        }
+        
+        .model-btn.active {
+            background: linear-gradient(135deg, var(--accent), var(--ready-secondary));
+            border-color: transparent;
+            color: white;
+            box-shadow: 0 4px 20px rgba(96, 165, 250, 0.4);
+        }
+        
+        .hint-container {
+            text-align: center;
+            margin-top: 16px;
+            min-height: 52px;
+        }
+        
+        .hint-box {
+            display: inline-block;
+            background: var(--card);
+            border: 2px solid var(--border);
+            padding: 12px 28px;
+            border-radius: 12px;
+            font-size: 1.05rem;
+            font-weight: 500;
+            max-width: min(640px, 90vw);
+            text-align: center;
+            opacity: 0;
+            transform: translateY(-15px);
+            transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+        }
+        
+        .hint-box.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .stage {
+            flex: 1;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-top: 12px;
+        }
+        
+        /* 三状态布局 */
+        .stage-layout-3 {
+            position: relative;
+            width: min(800px, 94vw);
+            height: min(520px, 62vh);
+        }
+        
+        /* 五状态布局 - 重新设计 */
+        .stage-layout-5 {
+            position: relative;
+            width: min(1000px, 96vw);
+            height: min(620px, 72vh);
+        }
+        
+        /* 七状态布局 */
+        .stage-layout-7 {
+            position: relative;
+            width: min(1200px, 98vw);
+            height: min(720px, 82vh);
+        }
+        
+        /* 状态框基础样式 */
+        .state-box {
+            position: absolute;
+            background: var(--card);
+            border-radius: 18px;
+            padding: 16px;
+            opacity: 0;
+            transform: scale(0.85) translateY(20px);
+            transition: all 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+            border: 3px solid transparent;
+            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+        }
+        
+        .state-box.visible {
+            opacity: 1;
+            transform: scale(1) translateY(0);
+        }
+        
+        .state-box.running::before,
+        .state-box.new::before,
+        .state-box.terminated::before {
+            content: '';
+            position: absolute;
+            inset: -3px;
+            border-radius: 21px;
+            z-index: -1;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .state-box.running.active::before {
+            opacity: 1;
+            animation: borderPulse 1.5s ease-in-out infinite;
+            background: linear-gradient(135deg, var(--running-primary), var(--running-secondary));
+        }
+        
+        @keyframes borderPulse {
+            0%, 100% { opacity: 0.6; }
+            50% { opacity: 1; }
+        }
+        
+        /* 三状态布局定位 */
+        .layout-3 .state-box {
+            width: 200px;
+        }
+        
+        .layout-3 .state-box.running {
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%) scale(0.85) translateY(20px);
+            border-color: var(--running-secondary);
+        }
+        
+        .layout-3 .state-box.running.visible {
+            transform: translateX(-50%) scale(1) translateY(0);
+        }
+        
+        .layout-3 .state-box.ready {
+            bottom: 0;
+            left: 0;
+            border-color: var(--ready-secondary);
+        }
+        
+        .layout-3 .state-box.blocked {
+            bottom: 0;
+            right: 0;
+            border-color: var(--blocked-secondary);
+        }
+        
+        /* 五状态布局 - 十字形流程图布局 */
+        .layout-5 .state-box {
+            width: 165px;
+            padding: 14px;
+        }
+        
+        /* New - 顶部中间 */
+        .layout-5 .state-box.new {
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%) scale(0.85) translateY(20px);
+            border-color: var(--new-secondary);
+        }
+        
+        .layout-5 .state-box.new.visible {
+            transform: translateX(-50%) scale(1) translateY(0);
+        }
+        
+        /* Ready - 左侧中间 */
+        .layout-5 .state-box.ready {
+            top: 50%;
+            left: 40px;
+            transform: translateY(-50%) scale(0.85);
+            border-color: var(--ready-secondary);
+        }
+        
+        .layout-5 .state-box.ready.visible {
+            transform: translateY(-50%) scale(1);
+        }
+        
+        /* Running - 正中间 */
+        .layout-5 .state-box.running {
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) scale(0.85);
+            border-color: var(--running-secondary);
+        }
+        
+        .layout-5 .state-box.running.visible {
+            transform: translate(-50%, -50%) scale(1);
+        }
+        
+        /* Blocked - 右侧中间 */
+        .layout-5 .state-box.blocked {
+            top: 50%;
+            right: 40px;
+            transform: translateY(-50%) scale(0.85);
+            border-color: var(--blocked-secondary);
+        }
+        
+        .layout-5 .state-box.blocked.visible {
+            transform: translateY(-50%) scale(1);
+        }
+        
+        /* Terminated - 底部中间 */
+        .layout-5 .state-box.terminated {
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%) scale(0.85) translateY(-20px);
+            border-color: var(--terminated-secondary);
+        }
+        
+        .layout-5 .state-box.terminated.visible {
+            transform: translateX(-50%) scale(1) translateY(0);
+        }
+        
+        /* 七状态布局 - 扩展布局 */
+        .layout-7 .state-box {
+            width: 145px;
+            padding: 12px;
+        }
+        
+        /* New - 顶部左侧 */
+        .layout-7 .state-box.new {
+            top: 10px;
+            left: 80px;
+            border-color: var(--new-secondary);
+        }
+        
+        /* Ready Suspend - 顶部中间偏左 */
+        .layout-7 .state-box.ready-suspend {
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%) scale(0.85) translateY(20px);
+            border-color: var(--ready-suspend-secondary);
+        }
+        
+        .layout-7 .state-box.ready-suspend.visible {
+            transform: translateX(-50%) scale(1) translateY(0);
+        }
+        
+        /* Blocked Suspend - 顶部右侧 */
+        .layout-7 .state-box.blocked-suspend {
+            top: 10px;
+            right: 80px;
+            border-color: var(--blocked-suspend-secondary);
+        }
+        
+        /* Ready - 左侧中间 */
+        .layout-7 .state-box.ready {
+            top: 50%;
+            left: 60px;
+            transform: translateY(-50%) scale(0.85);
+            border-color: var(--ready-secondary);
+        }
+        
+        .layout-7 .state-box.ready.visible {
+            transform: translateY(-50%) scale(1);
+        }
+        
+        /* Running - 正中间 */
+        .layout-7 .state-box.running {
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) scale(0.85);
+            border-color: var(--running-secondary);
+        }
+        
+        .layout-7 .state-box.running.visible {
+            transform: translate(-50%, -50%) scale(1);
+        }
+        
+        /* Blocked - 右侧中间 */
+        .layout-7 .state-box.blocked {
+            top: 50%;
+            right: 60px;
+            transform: translateY(-50%) scale(0.85);
+            border-color: var(--blocked-secondary);
+        }
+        
+        .layout-7 .state-box.blocked.visible {
+            transform: translateY(-50%) scale(1);
+        }
+        
+        /* Terminated - 底部中间 */
+        .layout-7 .state-box.terminated {
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%) scale(0.85) translateY(-20px);
+            border-color: var(--terminated-secondary);
+        }
+        
+        .layout-7 .state-box.terminated.visible {
+            transform: translateX(-50%) scale(1) translateY(0);
+        }
+        
+        /* 挂起状态图标 */
+        .state-box.ready-suspend .state-icon { background: var(--ready-suspend-glow); }
+        .state-box.blocked-suspend .state-icon { background: var(--blocked-suspend-glow); }
+        
+        .state-box.ready-suspend .state-icon svg { color: var(--ready-suspend-primary); }
+        .state-box.blocked-suspend .state-icon svg { color: var(--blocked-suspend-primary); }
+        
+        .state-box.ready-suspend .state-label { color: var(--ready-suspend-primary); }
+        .state-box.blocked-suspend .state-label { color: var(--blocked-suspend-primary); }
+        
+        /* 调度类型标签 */
+        .sched-type-badge {
+            position: absolute;
+            top: -28px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            white-space: nowrap;
+            opacity: 0;
+            transition: opacity 0.4s ease;
+            z-index: 70;
+        }
+        
+        .sched-type-badge.visible { opacity: 1; }
+        
+        .sched-type-badge.long-sched {
+            background: var(--long-sched-color);
+            color: #1a1a2e;
+        }
+        
+        .sched-type-badge.mid-sched {
+            background: var(--mid-sched-color);
+            color: #1a1a2e;
+        }
+        
+        .sched-type-badge.short-sched {
+            background: var(--short-sched-color);
+            color: #1a1a2e;
+        }
+        
+        /* 调度图例 */
+        .sched-legend {
+            position: fixed;
+            top: 24px;
+            left: 24px;
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 16px;
+            padding: 16px 20px;
+            z-index: 250;
+            opacity: 0;
+            transform: translateX(-30px);
+            transition: all 0.5s ease;
+        }
+        
+        .sched-legend.visible {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        
+        .sched-legend-title {
+            font-weight: 700;
+            font-size: 0.9rem;
+            margin-bottom: 12px;
+            color: var(--fg);
+        }
+        
+        .sched-legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+            font-size: 0.85rem;
+        }
+        
+        .sched-legend-item:last-child { margin-bottom: 0; }
+        
+        .sched-legend-color {
+            width: 16px;
+            height: 16px;
+            border-radius: 4px;
+        }
+        
+        /* 状态图标 */
+        .state-icon {
+            width: 46px;
+            height: 46px;
+            margin: 0 auto 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 14px;
+            transition: transform 0.3s ease;
+        }
+        
+        .state-box.new .state-icon { background: var(--new-glow); }
+        .state-box.running .state-icon { background: var(--running-glow); }
+        .state-box.ready .state-icon { background: var(--ready-glow); }
+        .state-box.blocked .state-icon { background: var(--blocked-glow); }
+        .state-box.terminated .state-icon { background: var(--terminated-glow); }
+        
+        .state-icon svg { width: 26px; height: 26px; }
+        .state-box.new .state-icon svg { color: var(--new-primary); }
+        .state-box.running .state-icon svg { color: var(--running-primary); }
+        .state-box.ready .state-icon svg { color: var(--ready-primary); }
+        .state-box.blocked .state-icon svg { color: var(--blocked-primary); }
+        .state-box.terminated .state-icon svg { color: var(--terminated-primary); }
+        
+        .cpu-spinning { animation: cpuSpin 0.8s ease-in-out infinite; }
+        
+        @keyframes cpuSpin {
+            0%, 100% { transform: rotate(-5deg) scale(1); }
+            50% { transform: rotate(5deg) scale(1.1); }
+        }
+        
+        .state-label {
+            text-align: center;
+            font-weight: 700;
+            font-size: 1.1rem;
+            margin-bottom: 2px;
+        }
+        
+        .state-box.new .state-label { color: var(--new-primary); }
+        .state-box.running .state-label { color: var(--running-primary); }
+        .state-box.ready .state-label { color: var(--ready-primary); }
+        .state-box.blocked .state-label { color: var(--blocked-primary); }
+        .state-box.terminated .state-label { color: var(--terminated-primary); }
+        
+        .state-name {
+            text-align: center;
+            font-size: 0.8rem;
+            color: var(--muted);
+            font-family: 'JetBrains Mono', monospace;
+            letter-spacing: 0.05em;
+        }
+        
+        .queue {
+            margin-top: 8px;
+            min-height: 40px;
+            padding: 6px;
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: 10px;
+            display: flex;
+            gap: 6px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        
+        .queue-label {
+            font-size: 0.7rem;
+            color: var(--muted);
+            text-align: center;
+            margin-bottom: 2px;
+        }
+        
+        /* 进程 */
+        .process {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 0.85rem;
+            font-family: 'JetBrains Mono', monospace;
+            color: white;
+            position: absolute;
+            z-index: 50;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+            opacity: 0;
+            pointer-events: none;
+        }
+        
+        .process.visible { opacity: 1; }
+        
+        .process.p1 {
+            background: linear-gradient(135deg, #a855f7, #6366f1);
+            box-shadow: 0 4px 20px rgba(168, 85, 247, 0.5);
+        }
+        
+        .process.p2 {
+            background: linear-gradient(135deg, #ec4899, #f43f5e);
+            box-shadow: 0 4px 20px rgba(236, 72, 153, 0.5);
+        }
+        
+        .process.p3 {
+            background: linear-gradient(135deg, #06b6d4, #22d3ee);
+            box-shadow: 0 4px 20px rgba(6, 182, 212, 0.5);
+        }
+        
+        /* SVG 连线 */
+        .arrows-svg {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 5;
+        }
+        
+        .arrow-path {
+            fill: none;
+            stroke-width: 3;
+            stroke-dasharray: 10 5;
+            opacity: 0;
+            transition: opacity 0.5s ease;
+        }
+        
+        .arrow-path.visible { opacity: 0.6; }
+        
+        .arrow-path.active {
+            opacity: 1;
+            stroke-width: 4;
+            stroke-dasharray: none;
+            filter: drop-shadow(0 0 8px currentColor);
+        }
+        
+        .arrow-label {
+            font-size: 12px;
+            font-weight: 600;
+            fill: var(--fg);
+            opacity: 0;
+            transition: opacity 0.4s ease;
+        }
+        
+        .arrow-label.visible { opacity: 0.9; }
+        
+        /* 时间片 */
+        .timeslice-widget {
+            position: absolute;
+            top: -52px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--card);
+            border: 2px solid var(--border);
+            padding: 8px 16px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            opacity: 0;
+            transition: all 0.4s ease;
+            z-index: 60;
+        }
+        
+        .timeslice-widget.visible { opacity: 1; }
+        
+        .timeslice-icon { width: 18px; height: 18px; color: var(--accent); }
+        .timeslice-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: var(--accent);
+        }
+        
+        /* I/O 设备 */
+        .io-widget {
+            position: absolute;
+            top: -75px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 70px;
+            height: 70px;
+            background: var(--card);
+            border: 3px solid var(--blocked-secondary);
+            border-radius: 14px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            opacity: 0;
+            transition: all 0.4s ease;
+            z-index: 60;
+        }
+        
+        .io-widget.visible { opacity: 1; }
+        
+        .io-widget.complete {
+            border-color: var(--running-primary);
+            animation: ioComplete 0.6s ease;
+        }
+        
+        @keyframes ioComplete {
+            0%, 100% { transform: translateX(-50%) scale(1); }
+            50% { transform: translateX(-50%) scale(1.15); }
+        }
+        
+        .io-widget .io-label { font-size: 0.7rem; color: var(--muted); font-weight: 600; }
+        
+        /* 总结面板 */
+        .summary-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(10, 14, 20, 0.92);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.6s ease;
+            z-index: 200;
+        }
+        
+        .summary-overlay.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        
+        .summary-card {
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 24px;
+            padding: 40px 56px;
+            text-align: center;
+            max-width: 560px;
+            transform: scale(0.9);
+            transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .summary-overlay.visible .summary-card { transform: scale(1); }
+        
+        .summary-title { font-size: 1.6rem; font-weight: 700; margin-bottom: 18px; }
+        .summary-text { color: var(--muted); line-height: 1.8; font-size: 1.05rem; }
+        
+        /* 控制栏 */
+        .controls-bar {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            background: var(--card);
+            border: 2px solid var(--border);
+            padding: 12px 24px;
+            border-radius: 50px;
+            z-index: 300;
+            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+        }
+        
+        .ctrl-btn {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            border: none;
+            background: var(--accent);
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+        
+        .ctrl-btn:hover { transform: scale(1.1); filter: brightness(1.2); }
+        .ctrl-btn:active { transform: scale(0.95); }
+        .ctrl-btn.secondary { background: var(--border); }
+        .ctrl-btn svg { width: 22px; height: 22px; }
+        
+        .progress-track {
+            width: 200px;
+            height: 8px;
+            background: var(--border);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent), var(--running-primary));
+            width: 0%;
+            transition: width 0.1s linear;
+            border-radius: 4px;
+        }
+        
+        .scene-label {
+            font-size: 0.9rem;
+            color: var(--muted);
+            min-width: 80px;
+            text-align: center;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        /* 图例 */
+        .legend {
+            position: fixed;
+            top: 24px;
+            right: 24px;
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 16px;
+            padding: 16px 20px;
+            z-index: 250;
+            opacity: 0;
+            transform: translateX(30px);
+            transition: all 0.5s ease;
+        }
+        
+        .legend.visible {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        
+        .legend-title {
+            font-weight: 700;
+            font-size: 0.9rem;
+            margin-bottom: 12px;
+            color: var(--fg);
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+            font-size: 0.85rem;
+        }
+        
+        .legend-item:last-child { margin-bottom: 0; }
+        
+        .legend-color {
+            width: 16px;
+            height: 16px;
+            border-radius: 4px;
+        }
+        
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .main-container { padding: 12px 16px; }
+            .state-box { width: 140px !important; padding: 12px; }
+            .state-icon { width: 38px; height: 38px; }
+            .controls-bar { padding: 8px 14px; gap: 10px; }
+            .progress-track { width: 120px; }
+            .legend { display: none; }
+            .model-btn { padding: 8px 18px; font-size: 0.9rem; }
+            
+            .layout-5 .state-box.ready { left: 10px; }
+            .layout-5 .state-box.blocked { right: 10px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-layer">
+        <div class="bg-gradient"></div>
+        <div class="bg-grid"></div>
+    </div>
+    
+    <div class="main-container">
+        <header class="header" id="header">
+            <h1 class="main-title" id="mainTitle">进程三状态模型</h1>
+            
+            <div class="model-switcher">
+                <button class="model-btn active" id="btnModel3" data-model="3">三状态模型</button>
+                <button class="model-btn" id="btnModel5" data-model="5">五状态模型</button>
+                <button class="model-btn" id="btnModel7" data-model="7">七状态模型</button>
+            </div>
+            
+            <div class="hint-container">
+                <div class="hint-box" id="hintBox"></div>
+            </div>
+        </header>
+        
+        <div class="stage" id="stage">
+            <!-- 三状态布局 -->
+            <div class="stage-layout-3 layout-3" id="layout3">
+                <div class="state-box running" id="runningBox3">
+                    <div class="timeslice-widget" id="timesliceWidget3">
+                        <svg class="timeslice-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <polyline points="12,6 12,12 16,14"/>
+                        </svg>
+                        <span class="timeslice-value" id="timesliceValue3">3s</span>
+                    </div>
+                    <div class="state-icon">
+                        <svg id="cpuIcon3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="4" y="4" width="16" height="16" rx="2"/>
+                            <rect x="9" y="9" width="6" height="6"/>
+                            <line x1="9" y1="1" x2="9" y2="4"/>
+                            <line x1="15" y1="1" x2="15" y2="4"/>
+                            <line x1="9" y1="20" x2="9" y2="23"/>
+                            <line x1="15" y1="20" x2="15" y2="23"/>
+                            <line x1="20" y1="9" x2="23" y2="9"/>
+                            <line x1="20" y1="14" x2="23" y2="14"/>
+                            <line x1="1" y1="9" x2="4" y2="9"/>
+                            <line x1="1" y1="14" x2="4" y2="14"/>
+                        </svg>
+                    </div>
+                    <div class="state-label">运行状态</div>
+                    <div class="state-name">Running</div>
+                    <div class="queue-label"></div>
+                    <div class="queue" id="runningQueue3"></div>
+                </div>
+                
+                <div class="state-box ready" id="readyBox3">
+                    <div class="state-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/>
+                        </svg>
+                    </div>
+                    <div class="state-label">就绪状态</div>
+                    <div class="state-name">Ready</div>
+                    <div class="queue-label">就绪队列</div>
+                    <div class="queue" id="readyQueue3"></div>
+                </div>
+                
+                <div class="state-box blocked" id="blockedBox3">
+                    <div class="io-widget" id="ioWidget3">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--blocked-primary);">
+                            <rect x="2" y="4" width="20" height="16" rx="2"/>
+                            <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h8M6 16h.01M10 16h.01M14 16h.01M18 16h.01"/>
+                        </svg>
+                        <span class="io-label" id="ioLabel3">I/O</span>
+                    </div>
+                    <div class="state-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <path d="M12 6v6l4 2"/>
+                            <line x1="4" y1="4" x2="20" y2="20" stroke-width="2"/>
+                        </svg>
+                    </div>
+                    <div class="state-label">阻塞状态</div>
+                    <div class="state-name">Blocked</div>
+                    <div class="queue-label">等待队列</div>
+                    <div class="queue" id="blockedQueue3"></div>
+                </div>
+                
+                <svg class="arrows-svg" id="arrowsSvg3" viewBox="0 0 800 520">
+                    <defs>
+                        <marker id="arrowGreen3" markerWidth="12" markerHeight="8" refX="10" refY="4" orient="auto">
+                            <polygon points="0 0, 12 4, 0 8" fill="#4ade80"/>
+                        </marker>
+                        <marker id="arrowOrange3" markerWidth="12" markerHeight="8" refX="10" refY="4" orient="auto">
+                            <polygon points="0 0, 12 4, 0 8" fill="#fb923c"/>
+                        </marker>
+                        <marker id="arrowBlue3" markerWidth="12" markerHeight="8" refX="10" refY="4" orient="auto">
+                            <polygon points="0 0, 12 4, 0 8" fill="#60a5fa"/>
+                        </marker>
+                    </defs>
+                    
+                    <path id="arrow3ReadyRunning" class="arrow-path" stroke="#4ade80" marker-end="url(#arrowGreen3)"
+                          d="M 190 380 Q 280 230 370 115"/>
+                    <text id="label3Dispatch" class="arrow-label" x="250" y="230">调度</text>
+                    
+                    <path id="arrow3RunningReady" class="arrow-path" stroke="#fb923c" marker-end="url(#arrowOrange3)"
+                          d="M 430 115 Q 340 230 260 380"/>
+                    <text id="label3Timeout" class="arrow-label" x="370" y="270">时间片到期</text>
+                    
+                    <path id="arrow3RunningBlocked" class="arrow-path" stroke="#f87171" marker-end="url(#arrowOrange3)"
+                          d="M 470 115 Q 560 230 620 380"/>
+                    <text id="label3Wait" class="arrow-label" x="550" y="230">等待事件</text>
+                    
+                    <path id="arrow3BlockedReady" class="arrow-path" stroke="#60a5fa" marker-end="url(#arrowBlue3)"
+                          d="M 580 445 Q 390 500 200 445"/>
+                    <text id="label3Event" class="arrow-label" x="370" y="490">事件发生</text>
+                </svg>
+                
+                <div class="process p1" id="processP1_3">P1</div>
+                <div class="process p2" id="processP2_3">P2</div>
+                <div class="process p3" id="processP3_3">P3</div>
+                
+                <div class="summary-overlay" id="summaryOverlay3">
+                    <div class="summary-card">
+                        <h2 class="summary-title">总结</h2>
+                        <p class="summary-text">
+                            进程在 Ready, Running, Blocked 三种状态间循环转换，<br>
+                            实现了多任务并发。<br><br>
+                            通过这种状态转换机制，操作系统能够高效地管理 CPU，<br>
+                            让多个程序看起来像是在同时运行。
+                        </p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 五状态布局 -->
+            <div class="stage-layout-5 layout-5" id="layout5" style="display: none;">
+                <!-- New - 顶部 -->
+                <div class="state-box new" id="newBox5">
+                    <div class="state-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <line x1="12" y1="8" x2="12" y2="16"/>
+                            <line x1="8" y1="12" x2="16" y2="12"/>
+                        </svg>
+                    </div>
+                    <div class="state-label">创建状态</div>
+                    <div class="state-name">New</div>
+                    <div class="queue-label">新进程</div>
+                    <div class="queue" id="newQueue5"></div>
+                </div>
+                
+                <!-- Ready - 左侧 -->
+                <div class="state-box ready" id="readyBox5">
+                    <div class="state-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/>
+                        </svg>
+                    </div>
+                    <div class="state-label">就绪状态</div>
+                    <div class="state-name">Ready</div>
+                    <div class="queue-label">就绪队列</div>
+                    <div class="queue" id="readyQueue5"></div>
+                </div>
+                
+                <!-- Running - 中间 -->
+                <div class="state-box running" id="runningBox5">
+                    <div class="timeslice-widget" id="timesliceWidget5">
+                        <svg class="timeslice-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <polyline points="12,6 12,12 16,14"/>
+                        </svg>
+                        <span class="timeslice-value" id="timesliceValue5">3s</span>
+                    </div>
+                    <div class="state-icon">
+                        <svg id="cpuIcon5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="4" y="4" width="16" height="16" rx="2"/>
+                            <rect x="9" y="9" width="6" height="6"/>
+                            <line x1="9" y1="1" x2="9" y2="4"/>
+                            <line x1="15" y1="1" x2="15" y2="4"/>
+                            <line x1="9" y1="20" x2="9" y2="23"/>
+                            <line x1="15" y1="20" x2="15" y2="23"/>
+                            <line x1="20" y1="9" x2="23" y2="9"/>
+                            <line x1="20" y1="14" x2="23" y2="14"/>
+                            <line x1="1" y1="9" x2="4" y2="9"/>
+                            <line x1="1" y1="14" x2="4" y2="14"/>
+                        </svg>
+                    </div>
+                    <div class="state-label">运行状态</div>
+                    <div class="state-name">Running</div>
+                    <div class="queue-label"></div>
+                    <div class="queue" id="runningQueue5"></div>
+                </div>
+                
+                <!-- Blocked - 右侧 -->
+                <div class="state-box blocked" id="blockedBox5">
+                    <div class="io-widget" id="ioWidget5">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--blocked-primary);">
+                            <rect x="2" y="4" width="20" height="16" rx="2"/>
+                            <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h8M6 16h.01M10 16h.01M14 16h.01M18 16h.01"/>
+                        </svg>
+                        <span class="io-label" id="ioLabel5">I/O</span>
+                    </div>
+                    <div class="state-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <path d="M12 6v6l4 2"/>
+                            <line x1="4" y1="4" x2="20" y2="20" stroke-width="2"/>
+                        </svg>
+                    </div>
+                    <div class="state-label">阻塞状态</div>
+                    <div class="state-name">Blocked</div>
+                    <div class="queue-label">等待队列</div>
+                    <div class="queue" id="blockedQueue5"></div>
+                </div>
+                
+                <!-- Terminated - 底部 -->
+                <div class="state-box terminated" id="terminatedBox5">
+                    <div class="state-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <line x1="15" y1="9" x2="9" y2="15"/>
+                            <line x1="9" y1="9" x2="15" y2="15"/>
+                        </svg>
+                    </div>
+                    <div class="state-label">终止状态</div>
+                    <div class="state-name">Terminated</div>
+                    <div class="queue-label">已完成</div>
+                    <div class="queue" id="terminatedQueue5"></div>
+                </div>
+                
+                <!-- SVG 连线 -->
+                <svg class="arrows-svg" id="arrowsSvg5" viewBox="0 0 1000 620">
+                    <defs>
+                        <marker id="arrowPurple5" markerWidth="12" markerHeight="8" refX="10" refY="4" orient="auto">
+                            <polygon points="0 0, 12 4, 0 8" fill="#c084fc"/>
+                        </marker>
+                        <marker id="arrowGreen5" markerWidth="12" markerHeight="8" refX="10" refY="4" orient="auto">
+                            <polygon points="0 0, 12 4, 0 8" fill="#4ade80"/>
+                        </marker>
+                        <marker id="arrowOrange5" markerWidth="12" markerHeight="8" refX="10" refY="4" orient="auto">
+                            <polygon points="0 0, 12 4, 0 8" fill="#fb923c"/>
+                        </marker>
+                        <marker id="arrowRed5" markerWidth="12" markerHeight="8" refX="10" refY="4" orient="auto">
+                            <polygon points="0 0, 12 4, 0 8" fill="#f87171"/>
+                        </marker>
+                        <marker id="arrowBlue5" markerWidth="12" markerHeight="8" refX="10" refY="4" orient="auto">
+                            <polygon points="0 0, 12 4, 0 8" fill="#60a5fa"/>
+                        </marker>
+                    </defs>
+                    
+                    <!-- New -> Ready (Admit) - 从顶部到左侧 -->
+                    <path id="arrow5NewReady" class="arrow-path" stroke="#c084fc" marker-end="url(#arrowPurple5)"
+                          d="M 460 95 Q 350 120 220 245"/>
+                    <text id="label5Admit" class="arrow-label" x="320" y="150">创建</text>
+                    
+                    <!-- Ready -> Running (Dispatch) - 从左侧到中间 -->
+                    <path id="arrow5ReadyRunning" class="arrow-path" stroke="#4ade80" marker-end="url(#arrowGreen5)"
+                          d="M 265 310 Q 360 310 430 310"/>
+                    <text id="label5Dispatch" class="arrow-label" x="340" y="300">调度</text>
+                    
+                    <!-- Running -> Ready (Timeout) - 从中间到左侧 -->
+                    <path id="arrow5RunningReady" class="arrow-path" stroke="#fb923c" marker-end="url(#arrowOrange5)"
+                          d="M 430 340 Q 360 360 265 340"/>
+                    <text id="label5Timeout" class="arrow-label" x="340" y="370">时间片到期</text>
+                    
+                    <!-- Running -> Blocked (Wait) - 从中间到右侧 -->
+                    <path id="arrow5RunningBlocked" class="arrow-path" stroke="#f87171" marker-end="url(#arrowRed5)"
+                          d="M 570 310 Q 680 310 735 310"/>
+                    <text id="label5Wait" class="arrow-label" x="640" y="300">等待事件</text>
+                    
+                    <!-- Blocked -> Ready (Event) - 从右侧到左侧，弯曲路径 -->
+                    <path id="arrow5BlockedReady" class="arrow-path" stroke="#60a5fa" marker-end="url(#arrowBlue5)"
+                          d="M 735 365 Q 500 520 265 365"/>
+                    <text id="label5Event" class="arrow-label" x="500" y="500">事件发生</text>
+                    
+                    <!-- Running -> Terminated (Exit) - 从中间到底部 -->
+                    <path id="arrow5RunningTerminated" class="arrow-path" stroke="#f87171" marker-end="url(#arrowRed5)"
+                          d="M 500 365 L 500 475"/>
+                    <text id="label5Exit" class="arrow-label" x="520" y="430">终止</text>
+                </svg>
+                
+                <div class="process p1" id="processP1_5">P1</div>
+                <div class="process p2" id="processP2_5">P2</div>
+                <div class="process p3" id="processP3_5">P3</div>
+                
+                <div class="summary-overlay" id="summaryOverlay5">
+                    <div class="summary-card">
+                        <h2 class="summary-title">总结</h2>
+                        <p class="summary-text">
+                            进程在五种状态间流转：<br>
+                            New（创建）→ Ready（就绪）→ Running（运行）→ Terminated（终止）<br>
+                            或在运行中因等待事件进入 Blocked（阻塞）状态。<br><br>
+                            五状态模型更完整地描述了进程的整个生命周期。
+                        </p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 七状态布局 -->
+            <div class="stage-layout-7 layout-7" id="layout7" style="display: none;">
+                <!-- 调度类型图例 -->
+                <div class="sched-legend" id="schedLegend">
+                    <div class="sched-legend-title">调度类型</div>
+                    <div class="sched-legend-item">
+                        <div class="sched-legend-color" style="background: var(--long-sched-color);"></div>
+                        <span>长程调度 (作业调度)</span>
+                    </div>
+                    <div class="sched-legend-item">
+                        <div class="sched-legend-color" style="background: var(--mid-sched-color);"></div>
+                        <span>中程调度 (交换调度)</span>
+                    </div>
+                    <div class="sched-legend-item">
+                        <div class="sched-legend-color" style="background: var(--short-sched-color);"></div>
+                        <span>短程调度 (进程调度)</span>
+                    </div>
+                </div>
+                
+                <!-- New - 顶部左侧 -->
+                <div class="state-box new" id="newBox7">
+                    <div class="state-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <line x1="12" y1="8" x2="12" y2="16"/>
+                            <line x1="8" y1="12" x2="16" y2="12"/>
+                        </svg>
+                    </div>
+                    <div class="state-label">创建状态</div>
+                    <div class="state-name">New</div>
+                    <div class="queue-label">新进程</div>
+                    <div class="queue" id="newQueue7"></div>
+                </div>
+                
+                <!-- Ready Suspend - 顶部中间 -->
+                <div class="state-box ready-suspend" id="readySuspendBox7">
+                    <div class="state-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/>
+                            <circle cx="6" cy="6" r="2" fill="currentColor"/>
+                        </svg>
+                    </div>
+                    <div class="state-label">就绪挂起</div>
+                    <div class="state-name">Ready-Suspend</div>
+                    <div class="queue-label">挂起队列</div>
+                    <div class="queue" id="readySuspendQueue7"></div>
+                </div>
+                
+                <!-- Blocked Suspend - 顶部右侧 -->
+                <div class="state-box blocked-suspend" id="blockedSuspendBox7">
+                    <div class="state-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <path d="M12 6v6l4 2"/>
+                            <line x1="4" y1="4" x2="20" y2="20" stroke-width="2"/>
+                            <circle cx="18" cy="6" r="2" fill="currentColor"/>
+                        </svg>
+                    </div>
+                    <div class="state-label">阻塞挂起</div>
+                    <div class="state-name">Blocked-Suspend</div>
+                    <div class="queue-label">挂起等待</div>
+                    <div class="queue" id="blockedSuspendQueue7"></div>
+                </div>
+                
+                <!-- Ready - 左侧中间 -->
+                <div class="state-box ready" id="readyBox7">
+                    <div class="state-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/>
+                        </svg>
+                    </div>
+                    <div class="state-label">就绪状态</div>
+                    <div class="state-name">Ready</div>
+                    <div class="queue-label">就绪队列</div>
+                    <div class="queue" id="readyQueue7"></div>
+                </div>
+                
+                <!-- Running - 中间 -->
+                <div class="state-box running" id="runningBox7">
+                    <div class="timeslice-widget" id="timesliceWidget7">
+                        <svg class="timeslice-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <polyline points="12,6 12,12 16,14"/>
+                        </svg>
+                        <span class="timeslice-value" id="timesliceValue7">3s</span>
+                    </div>
+                    <div class="state-icon">
+                        <svg id="cpuIcon7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="4" y="4" width="16" height="16" rx="2"/>
+                            <rect x="9" y="9" width="6" height="6"/>
+                            <line x1="9" y1="1" x2="9" y2="4"/>
+                            <line x1="15" y1="1" x2="15" y2="4"/>
+                            <line x1="9" y1="20" x2="9" y2="23"/>
+                            <line x1="15" y1="20" x2="15" y2="23"/>
+                            <line x1="20" y1="9" x2="23" y2="9"/>
+                            <line x1="20" y1="14" x2="23" y2="14"/>
+                            <line x1="1" y1="9" x2="4" y2="9"/>
+                            <line x1="1" y1="14" x2="4" y2="14"/>
+                        </svg>
+                    </div>
+                    <div class="state-label">运行状态</div>
+                    <div class="state-name">Running</div>
+                    <div class="queue-label"></div>
+                    <div class="queue" id="runningQueue7"></div>
+                </div>
+                
+                <!-- Blocked - 右侧中间 -->
+                <div class="state-box blocked" id="blockedBox7">
+                    <div class="io-widget" id="ioWidget7">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--blocked-primary);">
+                            <rect x="2" y="4" width="20" height="16" rx="2"/>
+                            <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h8M6 16h.01M10 16h.01M14 16h.01M18 16h.01"/>
+                        </svg>
+                        <span class="io-label" id="ioLabel7">I/O</span>
+                    </div>
+                    <div class="state-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <path d="M12 6v6l4 2"/>
+                            <line x1="4" y1="4" x2="20" y2="20" stroke-width="2"/>
+                        </svg>
+                    </div>
+                    <div class="state-label">阻塞状态</div>
+                    <div class="state-name">Blocked</div>
+                    <div class="queue-label">等待队列</div>
+                    <div class="queue" id="blockedQueue7"></div>
+                </div>
+                
+                <!-- Terminated - 底部中间 -->
+                <div class="state-box terminated" id="terminatedBox7">
+                    <div class="state-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <line x1="15" y1="9" x2="9" y2="15"/>
+                            <line x1="9" y1="9" x2="15" y2="15"/>
+                        </svg>
+                    </div>
+                    <div class="state-label">终止状态</div>
+                    <div class="state-name">Terminated</div>
+                    <div class="queue-label">已完成</div>
+                    <div class="queue" id="terminatedQueue7"></div>
+                </div>
+                
+                <!-- SVG 连线 - 七状态 -->
+                <svg class="arrows-svg" id="arrowsSvg7" viewBox="0 0 1200 720">
+                    <defs>
+                        <marker id="arrowPurple7" markerWidth="12" markerHeight="8" refX="10" refY="4" orient="auto">
+                            <polygon points="0 0, 12 4, 0 8" fill="#c084fc"/>
+                        </marker>
+                        <marker id="arrowGreen7" markerWidth="12" markerHeight="8" refX="10" refY="4" orient="auto">
+                            <polygon points="0 0, 12 4, 0 8" fill="#4ade80"/>
+                        </marker>
+                        <marker id="arrowOrange7" markerWidth="12" markerHeight="8" refX="10" refY="4" orient="auto">
+                            <polygon points="0 0, 12 4, 0 8" fill="#fb923c"/>
+                        </marker>
+                        <marker id="arrowRed7" markerWidth="12" markerHeight="8" refX="10" refY="4" orient="auto">
+                            <polygon points="0 0, 12 4, 0 8" fill="#f87171"/>
+                        </marker>
+                        <marker id="arrowBlue7" markerWidth="12" markerHeight="8" refX="10" refY="4" orient="auto">
+                            <polygon points="0 0, 12 4, 0 8" fill="#60a5fa"/>
+                        </marker>
+                        <marker id="arrowIndigo7" markerWidth="12" markerHeight="8" refX="10" refY="4" orient="auto">
+                            <polygon points="0 0, 12 4, 0 8" fill="#818cf8"/>
+                        </marker>
+                        <marker id="arrowPink7" markerWidth="12" markerHeight="8" refX="10" refY="4" orient="auto">
+                            <polygon points="0 0, 12 4, 0 8" fill="#f472b6"/>
+                        </marker>
+                        <marker id="arrowYellow7" markerWidth="12" markerHeight="8" refX="10" refY="4" orient="auto">
+                            <polygon points="0 0, 12 4, 0 8" fill="#fbbf24"/>
+                        </marker>
+                    </defs>
+                    
+                    <!-- 长程调度: New -> Ready (Admit) -->
+                    <path id="arrow7NewReady" class="arrow-path" stroke="#c084fc" marker-end="url(#arrowPurple7)"
+                          d="M 225 95 Q 180 180 165 280"/>
+                    <text id="label7Admit" class="arrow-label" x="160" y="180">创建</text>
+                    
+                    <!-- 短程调度: Ready -> Running (Dispatch) -->
+                    <path id="arrow7ReadyRunning" class="arrow-path" stroke="#4ade80" marker-end="url(#arrowGreen7)"
+                          d="M 265 360 Q 400 360 520 360"/>
+                    <text id="label7Dispatch" class="arrow-label" x="380" y="350">调度</text>
+                    
+                    <!-- 短程调度: Running -> Ready (Timeout) -->
+                    <path id="arrow7RunningReady" class="arrow-path" stroke="#fb923c" marker-end="url(#arrowOrange7)"
+                          d="M 520 390 Q 400 420 265 390"/>
+                    <text id="label7Timeout" class="arrow-label" x="380" y="420">时间片到期</text>
+                    
+                    <!-- Running -> Blocked (Wait) -->
+                    <path id="arrow7RunningBlocked" class="arrow-path" stroke="#f87171" marker-end="url(#arrowRed7)"
+                          d="M 680 360 Q 820 360 935 360"/>
+                    <text id="label7Wait" class="arrow-label" x="790" y="350">等待事件</text>
+                    
+                    <!-- Blocked -> Ready (Event) -->
+                    <path id="arrow7BlockedReady" class="arrow-path" stroke="#60a5fa" marker-end="url(#arrowBlue7)"
+                          d="M 935 415 Q 600 560 265 415"/>
+                    <text id="label7Event" class="arrow-label" x="600" y="540">事件发生</text>
+                    
+                    <!-- Running -> Terminated (Exit) -->
+                    <path id="arrow7RunningTerminated" class="arrow-path" stroke="#f87171" marker-end="url(#arrowRed7)"
+                          d="M 600 415 L 600 545"/>
+                    <text id="label7Exit" class="arrow-label" x="620" y="490">终止</text>
+                    
+                    <!-- 中程调度: Ready -> Ready Suspend (Suspend) -->
+                    <path id="arrow7ReadySuspend" class="arrow-path" stroke="#fbbf24" marker-end="url(#arrowYellow7)"
+                          d="M 200 280 Q 350 180 520 95"/>
+                    <text id="label7SuspendReady" class="arrow-label" x="340" y="170">挂起</text>
+                    
+                    <!-- 中程调度: Ready Suspend -> Ready (Activate) -->
+                    <path id="arrow7SuspendActivate" class="arrow-path" stroke="#fbbf24" marker-end="url(#arrowYellow7)"
+                          d="M 560 130 Q 400 200 200 310"/>
+                    <text id="label7Activate" class="arrow-label" x="360" y="240">激活</text>
+                    
+                    <!-- 中程调度: Blocked -> Blocked Suspend (Suspend) - 内存不足时挂起到外存 -->
+                    <path id="arrow7BlockedSuspend" class="arrow-path" stroke="#fbbf24" marker-end="url(#arrowYellow7)"
+                          d="M 1000 280 Q 1000 180 1000 95"/>
+                    <text id="label7SuspendBlocked" class="arrow-label" x="980" y="180">挂起</text>
+                    
+                    <!-- 中程调度: Blocked Suspend -> Blocked (Activate) - 挂起的阻塞进程回到内存 -->
+                    <path id="arrow7BlockedSuspendActivate" class="arrow-path" stroke="#fbbf24" marker-end="url(#arrowYellow7)"
+                          d="M 1060 95 Q 1060 180 1060 280"/>
+                    <text id="label7BlockedActivate" class="arrow-label" x="1070" y="180">激活</text>
+                    
+                    <!-- Blocked Suspend -> Ready Suspend (Event while suspended) - I/O完成，事件发生 -->
+                    <path id="arrow7BlockedSuspendReadySuspend" class="arrow-path" stroke="#818cf8" marker-end="url(#arrowIndigo7)"
+                          d="M 980 60 Q 790 30 660 60"/>
+                    <text id="label7SuspendEvent" class="arrow-label" x="810" y="35">事件发生</text>
+                    
+                    <!-- Running -> Ready Suspend (抢占时内存紧张，直接换出) -->
+                    <path id="arrow7RunningReadySuspend" class="arrow-path" stroke="#f472b6" marker-end="url(#arrowPink7)"
+                          d="M 600 280 Q 560 180 560 95"/>
+                    <text id="label7RunningSuspend" class="arrow-label" x="540" y="180">直接挂起</text>
+                </svg>
+                
+                <div class="process p1" id="processP1_7">P1</div>
+                <div class="process p2" id="processP2_7">P2</div>
+                <div class="process p3" id="processP3_7">P3</div>
+                
+                <div class="summary-overlay" id="summaryOverlay7">
+                    <div class="summary-card">
+                        <h2 class="summary-title">七状态模型总结</h2>
+                        <p class="summary-text">
+                            <strong style="color: var(--long-sched-color);">长程调度</strong>：New → Ready，决定哪些作业进入内存。<br><br>
+                            <strong style="color: var(--mid-sched-color);">中程调度</strong>：内存↔外存交换<br>
+                            • Ready ↔ Ready-Suspend（就绪挂起/激活）<br>
+                            • Blocked ↔ Blocked-Suspend（阻塞挂起/激活）<br>
+                            • Running → Ready-Suspend（直接挂起）<br><br>
+                            <strong style="color: var(--short-sched-color);">短程调度</strong>：Ready → Running，决定谁获得CPU。<br><br>
+                            <strong style="color: #818cf8;">特殊转换</strong>：Blocked-Suspend → Ready-Suspend<br>
+                            I/O完成时，进程仍在外存，变为就绪挂起。
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="legend" id="legend">
+        <div class="legend-title">状态说明</div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #4ade80;"></div>
+            <span>运行中</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #60a5fa;"></div>
+            <span>就绪等待</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #fb923c;"></div>
+            <span>阻塞等待</span>
+        </div>
+    </div>
+    
+    <div class="controls-bar">
+        <button class="ctrl-btn" id="playBtn" aria-label="播放或暂停">
+            <svg id="playIcon" viewBox="0 0 24 24" fill="currentColor">
+                <polygon points="5,3 19,12 5,21"/>
+            </svg>
+        </button>
+        <button class="ctrl-btn secondary" id="resetBtn" aria-label="重置动画">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                <path d="M3 3v5h5"/>
+            </svg>
+        </button>
+        <div class="progress-track">
+            <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <div class="scene-label" id="sceneLabel">场景 1/6</div>
+    </div>
+    
+    <script>
+        // ========== 全局状态 ==========
+        const appState = {
+            currentModel: 3,
+            isPlaying: false,
+            currentScene: 0,
+            sceneTime: 0,
+            animationFrame: null,
+            lastTimestamp: 0,
+            queues: { running: [], ready: [], blocked: [], new: [], terminated: [] },
+            processes: { p1: {}, p2: {}, p3: {} },
+            fastCycleInterval: null
+        };
+        
+        const executedActions = new Set();
+        
+        // ========== DOM 引用 ==========
+        const dom = {};
+        
+        // ========== 场景配置 ==========
+        const scenes3 = [
+            {
+                name: '三状态概览',
+                duration: 4500,
+                actions: [
+                    { time: 0, type: 'showHeader' },
+                    { time: 400, type: 'showBox', box: 'running' },
+                    { time: 800, type: 'showBox', box: 'ready' },
+                    { time: 1200, type: 'showBox', box: 'blocked' },
+                    { time: 1800, type: 'showArrow', arrow: 'ReadyRunning' },
+                    { time: 2200, type: 'showArrow', arrow: 'RunningReady' },
+                    { time: 2600, type: 'showArrow', arrow: 'RunningBlocked' },
+                    { time: 3000, type: 'showArrow', arrow: 'BlockedReady' },
+                    { time: 1600, type: 'showHint', text: '在操作系统中，进程会在三种状态间切换。这就是进程三状态模型。' }
+                ]
+            },
+            {
+                name: '进程创建与调度',
+                duration: 7000,
+                actions: [
+                    { time: 0, type: 'showHint', text: '进程 P1 创建完成，进入就绪队列。' },
+                    { time: 300, type: 'createProcess', process: 'p1' },
+                    { time: 600, type: 'moveProcess', process: 'p1', target: 'ready' },
+                    { time: 2500, type: 'showHint', text: '调度：P1 被 CPU 选中并开始运行。' },
+                    { time: 2800, type: 'activateArrow', arrow: 'ReadyRunning' },
+                    { time: 3200, type: 'moveProcess', process: 'p1', target: 'running' },
+                    { time: 3200, type: 'cpuStart' },
+                    { time: 3200, type: 'boxActive', active: true },
+                    { time: 4000, type: 'deactivateArrow', arrow: 'ReadyRunning' }
+                ]
+            },
+            {
+                name: '时间片到期',
+                duration: 8000,
+                actions: [
+                    { time: 0, type: 'createProcess', process: 'p2' },
+                    { time: 0, type: 'moveProcess', process: 'p2', target: 'ready' },
+                    { time: 300, type: 'showTimeslice', value: 3 },
+                    { time: 800, type: 'updateTimeslice', value: 2 },
+                    { time: 1600, type: 'updateTimeslice', value: 1 },
+                    { time: 2400, type: 'hideTimeslice' },
+                    { time: 2600, type: 'showHint', text: '时间片用完：P1 回到就绪队列，P2 开始运行。' },
+                    { time: 2800, type: 'activateArrow', arrow: 'RunningReady' },
+                    { time: 3200, type: 'moveProcess', process: 'p1', target: 'ready' },
+                    { time: 4000, type: 'deactivateArrow', arrow: 'RunningReady' },
+                    { time: 4200, type: 'activateArrow', arrow: 'ReadyRunning' },
+                    { time: 4600, type: 'moveProcess', process: 'p2', target: 'running' },
+                    { time: 5200, type: 'deactivateArrow', arrow: 'ReadyRunning' }
+                ]
+            },
+            {
+                name: '进程阻塞',
+                duration: 6500,
+                actions: [
+                    { time: 0, type: 'createProcess', process: 'p3' },
+                    { time: 0, type: 'moveProcess', process: 'p3', target: 'ready' },
+                    { time: 500, type: 'showIO' },
+                    { time: 800, type: 'showHint', text: '请求 I/O：P2 进入阻塞状态，等待 I/O 完成。' },
+                    { time: 1200, type: 'activateArrow', arrow: 'RunningBlocked' },
+                    { time: 1600, type: 'moveProcess', process: 'p2', target: 'blocked' },
+                    { time: 1600, type: 'cpuStop' },
+                    { time: 1600, type: 'boxActive', active: false },
+                    { time: 2200, type: 'deactivateArrow', arrow: 'RunningBlocked' },
+                    { time: 2400, type: 'activateArrow', arrow: 'ReadyRunning' },
+                    { time: 2800, type: 'moveProcess', process: 'p3', target: 'running' },
+                    { time: 2800, type: 'cpuStart' },
+                    { time: 2800, type: 'boxActive', active: true },
+                    { time: 3400, type: 'deactivateArrow', arrow: 'ReadyRunning' }
+                ]
+            },
+            {
+                name: '事件完成',
+                duration: 5000,
+                actions: [
+                    { time: 0, type: 'showHint', text: 'I/O 完成：P2 移回就绪队列，等待调度。' },
+                    { time: 500, type: 'ioComplete' },
+                    { time: 1000, type: 'activateArrow', arrow: 'BlockedReady' },
+                    { time: 1500, type: 'moveProcess', process: 'p2', target: 'ready' },
+                    { time: 2200, type: 'deactivateArrow', arrow: 'BlockedReady' },
+                    { time: 2800, type: 'hideIO' }
+                ]
+            },
+            {
+                name: '总结',
+                duration: 8000,
+                actions: [
+                    { time: 0, type: 'showHint', text: '进程在 Ready, Running, Blocked 三种状态间循环转换...' },
+                    { time: 0, type: 'showLabels' },
+                    { time: 500, type: 'startFastCycle' },
+                    { time: 5500, type: 'stopFastCycle' },
+                    { time: 6000, type: 'showSummary' }
+                ]
+            }
+        ];
+        
+        const scenes5 = [
+            {
+                name: '五状态概览',
+                duration: 5000,
+                actions: [
+                    { time: 0, type: 'showHeader' },
+                    { time: 300, type: 'showBox', box: 'new' },
+                    { time: 600, type: 'showBox', box: 'ready' },
+                    { time: 900, type: 'showBox', box: 'running' },
+                    { time: 1200, type: 'showBox', box: 'blocked' },
+                    { time: 1500, type: 'showBox', box: 'terminated' },
+                    { time: 2000, type: 'showArrow', arrow: 'NewReady' },
+                    { time: 2400, type: 'showArrow', arrow: 'ReadyRunning' },
+                    { time: 2800, type: 'showArrow', arrow: 'RunningReady' },
+                    { time: 3200, type: 'showArrow', arrow: 'RunningBlocked' },
+                    { time: 3600, type: 'showArrow', arrow: 'BlockedReady' },
+                    { time: 4000, type: 'showArrow', arrow: 'RunningTerminated' },
+                    { time: 1800, type: 'showHint', text: '五状态模型增加了创建态和终止态，完整描述进程生命周期。' }
+                ]
+            },
+            {
+                name: '进程创建',
+                duration: 6000,
+                actions: [
+                    { time: 0, type: 'showHint', text: '新进程 P1 正在被创建...' },
+                    { time: 300, type: 'createProcess', process: 'p1' },
+                    { time: 600, type: 'moveProcess', process: 'p1', target: 'new' },
+                    { time: 2000, type: 'showHint', text: '创建完成：P1 进入就绪队列。' },
+                    { time: 2400, type: 'activateArrow', arrow: 'NewReady' },
+                    { time: 2800, type: 'moveProcess', process: 'p1', target: 'ready' },
+                    { time: 3500, type: 'deactivateArrow', arrow: 'NewReady' }
+                ]
+            },
+            {
+                name: '调度运行',
+                duration: 6000,
+                actions: [
+                    { time: 0, type: 'showHint', text: '调度：P1 获得 CPU 开始运行。' },
+                    { time: 400, type: 'activateArrow', arrow: 'ReadyRunning' },
+                    { time: 800, type: 'moveProcess', process: 'p1', target: 'running' },
+                    { time: 800, type: 'cpuStart' },
+                    { time: 800, type: 'boxActive', active: true },
+                    { time: 1500, type: 'deactivateArrow', arrow: 'ReadyRunning' },
+                    { time: 2000, type: 'createProcess', process: 'p2' },
+                    { time: 2300, type: 'moveProcess', process: 'p2', target: 'new' },
+                    { time: 2800, type: 'activateArrow', arrow: 'NewReady' },
+                    { time: 3200, type: 'moveProcess', process: 'p2', target: 'ready' },
+                    { time: 3800, type: 'deactivateArrow', arrow: 'NewReady' }
+                ]
+            },
+            {
+                name: '时间片与阻塞',
+                duration: 8000,
+                actions: [
+                    { time: 0, type: 'showTimeslice', value: 3 },
+                    { time: 600, type: 'updateTimeslice', value: 2 },
+                    { time: 1200, type: 'updateTimeslice', value: 1 },
+                    { time: 1800, type: 'hideTimeslice' },
+                    { time: 2000, type: 'showHint', text: '时间片用完：P1 回到就绪，P2 开始运行。' },
+                    { time: 2400, type: 'activateArrow', arrow: 'RunningReady' },
+                    { time: 2800, type: 'moveProcess', process: 'p1', target: 'ready' },
+                    { time: 3200, type: 'deactivateArrow', arrow: 'RunningReady' },
+                    { time: 3400, type: 'activateArrow', arrow: 'ReadyRunning' },
+                    { time: 3800, type: 'moveProcess', process: 'p2', target: 'running' },
+                    { time: 4200, type: 'deactivateArrow', arrow: 'ReadyRunning' },
+                    { time: 4800, type: 'showIO' },
+                    { time: 5200, type: 'showHint', text: 'P2 请求 I/O，进入阻塞状态。' },
+                    { time: 5600, type: 'activateArrow', arrow: 'RunningBlocked' },
+                    { time: 6000, type: 'moveProcess', process: 'p2', target: 'blocked' },
+                    { time: 6000, type: 'cpuStop' },
+                    { time: 6000, type: 'boxActive', active: false },
+                    { time: 6800, type: 'deactivateArrow', arrow: 'RunningBlocked' }
+                ]
+            },
+            {
+                name: '事件与终止',
+                duration: 7000,
+                actions: [
+                    { time: 0, type: 'activateArrow', arrow: 'ReadyRunning' },
+                    { time: 400, type: 'moveProcess', process: 'p1', target: 'running' },
+                    { time: 400, type: 'cpuStart' },
+                    { time: 400, type: 'boxActive', active: true },
+                    { time: 1000, type: 'deactivateArrow', arrow: 'ReadyRunning' },
+                    { time: 1500, type: 'ioComplete' },
+                    { time: 2000, type: 'showHint', text: 'I/O 完成：P2 回到就绪队列。' },
+                    { time: 2400, type: 'activateArrow', arrow: 'BlockedReady' },
+                    { time: 2800, type: 'moveProcess', process: 'p2', target: 'ready' },
+                    { time: 3400, type: 'deactivateArrow', arrow: 'BlockedReady' },
+                    { time: 3600, type: 'hideIO' },
+                    { time: 4000, type: 'showHint', text: 'P1 执行完毕，进入终止状态。' },
+                    { time: 4400, type: 'activateArrow', arrow: 'RunningTerminated' },
+                    { time: 4800, type: 'moveProcess', process: 'p1', target: 'terminated' },
+                    { time: 4800, type: 'cpuStop' },
+                    { time: 4800, type: 'boxActive', active: false },
+                    { time: 5500, type: 'deactivateArrow', arrow: 'RunningTerminated' }
+                ]
+            },
+            {
+                name: '总结',
+                duration: 7000,
+                actions: [
+                    { time: 0, type: 'showHint', text: '五状态模型完整描述了进程从创建到终止的生命周期。' },
+                    { time: 0, type: 'showLabels' },
+                    { time: 3000, type: 'showSummary' }
+                ]
+            }
+        ];
+        
+        const scenes7 = [
+            {
+                name: '七状态概览',
+                duration: 7000,
+                actions: [
+                    { time: 0, type: 'showHeader' },
+                    { time: 0, type: 'showSchedLegend' },
+                    { time: 300, type: 'showBox', box: 'new' },
+                    { time: 500, type: 'showBox', box: 'readySuspend' },
+                    { time: 700, type: 'showBox', box: 'blockedSuspend' },
+                    { time: 900, type: 'showBox', box: 'ready' },
+                    { time: 1100, type: 'showBox', box: 'running' },
+                    { time: 1300, type: 'showBox', box: 'blocked' },
+                    { time: 1500, type: 'showBox', box: 'terminated' },
+                    { time: 2000, type: 'showArrow', arrow: 'NewReady' },
+                    { time: 2400, type: 'showArrow', arrow: 'ReadyRunning' },
+                    { time: 2800, type: 'showArrow', arrow: 'RunningReady' },
+                    { time: 3200, type: 'showArrow', arrow: 'RunningBlocked' },
+                    { time: 3600, type: 'showArrow', arrow: 'BlockedReady' },
+                    { time: 4000, type: 'showArrow', arrow: 'RunningTerminated' },
+                    { time: 4400, type: 'showArrow', arrow: 'ReadySuspend' },
+                    { time: 4800, type: 'showArrow', arrow: 'SuspendActivate' },
+                    { time: 5200, type: 'showArrow', arrow: 'BlockedSuspend' },
+                    { time: 5400, type: 'showArrow', arrow: 'BlockedSuspendActivate' },
+                    { time: 5600, type: 'showArrow', arrow: 'BlockedSuspendReadySuspend' },
+                    { time: 6000, type: 'showArrow', arrow: 'RunningReadySuspend' },
+                    { time: 1800, type: 'showHint', text: '七状态模型增加了就绪挂起和阻塞挂起，支持进程在内存和外存间交换。' }
+                ]
+            },
+            {
+                name: '长程调度',
+                duration: 7000,
+                actions: [
+                    { time: 0, type: 'showHint', text: '【长程调度】新进程 P1 正在被创建...' },
+                    { time: 300, type: 'createProcess', process: 'p1' },
+                    { time: 600, type: 'moveProcess', process: 'p1', target: 'new' },
+                    { time: 2000, type: 'showHint', text: '【长程调度】创建完成：P1 进入就绪队列（内存中）。' },
+                    { time: 2400, type: 'activateArrow', arrow: 'NewReady' },
+                    { time: 2800, type: 'moveProcess', process: 'p1', target: 'ready' },
+                    { time: 3500, type: 'deactivateArrow', arrow: 'NewReady' }
+                ]
+            },
+            {
+                name: '短程调度',
+                duration: 6000,
+                actions: [
+                    { time: 0, type: 'showHint', text: '【短程调度】P1 获得 CPU 开始运行。' },
+                    { time: 400, type: 'activateArrow', arrow: 'ReadyRunning' },
+                    { time: 800, type: 'moveProcess', process: 'p1', target: 'running' },
+                    { time: 800, type: 'cpuStart' },
+                    { time: 800, type: 'boxActive', active: true },
+                    { time: 1500, type: 'deactivateArrow', arrow: 'ReadyRunning' }
+                ]
+            },
+            {
+                name: '中程调度-就绪挂起',
+                duration: 8000,
+                actions: [
+                    { time: 0, type: 'createProcess', process: 'p2' },
+                    { time: 0, type: 'moveProcess', process: 'p2', target: 'ready' },
+                    { time: 500, type: 'showHint', text: '【中程调度】内存不足，将就绪的 P2 挂起到外存...' },
+                    { time: 1500, type: 'activateArrow', arrow: 'ReadySuspend' },
+                    { time: 2000, type: 'moveProcess', process: 'p2', target: 'readySuspend' },
+                    { time: 2800, type: 'deactivateArrow', arrow: 'ReadySuspend' },
+                    { time: 3500, type: 'showHint', text: '【中程调度】内存释放，激活 P2 回到内存...' },
+                    { time: 4500, type: 'activateArrow', arrow: 'SuspendActivate' },
+                    { time: 5000, type: 'moveProcess', process: 'p2', target: 'ready' },
+                    { time: 5800, type: 'deactivateArrow', arrow: 'SuspendActivate' }
+                ]
+            },
+            {
+                name: '阻塞与阻塞挂起',
+                duration: 10000,
+                actions: [
+                    { time: 0, type: 'showIO' },
+                    { time: 300, type: 'showHint', text: 'P1 请求 I/O，进入阻塞状态（内存中等待）。' },
+                    { time: 800, type: 'activateArrow', arrow: 'RunningBlocked' },
+                    { time: 1200, type: 'moveProcess', process: 'p1', target: 'blocked' },
+                    { time: 1200, type: 'cpuStop' },
+                    { time: 1200, type: 'boxActive', active: false },
+                    { time: 1800, type: 'deactivateArrow', arrow: 'RunningBlocked' },
+                    { time: 2500, type: 'showHint', text: '【中程调度】内存紧张，将阻塞的 P1 挂起到外存（在硬盘里等待I/O）...' },
+                    { time: 3500, type: 'activateArrow', arrow: 'BlockedSuspend' },
+                    { time: 4000, type: 'moveProcess', process: 'p1', target: 'blockedSuspend' },
+                    { time: 4800, type: 'deactivateArrow', arrow: 'BlockedSuspend' },
+                    { time: 5500, type: 'showHint', text: 'I/O 完成！进程仍在挂起状态，变为就绪挂起（等待调入内存）。' },
+                    { time: 6500, type: 'activateArrow', arrow: 'BlockedSuspendReadySuspend' },
+                    { time: 7000, type: 'moveProcess', process: 'p1', target: 'readySuspend' },
+                    { time: 7800, type: 'deactivateArrow', arrow: 'BlockedSuspendReadySuspend' },
+                    { time: 8500, type: 'hideIO' }
+                ]
+            },
+            {
+                name: '运行直接挂起',
+                duration: 7000,
+                actions: [
+                    { time: 0, type: 'showHint', text: '【短程调度】P2 获得 CPU 开始运行...' },
+                    { time: 400, type: 'activateArrow', arrow: 'ReadyRunning' },
+                    { time: 800, type: 'moveProcess', process: 'p2', target: 'running' },
+                    { time: 800, type: 'cpuStart' },
+                    { time: 800, type: 'boxActive', active: true },
+                    { time: 1400, type: 'deactivateArrow', arrow: 'ReadyRunning' },
+                    { time: 2000, type: 'showHint', text: '【中程调度】高优先级进程抢占，且内存紧张，P2 直接换出到外存！' },
+                    { time: 3000, type: 'activateArrow', arrow: 'RunningReadySuspend' },
+                    { time: 3500, type: 'moveProcess', process: 'p2', target: 'readySuspend' },
+                    { time: 3500, type: 'cpuStop' },
+                    { time: 3500, type: 'boxActive', active: false },
+                    { time: 4300, type: 'deactivateArrow', arrow: 'RunningReadySuspend' }
+                ]
+            },
+            {
+                name: '完整调度流程',
+                duration: 10000,
+                actions: [
+                    { time: 0, type: 'showHint', text: '【中程调度】激活 P1 回到内存就绪队列...' },
+                    { time: 800, type: 'activateArrow', arrow: 'SuspendActivate' },
+                    { time: 1200, type: 'moveProcess', process: 'p1', target: 'ready' },
+                    { time: 1800, type: 'deactivateArrow', arrow: 'SuspendActivate' },
+                    { time: 2500, type: 'showHint', text: '【短程调度】P1 获得 CPU 运行...' },
+                    { time: 3000, type: 'activateArrow', arrow: 'ReadyRunning' },
+                    { time: 3400, type: 'moveProcess', process: 'p1', target: 'running' },
+                    { time: 3400, type: 'cpuStart' },
+                    { time: 3400, type: 'boxActive', active: true },
+                    { time: 4000, type: 'deactivateArrow', arrow: 'ReadyRunning' },
+                    { time: 5000, type: 'showHint', text: 'P1 执行完毕，进入终止状态。' },
+                    { time: 5500, type: 'activateArrow', arrow: 'RunningTerminated' },
+                    { time: 6000, type: 'moveProcess', process: 'p1', target: 'terminated' },
+                    { time: 6000, type: 'cpuStop' },
+                    { time: 6000, type: 'boxActive', active: false },
+                    { time: 6800, type: 'deactivateArrow', arrow: 'RunningTerminated' }
+                ]
+            },
+            {
+                name: '总结',
+                duration: 8000,
+                actions: [
+                    { time: 0, type: 'showHint', text: '七状态模型完整描述了进程在内存和外存间的状态转换。' },
+                    { time: 0, type: 'showLabels' },
+                    { time: 4000, type: 'showSummary' }
+                ]
+            }
+        ];
+        
+        // ========== 初始化 ==========
+        function initialize() {
+            dom.header = document.getElementById('header');
+            dom.mainTitle = document.getElementById('mainTitle');
+            dom.hintBox = document.getElementById('hintBox');
+            dom.playBtn = document.getElementById('playBtn');
+            dom.playIcon = document.getElementById('playIcon');
+            dom.resetBtn = document.getElementById('resetBtn');
+            dom.progressFill = document.getElementById('progressFill');
+            dom.sceneLabel = document.getElementById('sceneLabel');
+            dom.legend = document.getElementById('legend');
+            dom.layout3 = document.getElementById('layout3');
+            dom.layout5 = document.getElementById('layout5');
+            dom.layout7 = document.getElementById('layout7');
+            dom.btnModel3 = document.getElementById('btnModel3');
+            dom.btnModel5 = document.getElementById('btnModel5');
+            dom.btnModel7 = document.getElementById('btnModel7');
+            dom.schedLegend = document.getElementById('schedLegend');
+            
+            dom.runningBox3 = document.getElementById('runningBox3');
+            dom.readyBox3 = document.getElementById('readyBox3');
+            dom.blockedBox3 = document.getElementById('blockedBox3');
+            dom.runningQueue3 = document.getElementById('runningQueue3');
+            dom.readyQueue3 = document.getElementById('readyQueue3');
+            dom.blockedQueue3 = document.getElementById('blockedQueue3');
+            dom.cpuIcon3 = document.getElementById('cpuIcon3');
+            dom.timesliceWidget3 = document.getElementById('timesliceWidget3');
+            dom.timesliceValue3 = document.getElementById('timesliceValue3');
+            dom.ioWidget3 = document.getElementById('ioWidget3');
+            dom.ioLabel3 = document.getElementById('ioLabel3');
+            dom.summaryOverlay3 = document.getElementById('summaryOverlay3');
+            
+            dom.arrows3 = {
+                ReadyRunning: document.getElementById('arrow3ReadyRunning'),
+                RunningReady: document.getElementById('arrow3RunningReady'),
+                RunningBlocked: document.getElementById('arrow3RunningBlocked'),
+                BlockedReady: document.getElementById('arrow3BlockedReady')
+            };
+            
+            dom.labels3 = {
+                dispatch: document.getElementById('label3Dispatch'),
+                timeout: document.getElementById('label3Timeout'),
+                wait: document.getElementById('label3Wait'),
+                event: document.getElementById('label3Event')
+            };
+            
+            dom.newBox5 = document.getElementById('newBox5');
+            dom.readyBox5 = document.getElementById('readyBox5');
+            dom.runningBox5 = document.getElementById('runningBox5');
+            dom.blockedBox5 = document.getElementById('blockedBox5');
+            dom.terminatedBox5 = document.getElementById('terminatedBox5');
+            dom.newQueue5 = document.getElementById('newQueue5');
+            dom.readyQueue5 = document.getElementById('readyQueue5');
+            dom.runningQueue5 = document.getElementById('runningQueue5');
+            dom.blockedQueue5 = document.getElementById('blockedQueue5');
+            dom.terminatedQueue5 = document.getElementById('terminatedQueue5');
+            dom.cpuIcon5 = document.getElementById('cpuIcon5');
+            dom.timesliceWidget5 = document.getElementById('timesliceWidget5');
+            dom.timesliceValue5 = document.getElementById('timesliceValue5');
+            dom.ioWidget5 = document.getElementById('ioWidget5');
+            dom.ioLabel5 = document.getElementById('ioLabel5');
+            dom.summaryOverlay5 = document.getElementById('summaryOverlay5');
+            
+            dom.arrows5 = {
+                NewReady: document.getElementById('arrow5NewReady'),
+                ReadyRunning: document.getElementById('arrow5ReadyRunning'),
+                RunningReady: document.getElementById('arrow5RunningReady'),
+                RunningBlocked: document.getElementById('arrow5RunningBlocked'),
+                BlockedReady: document.getElementById('arrow5BlockedReady'),
+                RunningTerminated: document.getElementById('arrow5RunningTerminated')
+            };
+            
+            dom.labels5 = {
+                admit: document.getElementById('label5Admit'),
+                dispatch: document.getElementById('label5Dispatch'),
+                timeout: document.getElementById('label5Timeout'),
+                wait: document.getElementById('label5Wait'),
+                event: document.getElementById('label5Event'),
+                exit: document.getElementById('label5Exit')
+            };
+            
+            dom.newBox7 = document.getElementById('newBox7');
+            dom.readySuspendBox7 = document.getElementById('readySuspendBox7');
+            dom.blockedSuspendBox7 = document.getElementById('blockedSuspendBox7');
+            dom.readyBox7 = document.getElementById('readyBox7');
+            dom.runningBox7 = document.getElementById('runningBox7');
+            dom.blockedBox7 = document.getElementById('blockedBox7');
+            dom.terminatedBox7 = document.getElementById('terminatedBox7');
+            dom.newQueue7 = document.getElementById('newQueue7');
+            dom.readySuspendQueue7 = document.getElementById('readySuspendQueue7');
+            dom.blockedSuspendQueue7 = document.getElementById('blockedSuspendQueue7');
+            dom.readyQueue7 = document.getElementById('readyQueue7');
+            dom.runningQueue7 = document.getElementById('runningQueue7');
+            dom.blockedQueue7 = document.getElementById('blockedQueue7');
+            dom.terminatedQueue7 = document.getElementById('terminatedQueue7');
+            dom.cpuIcon7 = document.getElementById('cpuIcon7');
+            dom.timesliceWidget7 = document.getElementById('timesliceWidget7');
+            dom.timesliceValue7 = document.getElementById('timesliceValue7');
+            dom.ioWidget7 = document.getElementById('ioWidget7');
+            dom.ioLabel7 = document.getElementById('ioLabel7');
+            dom.summaryOverlay7 = document.getElementById('summaryOverlay7');
+            
+            dom.arrows7 = {
+                NewReady: document.getElementById('arrow7NewReady'),
+                ReadyRunning: document.getElementById('arrow7ReadyRunning'),
+                RunningReady: document.getElementById('arrow7RunningReady'),
+                RunningBlocked: document.getElementById('arrow7RunningBlocked'),
+                BlockedReady: document.getElementById('arrow7BlockedReady'),
+                RunningTerminated: document.getElementById('arrow7RunningTerminated'),
+                ReadySuspend: document.getElementById('arrow7ReadySuspend'),
+                SuspendActivate: document.getElementById('arrow7SuspendActivate'),
+                BlockedSuspend: document.getElementById('arrow7BlockedSuspend'),
+                BlockedSuspendActivate: document.getElementById('arrow7BlockedSuspendActivate'),
+                BlockedSuspendReadySuspend: document.getElementById('arrow7BlockedSuspendReadySuspend'),
+                RunningReadySuspend: document.getElementById('arrow7RunningReadySuspend')
+            };
+            
+            dom.labels7 = {
+                admit: document.getElementById('label7Admit'),
+                dispatch: document.getElementById('label7Dispatch'),
+                timeout: document.getElementById('label7Timeout'),
+                wait: document.getElementById('label7Wait'),
+                event: document.getElementById('label7Event'),
+                exit: document.getElementById('label7Exit'),
+                suspendReady: document.getElementById('label7SuspendReady'),
+                activate: document.getElementById('label7Activate'),
+                suspendBlocked: document.getElementById('label7SuspendBlocked'),
+                blockedActivate: document.getElementById('label7BlockedActivate'),
+                suspendEvent: document.getElementById('label7SuspendEvent'),
+                runningSuspend: document.getElementById('label7RunningSuspend')
+            };
+            
+            appState.processes.p1 = { 
+                element3: document.getElementById('processP1_3'), 
+                element5: document.getElementById('processP1_5'),
+                element7: document.getElementById('processP1_7'),
+                visible: false 
+            };
+            appState.processes.p2 = { 
+                element3: document.getElementById('processP2_3'), 
+                element5: document.getElementById('processP2_5'),
+                element7: document.getElementById('processP2_7'),
+                visible: false 
+            };
+            appState.processes.p3 = { 
+                element3: document.getElementById('processP3_3'), 
+                element5: document.getElementById('processP3_5'),
+                element7: document.getElementById('processP3_7'),
+                visible: false 
+            };
+            
+            dom.playBtn.addEventListener('click', togglePlayback);
+            dom.resetBtn.addEventListener('click', resetAnimation);
+            dom.btnModel3.addEventListener('click', () => switchModel(3));
+            dom.btnModel5.addEventListener('click', () => switchModel(5));
+            dom.btnModel7.addEventListener('click', () => switchModel(7));
+            document.addEventListener('keydown', handleKeydown);
+            
+            updateSceneLabel();
+        }
+        
+        function handleKeydown(e) {
+            if (e.code === 'Space') { e.preventDefault(); togglePlayback(); }
+            else if (e.code === 'KeyR') { resetAnimation(); }
+            else if (e.code === 'Digit3') { switchModel(3); }
+            else if (e.code === 'Digit5') { switchModel(5); }
+            else if (e.code === 'Digit7') { switchModel(7); }
+        }
+        
+        // ========== 模型切换 ==========
+        function switchModel(model) {
+            if (appState.isPlaying) {
+                cancelAnimationFrame(appState.animationFrame);
+                appState.isPlaying = false;
+                updatePlayIcon();
+            }
+            
+            appState.currentModel = model;
+            appState.currentScene = 0;
+            appState.sceneTime = 0;
+            executedActions.clear();
+            
+            dom.btnModel3.classList.toggle('active', model === 3);
+            dom.btnModel5.classList.toggle('active', model === 5);
+            dom.btnModel7.classList.toggle('active', model === 7);
+            
+            const titles = { 3: '进程三状态模型', 5: '进程五状态模型', 7: '进程七状态模型' };
+            dom.mainTitle.textContent = titles[model];
+            
+            dom.layout3.style.display = model === 3 ? 'block' : 'none';
+            dom.layout5.style.display = model === 5 ? 'block' : 'none';
+            dom.layout7.style.display = model === 7 ? 'block' : 'none';
+            
+            resetModelState();
+            updateSceneLabel();
+            dom.progressFill.style.width = '0%';
+        }
+        
+        function resetModelState() {
+            appState.queues = { running: [], ready: [], blocked: [], new: [], terminated: [], readySuspend: [], blockedSuspend: [] };
+            
+            const suffix = appState.currentModel;
+            
+            const boxes = appState.currentModel === 7 
+                ? ['new', 'readySuspend', 'blockedSuspend', 'ready', 'running', 'blocked', 'terminated']
+                : ['new', 'ready', 'running', 'blocked', 'terminated'];
+            
+            boxes.forEach(box => {
+                const boxKey = box === 'readySuspend' ? 'readySuspendBox' : 
+                               box === 'blockedSuspend' ? 'blockedSuspendBox' : `${box}Box`;
+                const el = dom[`${boxKey}${suffix}`] || dom[`${box}Box${suffix}`];
+                if (el) el.classList.remove('visible', 'active');
+            });
+            
+            let arrows, labels;
+            if (appState.currentModel === 3) {
+                arrows = dom.arrows3;
+                labels = dom.labels3;
+            } else if (appState.currentModel === 5) {
+                arrows = dom.arrows5;
+                labels = dom.labels5;
+            } else {
+                arrows = dom.arrows7;
+                labels = dom.labels7;
+            }
+            
+            Object.values(arrows).forEach(a => a && a.classList.remove('visible', 'active'));
+            Object.values(labels).forEach(l => l && l.classList.remove('visible'));
+            
+            const queues = appState.currentModel === 7 
+                ? ['running', 'ready', 'blocked', 'new', 'terminated', 'readySuspend', 'blockedSuspend']
+                : ['running', 'ready', 'blocked', 'new', 'terminated'];
+            
+            queues.forEach(queue => {
+                const queueKey = queue === 'readySuspend' ? 'readySuspendQueue' : 
+                                 queue === 'blockedSuspend' ? 'blockedSuspendQueue' : `${queue}Queue`;
+                const el = dom[`${queueKey}${suffix}`] || dom[`${queue}Queue${suffix}`];
+                if (el) el.innerHTML = '';
+            });
+            
+            dom.header.classList.remove('visible');
+            dom.hintBox.classList.remove('visible');
+            dom.legend.classList.remove('visible');
+            if (dom.schedLegend) dom.schedLegend.classList.remove('visible');
+            
+            const tsWidget = dom[`timesliceWidget${suffix}`];
+            const ioWidget = dom[`ioWidget${suffix}`];
+            const summary = dom[`summaryOverlay${suffix}`];
+            const cpuIcon = dom[`cpuIcon${suffix}`];
+            
+            if (tsWidget) tsWidget.classList.remove('visible');
+            if (ioWidget) ioWidget.classList.remove('visible', 'complete');
+            if (summary) summary.classList.remove('visible');
+            if (cpuIcon) cpuIcon.classList.remove('cpu-spinning');
+            
+            Object.values(appState.processes).forEach(p => {
+                if (p.element3) p.element3.classList.remove('visible');
+                if (p.element5) p.element5.classList.remove('visible');
+                if (p.element7) p.element7.classList.remove('visible');
+                p.visible = false;
+            });
+        }
+        
+        // ========== 播放控制 ==========
+        function togglePlayback() {
+            appState.isPlaying = !appState.isPlaying;
+            updatePlayIcon();
+            
+            if (appState.isPlaying) {
+                appState.lastTimestamp = performance.now();
+                runAnimation();
+            } else {
+                cancelAnimationFrame(appState.animationFrame);
+            }
+        }
+        
+        function updatePlayIcon() {
+            dom.playIcon.innerHTML = appState.isPlaying 
+                ? '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>'
+                : '<polygon points="5,3 19,12 5,21"/>';
+        }
+        
+        function resetAnimation() {
+            cancelAnimationFrame(appState.animationFrame);
+            stopFastCycle();
+            appState.isPlaying = false;
+            appState.currentScene = 0;
+            appState.sceneTime = 0;
+            executedActions.clear();
+            
+            updatePlayIcon();
+            resetModelState();
+            updateSceneLabel();
+            dom.progressFill.style.width = '0%';
+        }
+        
+        // ========== 动画循环 ==========
+        function runAnimation() {
+            if (!appState.isPlaying) return;
+            
+            const currentTime = performance.now();
+            const deltaTime = currentTime - appState.lastTimestamp;
+            appState.lastTimestamp = currentTime;
+            appState.sceneTime += deltaTime;
+            
+            let scenes;
+            if (appState.currentModel === 3) scenes = scenes3;
+            else if (appState.currentModel === 5) scenes = scenes5;
+            else scenes = scenes7;
+            
+            const currentSceneData = scenes[appState.currentScene];
+            
+            if (!currentSceneData) {
+                appState.isPlaying = false;
+                updatePlayIcon();
+                return;
+            }
+            
+            const sceneProgress = appState.sceneTime / currentSceneData.duration;
+            const totalProgress = (appState.currentScene + sceneProgress) / scenes.length;
+            dom.progressFill.style.width = `${Math.min(totalProgress * 100, 100)}%`;
+            
+            currentSceneData.actions.forEach((action, index) => {
+                const actionKey = `${appState.currentModel}-${appState.currentScene}-${index}`;
+                if (appState.sceneTime >= action.time && !executedActions.has(actionKey)) {
+                    executedActions.add(actionKey);
+                    executeAction(action);
+                }
+            });
+            
+            if (appState.sceneTime >= currentSceneData.duration) {
+                appState.currentScene++;
+                appState.sceneTime = 0;
+                executedActions.clear();
+                updateSceneLabel();
+                
+                if (appState.currentScene >= scenes.length) {
+                    appState.isPlaying = false;
+                    updatePlayIcon();
+                    return;
+                }
+            }
+            
+            appState.animationFrame = requestAnimationFrame(runAnimation);
+        }
+        
+        // ========== 动作执行 ==========
+        function executeAction(action) {
+            const suffix = appState.currentModel;
+            
+            switch (action.type) {
+                case 'showHeader':
+                    dom.header.classList.add('visible');
+                    dom.legend.classList.add('visible');
+                    break;
+                    
+                case 'showSchedLegend':
+                    if (dom.schedLegend) dom.schedLegend.classList.add('visible');
+                    break;
+                    
+                case 'showBox':
+                    let boxEl;
+                    if (action.box === 'readySuspend') {
+                        boxEl = dom[`readySuspendBox${suffix}`];
+                    } else if (action.box === 'blockedSuspend') {
+                        boxEl = dom[`blockedSuspendBox${suffix}`];
+                    } else {
+                        boxEl = dom[`${action.box}Box${suffix}`];
+                    }
+                    if (boxEl) boxEl.classList.add('visible');
+                    break;
+                    
+                case 'showArrow':
+                    let arrowsShow;
+                    if (appState.currentModel === 3) arrowsShow = dom.arrows3;
+                    else if (appState.currentModel === 5) arrowsShow = dom.arrows5;
+                    else arrowsShow = dom.arrows7;
+                    if (arrowsShow[action.arrow]) arrowsShow[action.arrow].classList.add('visible');
+                    break;
+                    
+                case 'activateArrow':
+                    let arrowsAct;
+                    if (appState.currentModel === 3) arrowsAct = dom.arrows3;
+                    else if (appState.currentModel === 5) arrowsAct = dom.arrows5;
+                    else arrowsAct = dom.arrows7;
+                    if (arrowsAct[action.arrow]) arrowsAct[action.arrow].classList.add('active');
+                    break;
+                    
+                case 'deactivateArrow':
+                    let arrowsDeact;
+                    if (appState.currentModel === 3) arrowsDeact = dom.arrows3;
+                    else if (appState.currentModel === 5) arrowsDeact = dom.arrows5;
+                    else arrowsDeact = dom.arrows7;
+                    if (arrowsDeact[action.arrow]) arrowsDeact[action.arrow].classList.remove('active');
+                    break;
+                    
+                case 'showHint':
+                    dom.hintBox.textContent = action.text;
+                    dom.hintBox.classList.add('visible');
+                    break;
+                    
+                case 'createProcess':
+                    const proc = appState.processes[action.process];
+                    if (proc) {
+                        if (proc.element3) proc.element3.classList.add('visible');
+                        if (proc.element5) proc.element5.classList.add('visible');
+                        if (proc.element7) proc.element7.classList.add('visible');
+                        proc.visible = true;
+                    }
+                    break;
+                    
+                case 'moveProcess':
+                    moveProcessToQueue(action.process, action.target);
+                    break;
+                    
+                case 'cpuStart':
+                    const cpuIcon = dom[`cpuIcon${suffix}`];
+                    if (cpuIcon) cpuIcon.classList.add('cpu-spinning');
+                    break;
+                    
+                case 'cpuStop':
+                    const cpuIconStop = dom[`cpuIcon${suffix}`];
+                    if (cpuIconStop) cpuIconStop.classList.remove('cpu-spinning');
+                    break;
+                    
+                case 'boxActive':
+                    const boxR = dom[`runningBox${suffix}`];
+                    if (boxR) boxR.classList.toggle('active', action.active);
+                    break;
+                    
+                case 'showTimeslice':
+                    const tsWidget = dom[`timesliceWidget${suffix}`];
+                    const tsValue = dom[`timesliceValue${suffix}`];
+                    if (tsWidget) tsWidget.classList.add('visible');
+                    if (tsValue) tsValue.textContent = action.value + 's';
+                    break;
+                    
+                case 'updateTimeslice':
+                    const tsValueUp = dom[`timesliceValue${suffix}`];
+                    if (tsValueUp) tsValueUp.textContent = action.value + 's';
+                    break;
+                    
+                case 'hideTimeslice':
+                    const tsWidgetHide = dom[`timesliceWidget${suffix}`];
+                    if (tsWidgetHide) tsWidgetHide.classList.remove('visible');
+                    break;
+                    
+                case 'showIO':
+                    const ioWidget = dom[`ioWidget${suffix}`];
+                    const ioLabel = dom[`ioLabel${suffix}`];
+                    if (ioWidget) {
+                        ioWidget.classList.add('visible');
+                        ioWidget.classList.remove('complete');
+                    }
+                    if (ioLabel) ioLabel.textContent = 'I/O';
+                    break;
+                    
+                case 'ioComplete':
+                    const ioWidgetC = dom[`ioWidget${suffix}`];
+                    const ioLabelC = dom[`ioLabel${suffix}`];
+                    if (ioWidgetC) ioWidgetC.classList.add('complete');
+                    if (ioLabelC) ioLabelC.textContent = 'Done';
+                    break;
+                    
+                case 'hideIO':
+                    const ioWidgetH = dom[`ioWidget${suffix}`];
+                    if (ioWidgetH) ioWidgetH.classList.remove('visible');
+                    break;
+                    
+                case 'showLabels':
+                    let labelsShow;
+                    if (appState.currentModel === 3) labelsShow = dom.labels3;
+                    else if (appState.currentModel === 5) labelsShow = dom.labels5;
+                    else labelsShow = dom.labels7;
+                    Object.values(labelsShow).forEach(l => l && l.classList.add('visible'));
+                    break;
+                    
+                case 'showSummary':
+                    const summary = dom[`summaryOverlay${suffix}`];
+                    if (summary) summary.classList.add('visible');
+                    break;
+                    
+                case 'startFastCycle':
+                    startFastCycle();
+                    break;
+                    
+                case 'stopFastCycle':
+                    stopFastCycle();
+                    break;
+            }
+        }
+        
+        // ========== 进程移动 ==========
+        function moveProcessToQueue(processName, targetQueue) {
+            Object.keys(appState.queues).forEach(queue => {
+                const idx = appState.queues[queue].indexOf(processName);
+                if (idx > -1) appState.queues[queue].splice(idx, 1);
+            });
+            
+            appState.queues[targetQueue].push(processName);
+            updateQueuesDisplay();
+        }
+        
+        function updateQueuesDisplay() {
+            const suffix = appState.currentModel;
+            let layoutEl;
+            if (appState.currentModel === 3) layoutEl = dom.layout3;
+            else if (appState.currentModel === 5) layoutEl = dom.layout5;
+            else layoutEl = dom.layout7;
+            
+            let queueConfigs;
+            if (appState.currentModel === 7) {
+                queueConfigs = [
+                    { name: 'running', element: dom[`runningQueue${suffix}`] },
+                    { name: 'ready', element: dom[`readyQueue${suffix}`] },
+                    { name: 'blocked', element: dom[`blockedQueue${suffix}`] },
+                    { name: 'new', element: dom[`newQueue${suffix}`] },
+                    { name: 'terminated', element: dom[`terminatedQueue${suffix}`] },
+                    { name: 'readySuspend', element: dom[`readySuspendQueue${suffix}`] },
+                    { name: 'blockedSuspend', element: dom[`blockedSuspendQueue${suffix}`] }
+                ];
+            } else {
+                queueConfigs = [
+                    { name: 'running', element: dom[`runningQueue${suffix}`] },
+                    { name: 'ready', element: dom[`readyQueue${suffix}`] },
+                    { name: 'blocked', element: dom[`blockedQueue${suffix}`] },
+                    { name: 'new', element: dom[`newQueue${suffix}`] },
+                    { name: 'terminated', element: dom[`terminatedQueue${suffix}`] }
+                ];
+            }
+            
+            queueConfigs.forEach(config => {
+                if (!config.element) return;
+                config.element.innerHTML = '';
+                
+                appState.queues[config.name].forEach((processName) => {
+                    const placeholder = document.createElement('div');
+                    placeholder.style.width = '36px';
+                    placeholder.style.height = '36px';
+                    config.element.appendChild(placeholder);
+                    
+                    const proc = appState.processes[processName];
+                    let processEl;
+                    if (suffix === 3) processEl = proc.element3;
+                    else if (suffix === 5) processEl = proc.element5;
+                    else processEl = proc.element7;
+                    
+                    if (processEl) {
+                        setTimeout(() => {
+                            const rect = placeholder.getBoundingClientRect();
+                            const stageRect = layoutEl.getBoundingClientRect();
+                            processEl.style.left = (rect.left - stageRect.left + rect.width/2) + 'px';
+                            processEl.style.top = (rect.top - stageRect.top + rect.height/2) + 'px';
+                            processEl.style.transform = 'translate(-50%, -50%)';
+                        }, 10);
+                    }
+                });
+            });
+        }
+        
+        // ========== 快速循环 ==========
+        function startFastCycle() {
+            let step = 0;
+            appState.fastCycleInterval = setInterval(() => {
+                if (!appState.isPlaying) { stopFastCycle(); return; }
+                
+                if (appState.currentModel === 3) {
+                    switch (step % 6) {
+                        case 0: if (appState.queues.running.includes('p3')) moveProcessToQueue('p3', 'blocked'); break;
+                        case 1: if (appState.queues.ready.includes('p1')) moveProcessToQueue('p1', 'running'); break;
+                        case 2: if (appState.queues.ready.includes('p2')) moveProcessToQueue('p2', 'running'); break;
+                        case 3: if (appState.queues.blocked.includes('p3')) moveProcessToQueue('p3', 'ready'); break;
+                        case 4: if (appState.queues.running.includes('p1')) moveProcessToQueue('p1', 'ready'); break;
+                        case 5: if (appState.queues.running.includes('p2')) moveProcessToQueue('p2', 'blocked'); break;
+                    }
+                } else if (appState.currentModel === 5) {
+                    switch (step % 10) {
+                        case 0: if (appState.queues.running.includes('p3')) moveProcessToQueue('p3', 'blocked'); break;
+                        case 1: if (appState.queues.new.includes('p1')) moveProcessToQueue('p1', 'ready'); break;
+                        case 2: if (appState.queues.ready.includes('p1')) moveProcessToQueue('p1', 'running'); break;
+                        case 3: if (appState.queues.blocked.includes('p3')) moveProcessToQueue('p3', 'ready'); break;
+                        case 4: if (appState.queues.running.includes('p1')) moveProcessToQueue('p1', 'ready'); break;
+                        case 5: if (appState.queues.running.includes('p2')) moveProcessToQueue('p2', 'terminated'); break;
+                        case 6: if (appState.queues.ready.includes('p3')) moveProcessToQueue('p3', 'running'); break;
+                        case 7: if (appState.queues.ready.includes('p1')) moveProcessToQueue('p1', 'running'); break;
+                        case 8: if (appState.queues.running.includes('p3')) moveProcessToQueue('p3', 'blocked'); break;
+                        case 9: if (appState.queues.running.includes('p1')) moveProcessToQueue('p1', 'terminated'); break;
+                    }
+                } else {
+                    switch (step % 12) {
+                        case 0: if (appState.queues.ready.includes('p1')) moveProcessToQueue('p1', 'readySuspend'); break;
+                        case 1: if (appState.queues.readySuspend.includes('p1')) moveProcessToQueue('p1', 'ready'); break;
+                        case 2: if (appState.queues.ready.includes('p1')) moveProcessToQueue('p1', 'running'); break;
+                        case 3: if (appState.queues.running.includes('p1')) moveProcessToQueue('p1', 'blocked'); break;
+                        case 4: if (appState.queues.blocked.includes('p1')) moveProcessToQueue('p1', 'blockedSuspend'); break;
+                        case 5: if (appState.queues.blockedSuspend.includes('p1')) moveProcessToQueue('p1', 'readySuspend'); break;
+                        case 6: if (appState.queues.readySuspend.includes('p1')) moveProcessToQueue('p1', 'ready'); break;
+                        case 7: if (appState.queues.ready.includes('p1')) moveProcessToQueue('p1', 'running'); break;
+                        case 8: if (appState.queues.running.includes('p2')) moveProcessToQueue('p2', 'ready'); break;
+                        case 9: if (appState.queues.running.includes('p1')) moveProcessToQueue('p1', 'terminated'); break;
+                        case 10: if (appState.queues.ready.includes('p2')) moveProcessToQueue('p2', 'running'); break;
+                        case 11: if (appState.queues.running.includes('p2')) moveProcessToQueue('p2', 'terminated'); break;
+                    }
+                }
+                step++;
+            }, 400);
+        }
+        
+        function stopFastCycle() {
+            if (appState.fastCycleInterval) {
+                clearInterval(appState.fastCycleInterval);
+                appState.fastCycleInterval = null;
+            }
+        }
+        
+        function updateSceneLabel() {
+            let scenes;
+            if (appState.currentModel === 3) scenes = scenes3;
+            else if (appState.currentModel === 5) scenes = scenes5;
+            else scenes = scenes7;
+            dom.sceneLabel.textContent = `场景 ${Math.min(appState.currentScene + 1, scenes.length)}/${scenes.length}`;
+        }
+        
+        document.addEventListener('DOMContentLoaded', initialize);
+    </script>
+</body>
+</html>

@@ -1,0 +1,1465 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FIFO 先进先出页面置换算法</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0e14;
+            --fg: #ffffff;
+            --muted: #9ca3af;
+            --accent: #60a5fa;
+            --card: #1a1f2e;
+            --border: #3b4252;
+            
+            --hit-color: #22c55e;
+            --miss-color: #ef4444;
+            --guard-color: #f97316;
+            --timestamp-color: #fbbf24;
+            --seniority-long: #1e3a8a;
+            --seniority-short: #3b82f6;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Noto Sans SC', sans-serif;
+            background: var(--bg);
+            color: var(--fg);
+            min-height: 100vh;
+            overflow: hidden;
+        }
+        
+        .bg-layer {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            overflow: hidden;
+        }
+        
+        .bg-gradient {
+            position: absolute;
+            inset: 0;
+            background: 
+                radial-gradient(ellipse 50% 40% at 50% 0%, rgba(249, 115, 22, 0.12) 0%, transparent 60%),
+                radial-gradient(ellipse 40% 30% at 20% 80%, rgba(59, 130, 246, 0.08) 0%, transparent 50%),
+                radial-gradient(ellipse 40% 30% at 80% 80%, rgba(34, 197, 94, 0.08) 0%, transparent 50%);
+        }
+        
+        .bg-grid {
+            position: absolute;
+            inset: 0;
+            background-image: 
+                linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+        
+        .main-container {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding: 12px 20px;
+        }
+        
+        .header {
+            text-align: center;
+            opacity: 0;
+            transform: translateY(-30px);
+            transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .header.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .main-title {
+            font-size: clamp(1.4rem, 3vw, 2rem);
+            font-weight: 900;
+            letter-spacing: -0.02em;
+            background: linear-gradient(135deg, var(--fg), var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .subtitle {
+            font-size: clamp(0.8rem, 1.4vw, 0.95rem);
+            color: var(--guard-color);
+            margin-top: 4px;
+            font-weight: 600;
+        }
+        
+        .control-bar {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin-top: 8px;
+        }
+        
+        .control-btn {
+            padding: 6px 16px;
+            border-radius: 30px;
+            border: 2px solid var(--border);
+            background: var(--card);
+            color: var(--fg);
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: inherit;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .control-btn:hover {
+            border-color: var(--accent);
+            transform: translateY(-2px);
+        }
+        
+        .control-btn.active {
+            background: linear-gradient(135deg, var(--accent), #2563eb);
+            border-color: transparent;
+            color: white;
+        }
+        
+        .control-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .hint-container {
+            text-align: center;
+            margin-top: 6px;
+            min-height: 32px;
+        }
+        
+        .hint-box {
+            display: inline-block;
+            background: var(--card);
+            border: 2px solid var(--border);
+            padding: 6px 16px;
+            border-radius: 10px;
+            font-size: 0.95rem;
+            font-weight: 500;
+            max-width: min(700px, 90vw);
+            text-align: center;
+            opacity: 0;
+            transform: translateY(-15px);
+            transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .hint-box.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .stage {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            margin-top: 8px;
+            min-height: 0;
+        }
+        
+        .sequence-panel {
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            padding: 12px 16px;
+            opacity: 0;
+            transform: translateY(-20px);
+            transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .sequence-panel.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .sequence-title {
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: var(--fg);
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .sequence-container {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        
+        .sequence-item {
+            width: 55px;
+            height: 55px;
+            border-radius: 10px;
+            border: 2px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+            transition: all 0.4s ease;
+            background: var(--card);
+        }
+        
+        .sequence-item.pending {
+            color: var(--muted);
+            border-color: var(--border);
+        }
+        
+        .sequence-item.current {
+            color: var(--timestamp-color);
+            border-color: var(--timestamp-color);
+            background: rgba(251, 191, 36, 0.15);
+            box-shadow: 0 0 20px rgba(251, 191, 36, 0.3);
+        }
+        
+        .sequence-item.processed {
+            color: var(--muted);
+            border-color: transparent;
+            opacity: 0.5;
+        }
+        
+        .memory-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+            opacity: 0;
+            transform: scale(0.95);
+            transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .memory-panel.visible {
+            opacity: 1;
+            transform: scale(1);
+        }
+        
+        .memory-area {
+            display: flex;
+            gap: 24px;
+            align-items: flex-start;
+        }
+        
+        .guard-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            opacity: 0;
+            transform: translateX(-20px);
+            transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .guard-container.visible {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        
+        .guard-icon {
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--guard-color), #ea580c);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            position: relative;
+            transition: all 0.4s ease;
+        }
+        
+        .guard-icon.checking {
+            animation: checking 0.8s ease-in-out;
+        }
+        
+        @keyframes checking {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+        
+        .guard-label {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--guard-color);
+        }
+        
+        .frames-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .frames-title {
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: var(--fg);
+        }
+        
+        .frames {
+            display: flex;
+            gap: 16px;
+        }
+        
+        .frame-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .timestamp-display {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--timestamp-color);
+            background: rgba(251, 191, 36, 0.1);
+            padding: 2px 8px;
+            border-radius: 4px;
+            opacity: 0;
+            transition: all 0.4s ease;
+        }
+        
+        .timestamp-display.visible {
+            opacity: 1;
+        }
+        
+        .frame {
+            width: 90px;
+            height: 90px;
+            border-radius: 12px;
+            border: 3px solid var(--border);
+            background: var(--card);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.2rem;
+            font-weight: 900;
+            font-family: 'JetBrains Mono', monospace;
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            position: relative;
+        }
+        
+        .frame.hit {
+            border-color: var(--hit-color);
+            background: rgba(34, 197, 94, 0.15);
+            box-shadow: 0 0 25px rgba(34, 197, 94, 0.4);
+        }
+        
+        .frame.miss {
+            border-color: var(--miss-color);
+            background: rgba(239, 68, 68, 0.15);
+            box-shadow: 0 0 25px rgba(239, 68, 68, 0.4);
+        }
+        
+        .frame.replace {
+            animation: replacePulse 0.5s ease;
+        }
+        
+        @keyframes replacePulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+        
+        .frame .page-value {
+            opacity: 0;
+            transform: translateY(-20px);
+            transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .frame .page-value.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .frame .page-value.removing {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        
+        .frame-label {
+            font-size: 0.7rem;
+            color: var(--muted);
+        }
+        
+        .seniority-bar-container {
+            width: 80px;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        
+        .seniority-bar {
+            height: 100%;
+            border-radius: 4px;
+            transition: all 0.5s ease;
+            width: 0%;
+        }
+        
+        .seniority-bar.level-1 {
+            width: 33%;
+            background: var(--seniority-short);
+        }
+        
+        .seniority-bar.level-2 {
+            width: 66%;
+            background: #2563eb;
+        }
+        
+        .seniority-bar.level-3 {
+            width: 100%;
+            background: var(--seniority-long);
+        }
+        
+        .analysis-bubble {
+            background: var(--card);
+            border: 2px solid var(--guard-color);
+            padding: 6px 10px;
+            border-radius: 8px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            white-space: nowrap;
+            opacity: 0;
+            transition: all 0.3s ease;
+            position: absolute;
+            top: -45px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+        }
+        
+        .analysis-bubble.visible {
+            opacity: 1;
+        }
+        
+        .counter-panel {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .counter-panel.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .counter-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        .counter-label {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--fg);
+        }
+        
+        .counter-value {
+            width: 70px;
+            height: 70px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            font-weight: 900;
+            font-family: 'JetBrains Mono', monospace;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .counter-value.fault {
+            background: rgba(239, 68, 68, 0.2);
+            border: 2px solid var(--miss-color);
+            color: var(--miss-color);
+        }
+        
+        .counter-value.hit {
+            background: rgba(34, 197, 94, 0.2);
+            border: 2px solid var(--hit-color);
+            color: var(--hit-color);
+        }
+        
+        .counter-value.pulse {
+            animation: counterPulse 0.3s ease;
+        }
+        
+        @keyframes counterPulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.2); }
+        }
+        
+        .status-text {
+            font-size: 0.85rem;
+            color: var(--fg);
+            text-align: center;
+            margin-top: 8px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .status-text.visible {
+            opacity: 1;
+        }
+        
+        .status-text .hit-text { color: var(--hit-color); font-weight: 700; }
+        .status-text .miss-text { color: var(--miss-color); font-weight: 700; }
+        .status-text .warn-text { color: var(--guard-color); font-weight: 700; }
+        
+        .comparison-panel {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            padding: 12px 16px;
+            opacity: 0;
+            transform: translateX(20px);
+            transition: all 0.5s ease;
+            z-index: 20;
+        }
+        
+        .comparison-panel.visible {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        
+        .comparison-title {
+            font-size: 0.8rem;
+            font-weight: 700;
+            color: var(--fg);
+            margin-bottom: 8px;
+        }
+        
+        .comparison-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin: 4px 0;
+            font-size: 0.85rem;
+        }
+        
+        .comparison-label {
+            min-width: 50px;
+        }
+        
+        .comparison-label.lru { color: var(--hit-color); }
+        .comparison-label.fifo { color: var(--guard-color); }
+        
+        .comparison-value {
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        .belady-panel {
+            position: fixed;
+            inset: 0;
+            background: rgba(10, 14, 20, 0.95);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.5s ease;
+            z-index: 100;
+        }
+        
+        .belady-panel.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        
+        .belady-content {
+            display: flex;
+            gap: 40px;
+            align-items: flex-start;
+        }
+        
+        .belady-side {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .belady-title {
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--fg);
+        }
+        
+        .belady-frames {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .belady-frame {
+            width: 50px;
+            height: 50px;
+            border-radius: 8px;
+            border: 2px solid var(--border);
+            background: var(--card);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        .belady-counter {
+            font-size: 1.5rem;
+            font-weight: 900;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        .belady-counter.less { color: var(--hit-color); }
+        .belady-counter.more { color: var(--miss-color); }
+        
+        .belady-anomaly {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+        
+        .belady-anomaly-title {
+            font-size: 1.5rem;
+            font-weight: 900;
+            color: var(--guard-color);
+            margin-bottom: 8px;
+        }
+        
+        .belady-anomaly-desc {
+            font-size: 0.9rem;
+            color: var(--muted);
+            max-width: 300px;
+        }
+        
+        .summary-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(10, 14, 20, 0.95);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.5s ease;
+            z-index: 100;
+        }
+        
+        .summary-overlay.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        
+        .summary-card {
+            background: var(--card);
+            border: 3px solid var(--border);
+            border-radius: 16px;
+            padding: 24px 32px;
+            max-width: 600px;
+            transform: scale(0.9);
+            transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+            text-align: center;
+        }
+        
+        .summary-overlay.visible .summary-card {
+            transform: scale(1);
+        }
+        
+        .summary-title {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: var(--guard-color);
+            margin-bottom: 16px;
+        }
+        
+        .summary-text {
+            font-size: 1rem;
+            line-height: 1.8;
+            color: var(--fg);
+        }
+        
+        .summary-text .highlight {
+            color: var(--guard-color);
+            font-weight: 700;
+        }
+        
+        .summary-text .key {
+            color: var(--hit-color);
+            font-weight: 700;
+        }
+        
+        .summary-text .warn {
+            color: var(--miss-color);
+            font-weight: 700;
+        }
+        
+        .progress-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: var(--border);
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--guard-color), var(--accent));
+            width: 0%;
+            transition: width 0.1s linear;
+        }
+        
+        .scene-indicator {
+            position: fixed;
+            bottom: 10px;
+            right: 16px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            padding: 5px 12px;
+            border-radius: 16px;
+            font-size: 0.8rem;
+            color: var(--fg);
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        @media (max-width: 768px) {
+            .memory-area {
+                flex-direction: column;
+                gap: 16px;
+            }
+            
+            .frame {
+                width: 70px;
+                height: 70px;
+                font-size: 1.8rem;
+            }
+            
+            .sequence-item {
+                width: 45px;
+                height: 45px;
+                font-size: 1.2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-layer">
+        <div class="bg-gradient"></div>
+        <div class="bg-grid"></div>
+    </div>
+    
+    <div class="main-container">
+        <div class="header" id="header">
+            <h1 class="main-title">FIFO 先进先出算法</h1>
+            <p class="subtitle">严守规则的耿直保安 · 先进先出最老先淘汰</p>
+        </div>
+        
+        <div class="control-bar">
+            <button class="control-btn" id="playBtn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <polygon points="5,3 19,12 5,21"/>
+                </svg>
+                播放
+            </button>
+            <button class="control-btn" id="pauseBtn" disabled>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <rect x="6" y="4" width="4" height="16"/>
+                    <rect x="14" y="4" width="4" height="16"/>
+                </svg>
+                暂停
+            </button>
+            <button class="control-btn" id="resetBtn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                    <path d="M3 3v5h5"/>
+                </svg>
+                重置
+            </button>
+            <button class="control-btn" id="prevBtn" disabled>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <polygon points="19,3 5,12 19,21"/>
+                </svg>
+                上一场景
+            </button>
+            <button class="control-btn" id="nextBtn">
+                下一场景
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <polygon points="5,3 19,12 5,21"/>
+                </svg>
+            </button>
+        </div>
+        
+        <div class="hint-container">
+            <div class="hint-box" id="hintBox"></div>
+        </div>
+        
+        <div class="stage" id="stage">
+            <div class="sequence-panel" id="sequencePanel">
+                <div class="sequence-title">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="8" y1="6" x2="21" y2="6"/>
+                        <line x1="8" y1="12" x2="21" y2="12"/>
+                        <line x1="8" y1="18" x2="21" y2="18"/>
+                    </svg>
+                    页面请求序列
+                </div>
+                <div class="sequence-container" id="sequenceContainer">
+                    <div class="sequence-item pending" id="seq0">3</div>
+                    <div class="sequence-item pending" id="seq1">2</div>
+                    <div class="sequence-item pending" id="seq2">1</div>
+                    <div class="sequence-item pending" id="seq3">0</div>
+                    <div class="sequence-item pending" id="seq4">3</div>
+                    <div class="sequence-item pending" id="seq5">2</div>
+                    <div class="sequence-item pending" id="seq6">4</div>
+                </div>
+            </div>
+            
+            <div class="memory-panel" id="memoryPanel">
+                <div class="memory-area">
+                    <div class="guard-container" id="guardContainer">
+                        <div class="guard-icon" id="guardIcon">👮</div>
+                        <span class="guard-label">FIFO保安</span>
+                    </div>
+                    
+                    <div class="frames-container">
+                        <div class="frames-title">物理内存块 (Frames) = 3</div>
+                        <div class="frames" id="frames">
+                            <div class="frame-wrapper">
+                                <div class="timestamp-display" id="timestamp0">--:--</div>
+                                <div class="frame" id="frame0">
+                                    <span class="page-value" id="page0"></span>
+                                    <div class="analysis-bubble" id="analysis0"></div>
+                                </div>
+                                <div class="seniority-bar-container">
+                                    <div class="seniority-bar" id="seniority0"></div>
+                                </div>
+                                <span class="frame-label">块0</span>
+                            </div>
+                            <div class="frame-wrapper">
+                                <div class="timestamp-display" id="timestamp1">--:--</div>
+                                <div class="frame" id="frame1">
+                                    <span class="page-value" id="page1"></span>
+                                    <div class="analysis-bubble" id="analysis1"></div>
+                                </div>
+                                <div class="seniority-bar-container">
+                                    <div class="seniority-bar" id="seniority1"></div>
+                                </div>
+                                <span class="frame-label">块1</span>
+                            </div>
+                            <div class="frame-wrapper">
+                                <div class="timestamp-display" id="timestamp2">--:--</div>
+                                <div class="frame" id="frame2">
+                                    <span class="page-value" id="page2"></span>
+                                    <div class="analysis-bubble" id="analysis2"></div>
+                                </div>
+                                <div class="seniority-bar-container">
+                                    <div class="seniority-bar" id="seniority2"></div>
+                                </div>
+                                <span class="frame-label">块2</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="status-text" id="statusText"></div>
+            </div>
+            
+            <div class="counter-panel" id="counterPanel">
+                <div class="counter-item">
+                    <span class="counter-label">缺页次数</span>
+                    <div class="counter-value fault" id="faultCounter">0</div>
+                </div>
+                <div class="counter-item">
+                    <span class="counter-label">命中次数</span>
+                    <div class="counter-value hit" id="hitCounter">0</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="comparison-panel" id="comparisonPanel">
+        <div class="comparison-title">与LRU对比</div>
+        <div class="comparison-row">
+            <span class="comparison-label lru">LRU</span>
+            <span class="comparison-value">命中续命</span>
+        </div>
+        <div class="comparison-row">
+            <span class="comparison-label fifo">FIFO</span>
+            <span class="comparison-value">无视热度</span>
+        </div>
+    </div>
+    
+    <div class="belady-panel" id="beladyPanel">
+        <div class="belady-content">
+            <div class="belady-side">
+                <div class="belady-title">3个内存块</div>
+                <div class="belady-frames" id="beladyFrames3">
+                    <div class="belady-frame">3</div>
+                    <div class="belady-frame">2</div>
+                    <div class="belady-frame">4</div>
+                </div>
+                <div class="belady-counter less" id="beladyCounter3">缺页: 6次</div>
+            </div>
+            <div class="belady-anomaly">
+                <div class="belady-anomaly-title">⚠️ Belady's Anomaly</div>
+                <div class="belady-anomaly-desc">贝莱迪异常：内存增大，缺页率反而升高！</div>
+            </div>
+            <div class="belady-side">
+                <div class="belady-title">4个内存块</div>
+                <div class="belady-frames" id="beladyFrames4">
+                    <div class="belady-frame">3</div>
+                    <div class="belady-frame">2</div>
+                    <div class="belady-frame">1</div>
+                    <div class="belady-frame">4</div>
+                </div>
+                <div class="belady-counter more" id="beladyCounter4">缺页: 7次</div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="summary-overlay" id="summaryOverlay">
+        <div class="summary-card">
+            <h2 class="summary-title">FIFO 核心总结</h2>
+            <p class="summary-text">
+                FIFO是<span class="highlight">最简单、最死板</span>的页面置换算法，像一位严守规则的耿直保安。<br><br>
+                置换规则：<span class="key">先进先出，最老先淘汰</span><br><br>
+                核心特性：<span class="warn">完全无视使用热度</span>——即使页面刚被访问，工龄依旧增长。<br><br>
+                优点：实现简单，开销极低。<br>
+                缺点：可能淘汰常用页面，存在<span class="warn">贝莱迪异常</span>。
+            </p>
+        </div>
+    </div>
+    
+    <div class="progress-bar">
+        <div class="progress-fill" id="progressFill"></div>
+    </div>
+    
+    <div class="scene-indicator" id="sceneIndicator">场景 1/5</div>
+    
+    <script>
+        const dom = {};
+        
+        const pageSequence = [3, 2, 1, 0, 3, 2, 4];
+        
+        let appState = {
+            currentScene: 0,
+            isPlaying: false,
+            isPaused: false,
+            sceneTimeout: null,
+            actionTimeouts: [],
+            sceneStartTime: 0,
+            progressInterval: null,
+            currentIndex: 0,
+            frames: [null, null, null],
+            timestamps: [0, 0, 0],
+            seniority: [0, 0, 0],
+            faultCount: 0,
+            hitCount: 0,
+            occupiedFrames: 0,
+            currentTime: 0
+        };
+        
+        const scenes = [
+            {
+                name: '传送带逻辑',
+                duration: 12000,
+                actions: [
+                    { time: 0, type: 'showHeader' },
+                    { time: 300, type: 'showHint', text: 'FIFO——严守规则的耿直保安...' },
+                    { time: 500, type: 'showSequencePanel' },
+                    { time: 800, type: 'showMemoryPanel' },
+                    { time: 1000, type: 'showGuard' },
+                    { time: 1200, type: 'showCounterPanel' },
+                    { time: 2000, type: 'showHint', text: 'OPT预言家 → LRU记账员 → FIFO耿直保安' },
+                    { time: 5000, type: 'showHint', text: '只认进场先后顺序，不管你最近用不用、未来要不要用。' },
+                    { time: 8000, type: 'showHint', text: '序列: 3, 2, 1, 0, 3, 2, 4' }
+                ]
+            },
+            {
+                name: '按序就坐',
+                duration: 15000,
+                actions: [
+                    { time: 0, type: 'showHint', text: 'FIFO逻辑极其简单，新页面按顺序进入内存工位...' },
+                    { time: 1000, type: 'setCurrentIndex', index: 0 },
+                    { time: 1500, type: 'loadPage', frame: 0, page: 3, time: '12:00' },
+                    { time: 2000, type: 'incrementFault' },
+                    { time: 2500, type: 'showStatus', text: '页面 <span class="miss-text">3</span> 进入块0，时间戳12:00，<span class="miss-text">缺页</span>', isHit: false },
+                    { time: 4000, type: 'setCurrentIndex', index: 1 },
+                    { time: 4500, type: 'loadPage', frame: 1, page: 2, time: '12:01' },
+                    { time: 5000, type: 'incrementFault' },
+                    { time: 5500, type: 'updateSeniority' },
+                    { time: 6000, type: 'showStatus', text: '页面 <span class="miss-text">2</span> 进入块1，时间戳12:01，<span class="miss-text">缺页</span>', isHit: false },
+                    { time: 7500, type: 'setCurrentIndex', index: 2 },
+                    { time: 8000, type: 'loadPage', frame: 2, page: 1, time: '12:02' },
+                    { time: 8500, type: 'incrementFault' },
+                    { time: 9000, type: 'updateSeniority' },
+                    { time: 9500, type: 'showStatus', text: '页面 <span class="miss-text">1</span> 进入块2，时间戳12:02，<span class="miss-text">缺页</span>，内存满员！', isHit: false },
+                    { time: 12000, type: 'showHint', text: '三个页面：3(12:00)、2(12:01)、1(12:02)，3号工龄最长' }
+                ]
+            },
+            {
+                name: '无视热点的铁面',
+                duration: 13000,
+                actions: [
+                    { time: 0, type: 'showHint', text: '这是FIFO和LRU最大的区别——无视使用热度！' },
+                    { time: 1000, type: 'setCurrentIndex', index: 3 },
+                    { time: 1500, type: 'loadPage', frame: 0, page: 0, time: '12:05' },
+                    { time: 2000, type: 'incrementFault' },
+                    { time: 2500, type: 'showStatus', text: '页面 <span class="miss-text">0</span> 淘汰最老的3，进入块0，<span class="miss-text">缺页</span>', isHit: false },
+                    { time: 4000, type: 'showHint', text: '新页面0入场，耿直保安毫不犹豫淘汰最早进场的页面3' },
+                    { time: 6000, type: 'setCurrentIndex', index: 4 },
+                    { time: 6500, type: 'hitPage', frame: 1 },
+                    { time: 7000, type: 'incrementHit' },
+                    { time: 7500, type: 'showStatus', text: '页面 <span class="hit-text">2</span> 命中！但时间戳不变，工龄继续增长', isHit: true },
+                    { time: 9000, type: 'showComparison' },
+                    { time: 10000, type: 'showHint', text: 'LRU会命中续命，FIFO完全无视——这就是死板！' }
+                ]
+            },
+            {
+                name: '无情的驱逐',
+                duration: 15000,
+                actions: [
+                    { time: 0, type: 'showHint', text: '继续执行页面请求...' },
+                    { time: 1000, type: 'setCurrentIndex', index: 5 },
+                    { time: 1500, type: 'hitPage', frame: 2 },
+                    { time: 2000, type: 'incrementHit' },
+                    { time: 2500, type: 'showStatus', text: '页面 <span class="hit-text">1</span> 命中！时间戳依旧12:02', isHit: true },
+                    { time: 4000, type: 'setCurrentIndex', index: 6 },
+                    { time: 4500, type: 'showGuardChecking' },
+                    { time: 5500, type: 'showAnalysis', frame: 0, text: '12:05' },
+                    { time: 6000, type: 'showAnalysis', frame: 1, text: '12:01 最老!' },
+                    { time: 6500, type: 'showAnalysis', frame: 2, text: '12:02' },
+                    { time: 8000, type: 'hideAnalysis' },
+                    { time: 8500, type: 'showHint', text: '页面2进场最早(12:01)，必须淘汰！' },
+                    { time: 10000, type: 'replacePage', frame: 1, newPage: 4, time: '12:06' },
+                    { time: 10500, type: 'incrementFault' },
+                    { time: 11000, type: 'showStatus', text: '淘汰页面2，页面4进入块1，<span class="miss-text">缺页</span>', isHit: false },
+                    { time: 13000, type: 'showGuardChecking', checking: false }
+                ]
+            },
+            {
+                name: '贝莱迪异常',
+                duration: 15000,
+                actions: [
+                    { time: 0, type: 'showHint', text: 'FIFO还有一个致命缺陷——贝莱迪异常！' },
+                    { time: 2000, type: 'showBelady' },
+                    { time: 4000, type: 'showHint', text: '正常情况：内存越大，缺页次数应该越少...' },
+                    { time: 7000, type: 'showHint', text: '但FIFO有时会出现反常识：内存越大，缺页率反而更高！' },
+                    { time: 10000, type: 'showSummary' },
+                    { time: 12000, type: 'showHint', text: '这就是FIFO极少单独用于现代系统的核心原因。' }
+                ]
+            }
+        ];
+        
+        function initialize() {
+            dom.header = document.getElementById('header');
+            dom.hintBox = document.getElementById('hintBox');
+            dom.sequencePanel = document.getElementById('sequencePanel');
+            dom.memoryPanel = document.getElementById('memoryPanel');
+            dom.guardContainer = document.getElementById('guardContainer');
+            dom.guardIcon = document.getElementById('guardIcon');
+            dom.frames = [
+                document.getElementById('frame0'),
+                document.getElementById('frame1'),
+                document.getElementById('frame2')
+            ];
+            dom.pages = [
+                document.getElementById('page0'),
+                document.getElementById('page1'),
+                document.getElementById('page2')
+            ];
+            dom.timestamps = [
+                document.getElementById('timestamp0'),
+                document.getElementById('timestamp1'),
+                document.getElementById('timestamp2')
+            ];
+            dom.seniority = [
+                document.getElementById('seniority0'),
+                document.getElementById('seniority1'),
+                document.getElementById('seniority2')
+            ];
+            dom.analysisBubbles = [
+                document.getElementById('analysis0'),
+                document.getElementById('analysis1'),
+                document.getElementById('analysis2')
+            ];
+            dom.counterPanel = document.getElementById('counterPanel');
+            dom.faultCounter = document.getElementById('faultCounter');
+            dom.hitCounter = document.getElementById('hitCounter');
+            dom.statusText = document.getElementById('statusText');
+            dom.comparisonPanel = document.getElementById('comparisonPanel');
+            dom.beladyPanel = document.getElementById('beladyPanel');
+            dom.summaryOverlay = document.getElementById('summaryOverlay');
+            dom.progressFill = document.getElementById('progressFill');
+            dom.sceneIndicator = document.getElementById('sceneIndicator');
+            dom.playBtn = document.getElementById('playBtn');
+            dom.pauseBtn = document.getElementById('pauseBtn');
+            dom.resetBtn = document.getElementById('resetBtn');
+            dom.prevBtn = document.getElementById('prevBtn');
+            dom.nextBtn = document.getElementById('nextBtn');
+            dom.seqItems = [];
+            for (let i = 0; i < 7; i++) {
+                dom.seqItems.push(document.getElementById(`seq${i}`));
+            }
+            
+            dom.playBtn.addEventListener('click', startPlayback);
+            dom.pauseBtn.addEventListener('click', pausePlayback);
+            dom.resetBtn.addEventListener('click', resetAll);
+            dom.prevBtn.addEventListener('click', prevScene);
+            dom.nextBtn.addEventListener('click', nextScene);
+            
+            updateSceneIndicator();
+        }
+        
+        function showHeader() {
+            dom.header.classList.add('visible');
+        }
+        
+        function showHint(text) {
+            dom.hintBox.textContent = text;
+            dom.hintBox.classList.add('visible');
+        }
+        
+        function showSequencePanel() {
+            dom.sequencePanel.classList.add('visible');
+        }
+        
+        function showMemoryPanel() {
+            dom.memoryPanel.classList.add('visible');
+        }
+        
+        function showGuard() {
+            dom.guardContainer.classList.add('visible');
+        }
+        
+        function showGuardChecking(checking = true) {
+            if (checking) {
+                dom.guardIcon.classList.add('checking');
+            } else {
+                dom.guardIcon.classList.remove('checking');
+            }
+        }
+        
+        function showCounterPanel() {
+            dom.counterPanel.classList.add('visible');
+        }
+        
+        function setCurrentIndex(index) {
+            dom.seqItems.forEach((item, i) => {
+                item.classList.remove('current', 'processed', 'pending');
+                if (i < index) {
+                    item.classList.add('processed');
+                } else if (i === index) {
+                    item.classList.add('current');
+                } else {
+                    item.classList.add('pending');
+                }
+            });
+            appState.currentIndex = index;
+        }
+        
+        function loadPage(frame, page, time) {
+            appState.frames[frame] = page;
+            appState.timestamps[frame] = time;
+            appState.occupiedFrames++;
+            dom.pages[frame].textContent = page;
+            dom.pages[frame].classList.add('visible');
+            dom.pages[frame].classList.remove('removing');
+            dom.frames[frame].classList.add('miss');
+            setTimeout(() => dom.frames[frame].classList.remove('miss'), 800);
+            dom.timestamps[frame].textContent = time;
+            dom.timestamps[frame].classList.add('visible');
+            updateSeniority();
+        }
+        
+        function replacePage(frame, newPage, time) {
+            dom.pages[frame].classList.add('removing');
+            setTimeout(() => {
+                dom.pages[frame].classList.remove('removing');
+                appState.frames[frame] = newPage;
+                appState.timestamps[frame] = time;
+                dom.pages[frame].textContent = newPage;
+                dom.pages[frame].classList.add('visible');
+                dom.frames[frame].classList.add('replace', 'miss');
+                setTimeout(() => dom.frames[frame].classList.remove('replace', 'miss'), 500);
+                dom.timestamps[frame].textContent = time;
+                updateSeniority();
+            }, 400);
+        }
+        
+        function hitPage(frame) {
+            dom.frames[frame].classList.add('hit');
+            setTimeout(() => dom.frames[frame].classList.remove('hit'), 800);
+        }
+        
+        function updateSeniority() {
+            const timestamps = appState.timestamps.map((t, i) => ({ time: t, index: i, hasPage: appState.frames[i] !== null }));
+            const validTimestamps = timestamps.filter(t => t.hasPage);
+            validTimestamps.sort((a, b) => {
+                if (a.time === 0) return 1;
+                if (b.time === 0) return -1;
+                return a.time.localeCompare(b.time);
+            });
+            validTimestamps.forEach((t, rank) => {
+                const level = rank + 1;
+                dom.seniority[t.index].className = 'seniority-bar';
+                dom.seniority[t.index].classList.add(`level-${level}`);
+            });
+        }
+        
+        function incrementFault() {
+            appState.faultCount++;
+            dom.faultCounter.textContent = appState.faultCount;
+            dom.faultCounter.classList.add('pulse');
+            setTimeout(() => dom.faultCounter.classList.remove('pulse'), 300);
+        }
+        
+        function incrementHit() {
+            appState.hitCount++;
+            dom.hitCounter.textContent = appState.hitCount;
+            dom.hitCounter.classList.add('pulse');
+            setTimeout(() => dom.hitCounter.classList.remove('pulse'), 300);
+        }
+        
+        function showStatus(text, isHit) {
+            dom.statusText.innerHTML = text;
+            dom.statusText.classList.add('visible');
+        }
+        
+        function showAnalysis(frame, text) {
+            dom.analysisBubbles[frame].textContent = text;
+            dom.analysisBubbles[frame].classList.add('visible');
+        }
+        
+        function hideAnalysis() {
+            dom.analysisBubbles.forEach(bubble => bubble.classList.remove('visible'));
+        }
+        
+        function showComparison() {
+            dom.comparisonPanel.classList.add('visible');
+        }
+        
+        function showBelady() {
+            dom.beladyPanel.classList.add('visible');
+        }
+        
+        function showSummary() {
+            dom.summaryOverlay.classList.add('visible');
+        }
+        
+        function executeAction(action) {
+            switch (action.type) {
+                case 'showHeader': showHeader(); break;
+                case 'showHint': showHint(action.text); break;
+                case 'showSequencePanel': showSequencePanel(); break;
+                case 'showMemoryPanel': showMemoryPanel(); break;
+                case 'showGuard': showGuard(); break;
+                case 'showGuardChecking': showGuardChecking(action.checking); break;
+                case 'showCounterPanel': showCounterPanel(); break;
+                case 'setCurrentIndex': setCurrentIndex(action.index); break;
+                case 'loadPage': loadPage(action.frame, action.page, action.time); break;
+                case 'replacePage': replacePage(action.frame, action.newPage, action.time); break;
+                case 'hitPage': hitPage(action.frame); break;
+                case 'updateSeniority': updateSeniority(); break;
+                case 'incrementFault': incrementFault(); break;
+                case 'incrementHit': incrementHit(); break;
+                case 'showStatus': showStatus(action.text, action.isHit); break;
+                case 'showAnalysis': showAnalysis(action.frame, action.text); break;
+                case 'hideAnalysis': hideAnalysis(); break;
+                case 'showComparison': showComparison(); break;
+                case 'showBelady': showBelady(); break;
+                case 'showSummary': showSummary(); break;
+            }
+        }
+        
+        function runScene(sceneIndex) {
+            const scene = scenes[sceneIndex];
+            appState.sceneStartTime = Date.now();
+            
+            scene.actions.forEach(action => {
+                const timeout = setTimeout(() => {
+                    if (appState.isPlaying && !appState.isPaused) {
+                        executeAction(action);
+                    }
+                }, action.time);
+                appState.actionTimeouts.push(timeout);
+            });
+            
+            appState.progressInterval = setInterval(() => {
+                if (appState.isPlaying && !appState.isPaused) {
+                    const elapsed = Date.now() - appState.sceneStartTime;
+                    const progress = Math.min((elapsed / scene.duration) * 100, 100);
+                    dom.progressFill.style.width = `${(sceneIndex / scenes.length) * 100 + (progress / scenes.length)}%`;
+                }
+            }, 50);
+            
+            appState.sceneTimeout = setTimeout(() => {
+                clearInterval(appState.progressInterval);
+                if (appState.currentScene < scenes.length - 1) {
+                    appState.currentScene++;
+                    updateSceneIndicator();
+                    runScene(appState.currentScene);
+                } else {
+                    stopPlayback();
+                }
+            }, scene.duration);
+        }
+        
+        function startPlayback() {
+            if (appState.isPlaying) return;
+            
+            appState.isPlaying = true;
+            appState.isPaused = false;
+            
+            dom.playBtn.disabled = true;
+            dom.pauseBtn.disabled = false;
+            dom.prevBtn.disabled = false;
+            dom.nextBtn.disabled = false;
+            
+            runScene(appState.currentScene);
+        }
+        
+        function pausePlayback() {
+            appState.isPaused = !appState.isPaused;
+            
+            if (appState.isPaused) {
+                dom.pauseBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>继续`;
+            } else {
+                dom.pauseBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>暂停`;
+            }
+        }
+        
+        function stopPlayback() {
+            appState.isPlaying = false;
+            appState.isPaused = false;
+            
+            clearTimeout(appState.sceneTimeout);
+            appState.actionTimeouts.forEach(clearTimeout);
+            appState.actionTimeouts = [];
+            clearInterval(appState.progressInterval);
+            
+            dom.playBtn.disabled = false;
+            dom.pauseBtn.disabled = true;
+            dom.pauseBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>暂停`;
+        }
+        
+        function resetAll() {
+            stopPlayback();
+            
+            appState.currentScene = 0;
+            appState.currentIndex = 0;
+            appState.frames = [null, null, null];
+            appState.timestamps = [0, 0, 0];
+            appState.seniority = [0, 0, 0];
+            appState.faultCount = 0;
+            appState.hitCount = 0;
+            appState.occupiedFrames = 0;
+            appState.currentTime = 0;
+            
+            dom.header.classList.remove('visible');
+            dom.hintBox.classList.remove('visible');
+            dom.sequencePanel.classList.remove('visible');
+            dom.memoryPanel.classList.remove('visible');
+            dom.guardContainer.classList.remove('visible');
+            dom.counterPanel.classList.remove('visible');
+            dom.comparisonPanel.classList.remove('visible');
+            dom.beladyPanel.classList.remove('visible');
+            dom.summaryOverlay.classList.remove('visible');
+            dom.progressFill.style.width = '0%';
+            dom.statusText.classList.remove('visible');
+            
+            dom.faultCounter.textContent = '0';
+            dom.hitCounter.textContent = '0';
+            
+            dom.seqItems.forEach((item, i) => {
+                item.classList.remove('current', 'processed');
+                item.classList.add('pending');
+            });
+            
+            dom.pages.forEach(page => {
+                page.textContent = '';
+                page.classList.remove('visible', 'removing');
+            });
+            
+            dom.frames.forEach(frame => {
+                frame.classList.remove('hit', 'miss', 'replace');
+            });
+            
+            dom.timestamps.forEach(ts => {
+                ts.textContent = '--:--';
+                ts.classList.remove('visible');
+            });
+            
+            dom.seniority.forEach(bar => {
+                bar.className = 'seniority-bar';
+            });
+            
+            dom.analysisBubbles.forEach(bubble => bubble.classList.remove('visible'));
+            dom.guardIcon.classList.remove('checking');
+            
+            updateSceneIndicator();
+        }
+        
+        function prevScene() {
+            if (appState.currentScene > 0) {
+                stopPlayback();
+                resetAll();
+                appState.currentScene--;
+                updateSceneIndicator();
+                startPlayback();
+            }
+        }
+        
+        function nextScene() {
+            if (appState.currentScene < scenes.length - 1) {
+                stopPlayback();
+                resetAll();
+                appState.currentScene++;
+                updateSceneIndicator();
+                startPlayback();
+            }
+        }
+        
+        function updateSceneIndicator() {
+            dom.sceneIndicator.textContent = `场景 ${appState.currentScene + 1}/${scenes.length}: ${scenes[appState.currentScene].name}`;
+        }
+        
+        document.addEventListener('DOMContentLoaded', initialize);
+    </script>
+</body>
+</html>

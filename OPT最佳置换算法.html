@@ -1,0 +1,1356 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OPT 最佳置换算法</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0e14;
+            --fg: #ffffff;
+            --muted: #9ca3af;
+            --accent: #60a5fa;
+            --card: #1a1f2e;
+            --border: #3b4252;
+            
+            --hit-color: #22c55e;
+            --miss-color: #ef4444;
+            --future-color: #3b82f6;
+            --scheduler-color: #8b5cf6;
+            --visited-color: #6b7280;
+            --current-color: #fbbf24;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Noto Sans SC', sans-serif;
+            background: var(--bg);
+            color: var(--fg);
+            min-height: 100vh;
+            overflow: hidden;
+        }
+        
+        .bg-layer {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            overflow: hidden;
+        }
+        
+        .bg-gradient {
+            position: absolute;
+            inset: 0;
+            background: 
+                radial-gradient(ellipse 50% 40% at 50% 0%, rgba(139, 92, 246, 0.12) 0%, transparent 60%),
+                radial-gradient(ellipse 40% 30% at 20% 80%, rgba(59, 130, 246, 0.08) 0%, transparent 50%),
+                radial-gradient(ellipse 40% 30% at 80% 80%, rgba(34, 197, 94, 0.08) 0%, transparent 50%);
+        }
+        
+        .bg-grid {
+            position: absolute;
+            inset: 0;
+            background-image: 
+                linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+        
+        .main-container {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding: 12px 20px;
+        }
+        
+        .header {
+            text-align: center;
+            opacity: 0;
+            transform: translateY(-30px);
+            transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .header.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .main-title {
+            font-size: clamp(1.4rem, 3vw, 2rem);
+            font-weight: 900;
+            letter-spacing: -0.02em;
+            color: var(--fg);
+        }
+        
+        .subtitle {
+            font-size: clamp(0.8rem, 1.4vw, 0.95rem);
+            color: var(--scheduler-color);
+            margin-top: 4px;
+            font-weight: 600;
+        }
+        
+        .control-bar {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin-top: 8px;
+        }
+        
+        .control-btn {
+            padding: 6px 16px;
+            border-radius: 30px;
+            border: 2px solid var(--border);
+            background: var(--card);
+            color: var(--fg);
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: inherit;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .control-btn:hover {
+            border-color: var(--accent);
+            transform: translateY(-2px);
+        }
+        
+        .control-btn.active {
+            background: linear-gradient(135deg, var(--accent), #2563eb);
+            border-color: transparent;
+        }
+        
+        .control-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .hint-container {
+            text-align: center;
+            margin-top: 6px;
+            min-height: 32px;
+        }
+        
+        .hint-box {
+            display: inline-block;
+            background: var(--card);
+            border: 2px solid var(--border);
+            padding: 6px 16px;
+            border-radius: 10px;
+            font-size: 0.95rem;
+            font-weight: 500;
+            max-width: min(700px, 90vw);
+            text-align: center;
+            opacity: 0;
+            transform: translateY(-15px);
+            transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .hint-box.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .stage {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            margin-top: 8px;
+            min-height: 0;
+        }
+        
+        .sequence-panel {
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            padding: 12px 16px;
+            opacity: 0;
+            transform: translateY(-20px);
+            transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .sequence-panel.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .sequence-title {
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: var(--muted);
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .sequence-container {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        
+        .sequence-item {
+            width: 50px;
+            height: 50px;
+            border-radius: 8px;
+            border: 2px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.4rem;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+            transition: all 0.4s ease;
+            position: relative;
+        }
+        
+        .sequence-item.future {
+            color: var(--visited-color);
+            border-color: var(--border);
+            background: rgba(255, 255, 255, 0.02);
+        }
+        
+        .sequence-item.current {
+            color: var(--current-color);
+            border-color: var(--current-color);
+            background: rgba(251, 191, 36, 0.15);
+            box-shadow: 0 0 20px rgba(251, 191, 36, 0.3);
+        }
+        
+        .sequence-item.visited {
+            color: var(--visited-color);
+            border-color: transparent;
+            background: transparent;
+            opacity: 0.4;
+        }
+        
+        .sequence-item.highlight {
+            border-color: var(--future-color);
+            background: rgba(59, 130, 246, 0.2);
+            box-shadow: 0 0 15px rgba(59, 130, 246, 0.4);
+        }
+        
+        .sequence-item .future-marker {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--future-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.6rem;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .sequence-item.highlight .future-marker {
+            opacity: 1;
+        }
+        
+        .memory-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+            opacity: 0;
+            transform: scale(0.95);
+            transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .memory-panel.visible {
+            opacity: 1;
+            transform: scale(1);
+        }
+        
+        .memory-area {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+        
+        .scheduler-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            opacity: 0;
+            transform: translateX(-20px);
+            transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .scheduler-container.visible {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        
+        .scheduler-icon {
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--scheduler-color), #7c3aed);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            position: relative;
+            transition: all 0.4s ease;
+        }
+        
+        .scheduler-icon.observing {
+            box-shadow: 0 0 30px rgba(59, 130, 246, 0.5);
+        }
+        
+        .scheduler-icon.broken {
+            filter: grayscale(100%);
+            opacity: 0.5;
+        }
+        
+        .telescope {
+            position: absolute;
+            right: -15px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 1.5rem;
+            opacity: 0;
+            transition: all 0.4s ease;
+        }
+        
+        .scheduler-icon.observing .telescope {
+            opacity: 1;
+            animation: telescopeGlow 1s ease-in-out infinite;
+        }
+        
+        @keyframes telescopeGlow {
+            0%, 100% { filter: drop-shadow(0 0 5px var(--future-color)); }
+            50% { filter: drop-shadow(0 0 15px var(--future-color)); }
+        }
+        
+        .scheduler-label {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--scheduler-color);
+        }
+        
+        .frames-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .frames-title {
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: var(--accent);
+        }
+        
+        .frames {
+            display: flex;
+            gap: 12px;
+        }
+        
+        .frame {
+            width: 80px;
+            height: 80px;
+            border-radius: 12px;
+            border: 3px solid var(--border);
+            background: rgba(255, 255, 255, 0.03);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            font-weight: 900;
+            font-family: 'JetBrains Mono', monospace;
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            position: relative;
+        }
+        
+        .frame.hit {
+            border-color: var(--hit-color);
+            background: rgba(34, 197, 94, 0.15);
+            box-shadow: 0 0 25px rgba(34, 197, 94, 0.4);
+        }
+        
+        .frame.miss {
+            border-color: var(--miss-color);
+            background: rgba(239, 68, 68, 0.15);
+            box-shadow: 0 0 25px rgba(239, 68, 68, 0.4);
+        }
+        
+        .frame.replace {
+            animation: replacePulse 0.5s ease;
+        }
+        
+        @keyframes replacePulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+        
+        .frame .page-value {
+            opacity: 0;
+            transform: translateY(-20px);
+            transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .frame .page-value.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .frame .page-value.removing {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        
+        .frame-label {
+            position: absolute;
+            bottom: -20px;
+            font-size: 0.7rem;
+            color: var(--muted);
+        }
+        
+        .analysis-bubble {
+            position: absolute;
+            top: -50px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--card);
+            border: 2px solid var(--future-color);
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-size: 0.75rem;
+            white-space: nowrap;
+            opacity: 0;
+            transition: all 0.3s ease;
+            z-index: 10;
+        }
+        
+        .analysis-bubble.visible {
+            opacity: 1;
+        }
+        
+        .counter-panel {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .counter-panel.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .counter-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        .counter-label {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--muted);
+        }
+        
+        .counter-value {
+            width: 70px;
+            height: 70px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            font-weight: 900;
+            font-family: 'JetBrains Mono', monospace;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .counter-value.fault {
+            background: rgba(239, 68, 68, 0.2);
+            border: 2px solid var(--miss-color);
+            color: var(--miss-color);
+        }
+        
+        .counter-value.hit {
+            background: rgba(34, 197, 94, 0.2);
+            border: 2px solid var(--hit-color);
+            color: var(--hit-color);
+        }
+        
+        .counter-value.pulse {
+            animation: counterPulse 0.3s ease;
+        }
+        
+        @keyframes counterPulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.2); }
+        }
+        
+        .status-text {
+            font-size: 0.8rem;
+            color: var(--muted);
+            text-align: center;
+            margin-top: 8px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .status-text.visible {
+            opacity: 1;
+        }
+        
+        .status-text .hit-text { color: var(--hit-color); font-weight: 600; }
+        .status-text .miss-text { color: var(--miss-color); font-weight: 600; }
+        
+        .comparison-panel {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            padding: 12px 16px;
+            opacity: 0;
+            transform: translateX(20px);
+            transition: all 0.5s ease;
+            z-index: 20;
+        }
+        
+        .comparison-panel.visible {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        
+        .comparison-title {
+            font-size: 0.8rem;
+            font-weight: 700;
+            color: var(--muted);
+            margin-bottom: 8px;
+        }
+        
+        .comparison-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin: 4px 0;
+            font-size: 0.85rem;
+        }
+        
+        .comparison-label {
+            min-width: 50px;
+        }
+        
+        .comparison-label.fifo { color: var(--miss-color); }
+        .comparison-label.opt { color: var(--hit-color); }
+        
+        .comparison-value {
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        .summary-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(10, 14, 20, 0.95);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.5s ease;
+            z-index: 100;
+        }
+        
+        .summary-overlay.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        
+        .summary-card {
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 16px;
+            padding: 24px 32px;
+            max-width: 600px;
+            transform: scale(0.9);
+            transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+            text-align: center;
+        }
+        
+        .summary-overlay.visible .summary-card {
+            transform: scale(1);
+        }
+        
+        .summary-title {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: var(--miss-color);
+            margin-bottom: 16px;
+        }
+        
+        .summary-text {
+            font-size: 1rem;
+            line-height: 1.8;
+            color: var(--fg);
+        }
+        
+        .summary-text .highlight {
+            color: var(--scheduler-color);
+            font-weight: 600;
+        }
+        
+        .summary-text .key {
+            color: var(--current-color);
+            font-weight: 700;
+        }
+        
+        .broken-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(10, 14, 20, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.5s ease;
+            z-index: 90;
+        }
+        
+        .broken-overlay.visible {
+            opacity: 1;
+        }
+        
+        .broken-text {
+            font-size: 1.8rem;
+            font-weight: 900;
+            color: var(--miss-color);
+            text-align: center;
+            opacity: 0;
+            transform: scale(0.8);
+            transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .broken-overlay.visible .broken-text {
+            opacity: 1;
+            transform: scale(1);
+        }
+        
+        .progress-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: var(--border);
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--scheduler-color), var(--future-color));
+            width: 0%;
+            transition: width 0.1s linear;
+        }
+        
+        .scene-indicator {
+            position: fixed;
+            bottom: 10px;
+            right: 16px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            padding: 5px 12px;
+            border-radius: 16px;
+            font-size: 0.8rem;
+            color: var(--muted);
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        @media (max-width: 768px) {
+            .memory-area {
+                flex-direction: column;
+            }
+            
+            .frame {
+                width: 60px;
+                height: 60px;
+                font-size: 1.5rem;
+            }
+            
+            .sequence-item {
+                width: 40px;
+                height: 40px;
+                font-size: 1.1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-layer">
+        <div class="bg-gradient"></div>
+        <div class="bg-grid"></div>
+    </div>
+    
+    <div class="main-container">
+        <div class="header" id="header">
+            <h1 class="main-title">OPT 最佳置换算法</h1>
+            <p class="subtitle">上帝视角的理想算法 · 理论最优解</p>
+        </div>
+        
+        <div class="control-bar">
+            <button class="control-btn" id="playBtn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <polygon points="5,3 19,12 5,21"/>
+                </svg>
+                播放
+            </button>
+            <button class="control-btn" id="pauseBtn" disabled>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <rect x="6" y="4" width="4" height="16"/>
+                    <rect x="14" y="4" width="4" height="16"/>
+                </svg>
+                暂停
+            </button>
+            <button class="control-btn" id="resetBtn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                    <path d="M3 3v5h5"/>
+                </svg>
+                重置
+            </button>
+            <button class="control-btn" id="prevBtn" disabled>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <polygon points="19,3 5,12 19,21"/>
+                </svg>
+                上一场景
+            </button>
+            <button class="control-btn" id="nextBtn">
+                下一场景
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <polygon points="5,3 19,12 5,21"/>
+                </svg>
+            </button>
+        </div>
+        
+        <div class="hint-container">
+            <div class="hint-box" id="hintBox"></div>
+        </div>
+        
+        <div class="stage" id="stage">
+            <div class="sequence-panel" id="sequencePanel">
+                <div class="sequence-title">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="8" y1="6" x2="21" y2="6"/>
+                        <line x1="8" y1="12" x2="21" y2="12"/>
+                        <line x1="8" y1="18" x2="21" y2="18"/>
+                    </svg>
+                    页面请求序列
+                </div>
+                <div class="sequence-container" id="sequenceContainer">
+                    <div class="sequence-item future" id="seq0">7</div>
+                    <div class="sequence-item future" id="seq1">0</div>
+                    <div class="sequence-item future" id="seq2">1</div>
+                    <div class="sequence-item future" id="seq3">2</div>
+                    <div class="sequence-item future" id="seq4">0</div>
+                    <div class="sequence-item future" id="seq5">3</div>
+                    <div class="sequence-item future" id="seq6">0</div>
+                    <div class="sequence-item future" id="seq7">4</div>
+                </div>
+            </div>
+            
+            <div class="memory-panel" id="memoryPanel">
+                <div class="memory-area">
+                    <div class="scheduler-container" id="schedulerContainer">
+                        <div class="scheduler-icon" id="schedulerIcon">
+                            🧙
+                            <span class="telescope">🔭</span>
+                        </div>
+                        <span class="scheduler-label">OPT调度员</span>
+                    </div>
+                    
+                    <div class="frames-container">
+                        <div class="frames-title">物理块 (Frames) = 3</div>
+                        <div class="frames" id="frames">
+                            <div class="frame" id="frame0">
+                                <span class="page-value" id="page0"></span>
+                                <span class="frame-label">块0</span>
+                                <div class="analysis-bubble" id="analysis0"></div>
+                            </div>
+                            <div class="frame" id="frame1">
+                                <span class="page-value" id="page1"></span>
+                                <span class="frame-label">块1</span>
+                                <div class="analysis-bubble" id="analysis1"></div>
+                            </div>
+                            <div class="frame" id="frame2">
+                                <span class="page-value" id="page2"></span>
+                                <span class="frame-label">块2</span>
+                                <div class="analysis-bubble" id="analysis2"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="status-text" id="statusText"></div>
+            </div>
+            
+            <div class="counter-panel" id="counterPanel">
+                <div class="counter-item">
+                    <span class="counter-label">缺页次数</span>
+                    <div class="counter-value fault" id="faultCounter">0</div>
+                </div>
+                <div class="counter-item">
+                    <span class="counter-label">命中次数</span>
+                    <div class="counter-value hit" id="hitCounter">0</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="comparison-panel" id="comparisonPanel">
+        <div class="comparison-title">算法对比</div>
+        <div class="comparison-row">
+            <span class="comparison-label fifo">FIFO</span>
+            <span class="comparison-value">缺页: 6次</span>
+        </div>
+        <div class="comparison-row">
+            <span class="comparison-label opt">OPT</span>
+            <span class="comparison-value" id="optCompare">缺页: 5次 ✓</span>
+        </div>
+    </div>
+    
+    <div class="broken-overlay" id="brokenOverlay">
+        <div class="broken-text">
+            无法预知未来<br>
+            <span style="font-size: 1rem; color: var(--muted);">现实中无法实现</span>
+        </div>
+    </div>
+    
+    <div class="summary-overlay" id="summaryOverlay">
+        <div class="summary-card">
+            <h2 class="summary-title">OPT 核心总结</h2>
+            <p class="summary-text">
+                OPT是<span class="highlight">理想标杆算法</span>，拥有上帝视角，能预判页面未来访问情况。<br><br>
+                置换规则：<span class="key">选择未来最长时间不被访问的页面淘汰</span><br><br>
+                现实意义：无法实际实现，用于衡量其他算法的优劣。<br>
+                <span class="highlight">LRU（最近最少使用）</span>是现实中的替代方案。
+            </p>
+        </div>
+    </div>
+    
+    <div class="progress-bar">
+        <div class="progress-fill" id="progressFill"></div>
+    </div>
+    
+    <div class="scene-indicator" id="sceneIndicator">场景 1/5</div>
+    
+    <script>
+        const dom = {};
+        
+        const pageSequence = [7, 0, 1, 2, 0, 3, 0, 4];
+        
+        let appState = {
+            currentScene: 0,
+            isPlaying: false,
+            isPaused: false,
+            sceneTimeout: null,
+            actionTimeouts: [],
+            sceneStartTime: 0,
+            progressInterval: null,
+            currentIndex: 0,
+            frames: [null, null, null],
+            faultCount: 0,
+            hitCount: 0
+        };
+        
+        const scenes = [
+            {
+                name: '舞台搭建',
+                duration: 15000,
+                actions: [
+                    { time: 0, type: 'showHeader' },
+                    { time: 300, type: 'showHint', text: 'OPT最佳置换算法——操作系统的"预知梦"...' },
+                    { time: 500, type: 'showSequencePanel' },
+                    { time: 800, type: 'showMemoryPanel' },
+                    { time: 1000, type: 'showScheduler' },
+                    { time: 1200, type: 'showCounterPanel' },
+                    { time: 2000, type: 'showHint', text: '拥有上帝视角，能预判页面未来访问情况，是衡量其他置换算法的黄金标杆。' },
+                    { time: 5000, type: 'showHint', text: '本次用3个物理块，固定页面序列演示全程。' },
+                    { time: 8000, type: 'showHint', text: '序列: 7, 0, 1, 2, 0, 3, 0, 4' },
+                    { time: 12000, type: 'showHint', text: '开始演示...' }
+                ]
+            },
+            {
+                name: '轻松开局',
+                duration: 20000,
+                actions: [
+                    { time: 0, type: 'showHint', text: '初始状态下内存为空，前三个页面进入时都会产生缺页...' },
+                    { time: 1000, type: 'setCurrentIndex', index: 0 },
+                    { time: 1500, type: 'loadPage', frame: 0, page: 7 },
+                    { time: 2000, type: 'incrementFault' },
+                    { time: 2500, type: 'showStatus', text: '页面 <span class="miss-text">7</span> 进入块0，<span class="miss-text">缺页</span>', isHit: false },
+                    { time: 4000, type: 'setCurrentIndex', index: 1 },
+                    { time: 4500, type: 'loadPage', frame: 1, page: 0 },
+                    { time: 5000, type: 'incrementFault' },
+                    { time: 5500, type: 'showStatus', text: '页面 <span class="miss-text">0</span> 进入块1，<span class="miss-text">缺页</span>', isHit: false },
+                    { time: 7000, type: 'setCurrentIndex', index: 2 },
+                    { time: 7500, type: 'loadPage', frame: 2, page: 1 },
+                    { time: 8000, type: 'incrementFault' },
+                    { time: 8500, type: 'showStatus', text: '页面 <span class="miss-text">1</span> 进入块2，<span class="miss-text">缺页</span>', isHit: false },
+                    { time: 10000, type: 'showHint', text: '三个物理块已满：7, 0, 1' },
+                    { time: 12000, type: 'setCurrentIndex', index: 3 },
+                    { time: 12500, type: 'showHint', text: '下一个请求页面是2，需要置换...' },
+                    { time: 15000, type: 'showStatus', text: '内存已满，需要置换一个页面', isHit: false }
+                ]
+            },
+            {
+                name: '核心置换',
+                duration: 30000,
+                actions: [
+                    { time: 0, type: 'showHint', text: '核心环节：OPT开启上帝视角，预判未来！' },
+                    { time: 1000, type: 'startObserving' },
+                    { time: 1500, type: 'highlightFuture', indices: [4, 5, 6, 7] },
+                    { time: 2000, type: 'showHint', text: '调度员用望远镜观察未来序列：0, 3, 0, 4' },
+                    { time: 4000, type: 'showAnalysis', frame: 0, text: '7: 未来永不访问' },
+                    { time: 5000, type: 'showAnalysis', frame: 1, text: '0: 立即访问!' },
+                    { time: 6000, type: 'showAnalysis', frame: 2, text: '1: 未来永不访问' },
+                    { time: 8000, type: 'showHint', text: '页面0马上要被访问，绝对不能换！' },
+                    { time: 10000, type: 'showHint', text: '页面7和1未来都不会再访问，其中7是最远未访问的页面。' },
+                    { time: 13000, type: 'stopObserving' },
+                    { time: 13500, type: 'hideAnalysis' },
+                    { time: 14000, type: 'unhighlightFuture' },
+                    { time: 14500, type: 'replacePage', frame: 0, newPage: 2 },
+                    { time: 15000, type: 'incrementFault' },
+                    { time: 15500, type: 'showStatus', text: '剔除页面7，页面2进入块0，<span class="miss-text">缺页</span>', isHit: false },
+                    { time: 17000, type: 'setCurrentIndex', index: 4 },
+                    { time: 17500, type: 'hitPage', frame: 1 },
+                    { time: 18000, type: 'incrementHit' },
+                    { time: 18500, type: 'showStatus', text: '页面0已在块1中，<span class="hit-text">命中</span>！', isHit: true },
+                    { time: 20000, type: 'setCurrentIndex', index: 5 },
+                    { time: 20500, type: 'startObserving' },
+                    { time: 21000, type: 'highlightFuture', indices: [6, 7] },
+                    { time: 21500, type: 'showHint', text: '观察未来：0近期访问，4远期访问' },
+                    { time: 23000, type: 'showAnalysis', frame: 2, text: '1: 未来永不访问' },
+                    { time: 24500, type: 'stopObserving' },
+                    { time: 25000, type: 'hideAnalysis' },
+                    { time: 25500, type: 'unhighlightFuture' },
+                    { time: 26000, type: 'replacePage', frame: 2, newPage: 3 },
+                    { time: 26500, type: 'incrementFault' },
+                    { time: 27000, type: 'showStatus', text: '剔除页面1，页面3进入块2，<span class="miss-text">缺页</span>', isHit: false }
+                ]
+            },
+            {
+                name: '算法优势',
+                duration: 15000,
+                actions: [
+                    { time: 0, type: 'showHint', text: '继续演示OPT的优势...' },
+                    { time: 1000, type: 'setCurrentIndex', index: 6 },
+                    { time: 1500, type: 'hitPage', frame: 1 },
+                    { time: 2000, type: 'incrementHit' },
+                    { time: 2500, type: 'showStatus', text: '页面0已在块1中，<span class="hit-text">命中</span>！', isHit: true },
+                    { time: 4000, type: 'showComparison' },
+                    { time: 4500, type: 'showHint', text: '对比FIFO算法，OPT缺页次数更低！' },
+                    { time: 7000, type: 'setCurrentIndex', index: 7 },
+                    { time: 7500, type: 'startObserving' },
+                    { time: 8000, type: 'showHint', text: '最后一个页面4，观察未来...' },
+                    { time: 9500, type: 'stopObserving' },
+                    { time: 10000, type: 'replacePage', frame: 0, newPage: 4 },
+                    { time: 10500, type: 'incrementFault' },
+                    { time: 11000, type: 'showStatus', text: '剔除页面2，页面4进入块0，<span class="miss-text">缺页</span>', isHit: false },
+                    { time: 13000, type: 'showHint', text: '演示完成！总缺页次数：5，命中次数：2' }
+                ]
+            },
+            {
+                name: '现实意义',
+                duration: 15000,
+                actions: [
+                    { time: 0, type: 'showHint', text: '但现实非常残酷...' },
+                    { time: 1500, type: 'breakScheduler' },
+                    { time: 2000, type: 'showBrokenOverlay' },
+                    { time: 3000, type: 'showHint', text: '操作系统根本没有预知未来的能力！' },
+                    { time: 6000, type: 'hideBrokenOverlay' },
+                    { time: 7000, type: 'showSummary' },
+                    { time: 7500, type: 'showHint', text: 'OPT只能作为理论理想算法，无法实际落地。' },
+                    { time: 10000, type: 'showHint', text: '它的核心价值：作为衡量标尺，评判FIFO、LRU等实际算法的优劣。' },
+                    { time: 13000, type: 'showHint', text: 'LRU（最近最少使用）是现实中的替代方案。' }
+                ]
+            }
+        ];
+        
+        function initialize() {
+            dom.header = document.getElementById('header');
+            dom.hintBox = document.getElementById('hintBox');
+            dom.sequencePanel = document.getElementById('sequencePanel');
+            dom.sequenceContainer = document.getElementById('sequenceContainer');
+            dom.memoryPanel = document.getElementById('memoryPanel');
+            dom.schedulerContainer = document.getElementById('schedulerContainer');
+            dom.schedulerIcon = document.getElementById('schedulerIcon');
+            dom.frames = [
+                document.getElementById('frame0'),
+                document.getElementById('frame1'),
+                document.getElementById('frame2')
+            ];
+            dom.pages = [
+                document.getElementById('page0'),
+                document.getElementById('page1'),
+                document.getElementById('page2')
+            ];
+            dom.analysisBubbles = [
+                document.getElementById('analysis0'),
+                document.getElementById('analysis1'),
+                document.getElementById('analysis2')
+            ];
+            dom.counterPanel = document.getElementById('counterPanel');
+            dom.faultCounter = document.getElementById('faultCounter');
+            dom.hitCounter = document.getElementById('hitCounter');
+            dom.statusText = document.getElementById('statusText');
+            dom.comparisonPanel = document.getElementById('comparisonPanel');
+            dom.brokenOverlay = document.getElementById('brokenOverlay');
+            dom.summaryOverlay = document.getElementById('summaryOverlay');
+            dom.progressFill = document.getElementById('progressFill');
+            dom.sceneIndicator = document.getElementById('sceneIndicator');
+            dom.playBtn = document.getElementById('playBtn');
+            dom.pauseBtn = document.getElementById('pauseBtn');
+            dom.resetBtn = document.getElementById('resetBtn');
+            dom.prevBtn = document.getElementById('prevBtn');
+            dom.nextBtn = document.getElementById('nextBtn');
+            dom.seqItems = [];
+            for (let i = 0; i < 8; i++) {
+                dom.seqItems.push(document.getElementById(`seq${i}`));
+            }
+            
+            dom.playBtn.addEventListener('click', startPlayback);
+            dom.pauseBtn.addEventListener('click', pausePlayback);
+            dom.resetBtn.addEventListener('click', resetAll);
+            dom.prevBtn.addEventListener('click', prevScene);
+            dom.nextBtn.addEventListener('click', nextScene);
+            
+            updateSceneIndicator();
+        }
+        
+        function showHeader() {
+            dom.header.classList.add('visible');
+        }
+        
+        function showHint(text) {
+            dom.hintBox.textContent = text;
+            dom.hintBox.classList.add('visible');
+        }
+        
+        function showSequencePanel() {
+            dom.sequencePanel.classList.add('visible');
+        }
+        
+        function showMemoryPanel() {
+            dom.memoryPanel.classList.add('visible');
+        }
+        
+        function showScheduler() {
+            dom.schedulerContainer.classList.add('visible');
+        }
+        
+        function showCounterPanel() {
+            dom.counterPanel.classList.add('visible');
+        }
+        
+        function setCurrentIndex(index) {
+            dom.seqItems.forEach((item, i) => {
+                item.classList.remove('current', 'visited');
+                if (i < index) {
+                    item.classList.add('visited');
+                } else if (i === index) {
+                    item.classList.add('current');
+                }
+            });
+            appState.currentIndex = index;
+        }
+        
+        function loadPage(frame, page) {
+            appState.frames[frame] = page;
+            dom.pages[frame].textContent = page;
+            dom.pages[frame].classList.add('visible');
+            dom.frames[frame].classList.add('miss');
+            setTimeout(() => dom.frames[frame].classList.remove('miss'), 800);
+        }
+        
+        function replacePage(frame, newPage) {
+            dom.pages[frame].classList.add('removing');
+            setTimeout(() => {
+                dom.pages[frame].classList.remove('removing');
+                appState.frames[frame] = newPage;
+                dom.pages[frame].textContent = newPage;
+                dom.pages[frame].classList.add('visible');
+                dom.frames[frame].classList.add('replace', 'miss');
+                setTimeout(() => dom.frames[frame].classList.remove('replace', 'miss'), 500);
+            }, 400);
+        }
+        
+        function hitPage(frame) {
+            dom.frames[frame].classList.add('hit');
+            setTimeout(() => dom.frames[frame].classList.remove('hit'), 800);
+        }
+        
+        function incrementFault() {
+            appState.faultCount++;
+            dom.faultCounter.textContent = appState.faultCount;
+            dom.faultCounter.classList.add('pulse');
+            setTimeout(() => dom.faultCounter.classList.remove('pulse'), 300);
+        }
+        
+        function incrementHit() {
+            appState.hitCount++;
+            dom.hitCounter.textContent = appState.hitCount;
+            dom.hitCounter.classList.add('pulse');
+            setTimeout(() => dom.hitCounter.classList.remove('pulse'), 300);
+        }
+        
+        function showStatus(text, isHit) {
+            dom.statusText.innerHTML = text;
+            dom.statusText.classList.add('visible');
+        }
+        
+        function startObserving() {
+            dom.schedulerIcon.classList.add('observing');
+        }
+        
+        function stopObserving() {
+            dom.schedulerIcon.classList.remove('observing');
+        }
+        
+        function highlightFuture(indices) {
+            indices.forEach(i => {
+                if (dom.seqItems[i]) {
+                    dom.seqItems[i].classList.add('highlight');
+                }
+            });
+        }
+        
+        function unhighlightFuture() {
+            dom.seqItems.forEach(item => item.classList.remove('highlight'));
+        }
+        
+        function showAnalysis(frame, text) {
+            dom.analysisBubbles[frame].textContent = text;
+            dom.analysisBubbles[frame].classList.add('visible');
+        }
+        
+        function hideAnalysis() {
+            dom.analysisBubbles.forEach(bubble => bubble.classList.remove('visible'));
+        }
+        
+        function showComparison() {
+            dom.comparisonPanel.classList.add('visible');
+        }
+        
+        function breakScheduler() {
+            dom.schedulerIcon.classList.add('broken');
+            dom.schedulerIcon.classList.remove('observing');
+        }
+        
+        function showBrokenOverlay() {
+            dom.brokenOverlay.classList.add('visible');
+        }
+        
+        function hideBrokenOverlay() {
+            dom.brokenOverlay.classList.remove('visible');
+        }
+        
+        function showSummary() {
+            dom.summaryOverlay.classList.add('visible');
+        }
+        
+        function executeAction(action) {
+            switch (action.type) {
+                case 'showHeader': showHeader(); break;
+                case 'showHint': showHint(action.text); break;
+                case 'showSequencePanel': showSequencePanel(); break;
+                case 'showMemoryPanel': showMemoryPanel(); break;
+                case 'showScheduler': showScheduler(); break;
+                case 'showCounterPanel': showCounterPanel(); break;
+                case 'setCurrentIndex': setCurrentIndex(action.index); break;
+                case 'loadPage': loadPage(action.frame, action.page); break;
+                case 'replacePage': replacePage(action.frame, action.newPage); break;
+                case 'hitPage': hitPage(action.frame); break;
+                case 'incrementFault': incrementFault(); break;
+                case 'incrementHit': incrementHit(); break;
+                case 'showStatus': showStatus(action.text, action.isHit); break;
+                case 'startObserving': startObserving(); break;
+                case 'stopObserving': stopObserving(); break;
+                case 'highlightFuture': highlightFuture(action.indices); break;
+                case 'unhighlightFuture': unhighlightFuture(); break;
+                case 'showAnalysis': showAnalysis(action.frame, action.text); break;
+                case 'hideAnalysis': hideAnalysis(); break;
+                case 'showComparison': showComparison(); break;
+                case 'breakScheduler': breakScheduler(); break;
+                case 'showBrokenOverlay': showBrokenOverlay(); break;
+                case 'hideBrokenOverlay': hideBrokenOverlay(); break;
+                case 'showSummary': showSummary(); break;
+            }
+        }
+        
+        function runScene(sceneIndex) {
+            const scene = scenes[sceneIndex];
+            appState.sceneStartTime = Date.now();
+            
+            scene.actions.forEach(action => {
+                const timeout = setTimeout(() => {
+                    if (appState.isPlaying && !appState.isPaused) {
+                        executeAction(action);
+                    }
+                }, action.time);
+                appState.actionTimeouts.push(timeout);
+            });
+            
+            appState.progressInterval = setInterval(() => {
+                if (appState.isPlaying && !appState.isPaused) {
+                    const elapsed = Date.now() - appState.sceneStartTime;
+                    const progress = Math.min((elapsed / scene.duration) * 100, 100);
+                    dom.progressFill.style.width = `${(sceneIndex / scenes.length) * 100 + (progress / scenes.length)}%`;
+                }
+            }, 50);
+            
+            appState.sceneTimeout = setTimeout(() => {
+                clearInterval(appState.progressInterval);
+                if (appState.currentScene < scenes.length - 1) {
+                    appState.currentScene++;
+                    updateSceneIndicator();
+                    runScene(appState.currentScene);
+                } else {
+                    stopPlayback();
+                }
+            }, scene.duration);
+        }
+        
+        function startPlayback() {
+            if (appState.isPlaying) return;
+            
+            appState.isPlaying = true;
+            appState.isPaused = false;
+            
+            dom.playBtn.disabled = true;
+            dom.pauseBtn.disabled = false;
+            dom.prevBtn.disabled = false;
+            dom.nextBtn.disabled = false;
+            
+            runScene(appState.currentScene);
+        }
+        
+        function pausePlayback() {
+            appState.isPaused = !appState.isPaused;
+            
+            if (appState.isPaused) {
+                dom.pauseBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>继续`;
+            } else {
+                dom.pauseBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>暂停`;
+            }
+        }
+        
+        function stopPlayback() {
+            appState.isPlaying = false;
+            appState.isPaused = false;
+            
+            clearTimeout(appState.sceneTimeout);
+            appState.actionTimeouts.forEach(clearTimeout);
+            appState.actionTimeouts = [];
+            clearInterval(appState.progressInterval);
+            
+            dom.playBtn.disabled = false;
+            dom.pauseBtn.disabled = true;
+            dom.pauseBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>暂停`;
+        }
+        
+        function resetAll() {
+            stopPlayback();
+            
+            appState.currentScene = 0;
+            appState.currentIndex = 0;
+            appState.frames = [null, null, null];
+            appState.faultCount = 0;
+            appState.hitCount = 0;
+            
+            dom.header.classList.remove('visible');
+            dom.hintBox.classList.remove('visible');
+            dom.sequencePanel.classList.remove('visible');
+            dom.memoryPanel.classList.remove('visible');
+            dom.schedulerContainer.classList.remove('visible');
+            dom.counterPanel.classList.remove('visible');
+            dom.comparisonPanel.classList.remove('visible');
+            dom.brokenOverlay.classList.remove('visible');
+            dom.summaryOverlay.classList.remove('visible');
+            dom.progressFill.style.width = '0%';
+            dom.statusText.classList.remove('visible');
+            
+            dom.faultCounter.textContent = '0';
+            dom.hitCounter.textContent = '0';
+            
+            dom.seqItems.forEach(item => {
+                item.classList.remove('current', 'visited', 'highlight');
+                item.classList.add('future');
+            });
+            
+            dom.pages.forEach(page => {
+                page.textContent = '';
+                page.classList.remove('visible', 'removing');
+            });
+            
+            dom.frames.forEach(frame => {
+                frame.classList.remove('hit', 'miss', 'replace');
+            });
+            
+            dom.analysisBubbles.forEach(bubble => bubble.classList.remove('visible'));
+            
+            dom.schedulerIcon.classList.remove('observing', 'broken');
+            
+            updateSceneIndicator();
+        }
+        
+        function prevScene() {
+            if (appState.currentScene > 0) {
+                stopPlayback();
+                resetAll();
+                appState.currentScene--;
+                updateSceneIndicator();
+                startPlayback();
+            }
+        }
+        
+        function nextScene() {
+            if (appState.currentScene < scenes.length - 1) {
+                stopPlayback();
+                resetAll();
+                appState.currentScene++;
+                updateSceneIndicator();
+                startPlayback();
+            }
+        }
+        
+        function updateSceneIndicator() {
+            dom.sceneIndicator.textContent = `场景 ${appState.currentScene + 1}/${scenes.length}: ${scenes[appState.currentScene].name}`;
+        }
+        
+        document.addEventListener('DOMContentLoaded', initialize);
+    </script>
+</body>
+</html>

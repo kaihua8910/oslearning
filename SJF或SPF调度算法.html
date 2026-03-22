@@ -1,0 +1,1628 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SJF/SPF 短作业/短进程优先调度算法</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0e14;
+            --fg: #ffffff;
+            --muted: #9ca3af;
+            --accent: #60a5fa;
+            --card: #1a1f2e;
+            --border: #3b4252;
+            
+            --j1-color: #4A90E2;
+            --j2-color: #5CB85C;
+            --j3-color: #F0AD4E;
+            --j4-color: #9067C6;
+            --highlight-color: #f87171;
+            --compare-color: #fbbf24;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Noto Sans SC', sans-serif;
+            background: var(--bg);
+            color: var(--fg);
+            min-height: 100vh;
+            overflow: hidden;
+        }
+        
+        .bg-layer {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            overflow: hidden;
+        }
+        
+        .bg-gradient {
+            position: absolute;
+            inset: 0;
+            background: 
+                radial-gradient(ellipse 60% 40% at 50% 0%, rgba(144, 103, 198, 0.15) 0%, transparent 60%),
+                radial-gradient(ellipse 50% 30% at 10% 90%, rgba(92, 184, 92, 0.1) 0%, transparent 50%),
+                radial-gradient(ellipse 50% 30% at 90% 90%, rgba(240, 173, 78, 0.1) 0%, transparent 50%);
+        }
+        
+        .bg-grid {
+            position: absolute;
+            inset: 0;
+            background-image: 
+                linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+        
+        .main-container {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding: 16px 24px;
+        }
+        
+        .header {
+            text-align: center;
+            opacity: 0;
+            transform: translateY(-30px);
+            transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .header.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .main-title {
+            font-size: clamp(1.6rem, 4vw, 2.4rem);
+            font-weight: 900;
+            letter-spacing: -0.02em;
+            color: var(--fg);
+            text-shadow: 0 2px 20px rgba(144, 103, 198, 0.3);
+        }
+        
+        .subtitle {
+            font-size: clamp(0.9rem, 1.8vw, 1.1rem);
+            color: var(--muted);
+            margin-top: 6px;
+            font-weight: 500;
+        }
+        
+        .control-bar {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 12px;
+            margin-top: 12px;
+        }
+        
+        .control-btn {
+            padding: 8px 20px;
+            border-radius: 30px;
+            border: 2px solid var(--border);
+            background: var(--card);
+            color: var(--fg);
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: inherit;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .control-btn:hover {
+            border-color: var(--accent);
+            transform: translateY(-2px);
+        }
+        
+        .control-btn.active {
+            background: linear-gradient(135deg, var(--accent), #2563eb);
+            border-color: transparent;
+            box-shadow: 0 4px 20px rgba(96, 165, 250, 0.4);
+        }
+        
+        .control-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .hint-container {
+            text-align: center;
+            margin-top: 8px;
+            min-height: 40px;
+        }
+        
+        .hint-box {
+            display: inline-block;
+            background: var(--card);
+            border: 2px solid var(--border);
+            padding: 8px 20px;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 500;
+            max-width: min(750px, 90vw);
+            text-align: center;
+            opacity: 0;
+            transform: translateY(-15px);
+            transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+        }
+        
+        .hint-box.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .stage {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 260px 1fr;
+            grid-template-rows: 1fr auto;
+            gap: 12px;
+            margin-top: 8px;
+            min-height: 0;
+        }
+        
+        .concept-panel {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 24px;
+            opacity: 0;
+            transition: opacity 0.6s ease;
+            pointer-events: none;
+            z-index: 10;
+        }
+        
+        .concept-panel.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        
+        .compare-container {
+            display: flex;
+            gap: 40px;
+            justify-content: center;
+            align-items: stretch;
+        }
+        
+        .compare-box {
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 16px;
+            padding: 24px 32px;
+            min-width: 280px;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .compare-box.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .compare-box.fcfs {
+            opacity: 0.7;
+        }
+        
+        .compare-box.sjf {
+            border-color: var(--accent);
+            box-shadow: 0 0 30px rgba(96, 165, 250, 0.2);
+        }
+        
+        .compare-title {
+            font-size: 1.2rem;
+            font-weight: 700;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .compare-title.fcfs-title {
+            color: var(--muted);
+        }
+        
+        .compare-title.sjf-title {
+            color: var(--accent);
+        }
+        
+        .compare-text {
+            font-size: 1.1rem;
+            line-height: 1.6;
+        }
+        
+        .non-preemptive-note {
+            margin-top: 24px;
+            padding: 12px 24px;
+            background: rgba(248, 113, 113, 0.1);
+            border: 1px solid var(--highlight-color);
+            border-radius: 8px;
+            font-size: 1.1rem;
+            color: var(--highlight-color);
+            font-weight: 600;
+            opacity: 0;
+            transform: translateY(10px);
+            transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .non-preemptive-note.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .job-list-panel {
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 16px;
+            padding: 14px;
+            opacity: 0;
+            transform: translateX(-30px);
+            transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .job-list-panel.visible {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        
+        .panel-title {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--accent);
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .same-batch-tag {
+            font-size: 0.75rem;
+            background: rgba(251, 191, 36, 0.2);
+            color: var(--compare-color);
+            padding: 2px 8px;
+            border-radius: 10px;
+            margin-left: auto;
+        }
+        
+        .job-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        .job-table th {
+            text-align: left;
+            padding: 8px 6px;
+            font-size: 0.85rem;
+            color: var(--muted);
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .job-table td {
+            padding: 10px 6px;
+            font-size: 0.95rem;
+            font-weight: 500;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        
+        .job-row {
+            opacity: 0;
+            transform: translateX(-20px);
+            transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .job-row.visible {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        
+        .job-row.active {
+            background: rgba(96, 165, 250, 0.15);
+        }
+        
+        .job-row.completed {
+            opacity: 0.5;
+        }
+        
+        .job-row.selected {
+            background: rgba(251, 191, 36, 0.2);
+            border-left: 3px solid var(--compare-color);
+        }
+        
+        .job-id {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            border-radius: 6px;
+            font-weight: 700;
+            font-size: 0.85rem;
+        }
+        
+        .job-id.j1 { background: var(--j1-color); }
+        .job-id.j2 { background: var(--j2-color); }
+        .job-id.j3 { background: var(--j3-color); }
+        .job-id.j4 { background: var(--j4-color); }
+        
+        .gantt-panel {
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 16px;
+            padding: 16px;
+            opacity: 0;
+            transform: translateX(30px);
+            transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .gantt-panel.visible {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        
+        .gantt-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        
+        .gantt-title {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--accent);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .ready-queue-hint {
+            background: rgba(96, 165, 250, 0.1);
+            border: 1px solid var(--accent);
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            color: var(--accent);
+            opacity: 0;
+            transform: scale(0.9);
+            transition: all 0.4s ease;
+        }
+        
+        .ready-queue-hint.visible {
+            opacity: 1;
+            transform: scale(1);
+        }
+        
+        .gantt-container {
+            flex: 1;
+            position: relative;
+            min-height: 180px;
+        }
+        
+        .gantt-axis {
+            position: absolute;
+            bottom: 0;
+            left: 40px;
+            right: 20px;
+            height: 30px;
+            border-top: 2px solid var(--border);
+        }
+        
+        .gantt-tick {
+            position: absolute;
+            bottom: 0;
+            width: 2px;
+            height: 10px;
+            background: var(--border);
+        }
+        
+        .gantt-tick-label {
+            position: absolute;
+            bottom: -20px;
+            transform: translateX(-50%);
+            font-size: 0.8rem;
+            color: var(--muted);
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        .gantt-bar-container {
+            position: absolute;
+            left: 40px;
+            right: 20px;
+            top: 20px;
+            height: 50px;
+        }
+        
+        .gantt-bar {
+            position: absolute;
+            height: 44px;
+            top: 3px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 1rem;
+            color: white;
+            opacity: 0;
+            transform: scaleX(0);
+            transform-origin: left center;
+            transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        }
+        
+        .gantt-bar.visible {
+            opacity: 1;
+            transform: scaleX(1);
+        }
+        
+        .gantt-bar.j1 { background: linear-gradient(135deg, var(--j1-color), #3a7bd5); }
+        .gantt-bar.j2 { background: linear-gradient(135deg, var(--j2-color), #4a9c4a); }
+        .gantt-bar.j3 { background: linear-gradient(135deg, var(--j3-color), #d99a3a); }
+        .gantt-bar.j4 { background: linear-gradient(135deg, var(--j4-color), #7a5ab0); }
+        
+        .gantt-bar-label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+        }
+        
+        .cpu-indicator {
+            position: absolute;
+            left: 0;
+            top: 18px;
+            width: 28px;
+            height: 28px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .cpu-indicator.visible {
+            opacity: 1;
+        }
+        
+        .cpu-indicator svg {
+            width: 100%;
+            height: 100%;
+            color: var(--accent);
+        }
+        
+        .time-indicator {
+            position: absolute;
+            top: 0;
+            width: 3px;
+            height: 70px;
+            background: var(--highlight-color);
+            opacity: 0;
+            transition: all 0.3s ease;
+            z-index: 10;
+        }
+        
+        .time-indicator.visible {
+            opacity: 1;
+        }
+        
+        .time-indicator::after {
+            content: attr(data-time);
+            position: absolute;
+            top: -18px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 0.75rem;
+            color: var(--highlight-color);
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 600;
+        }
+        
+        .compare-note {
+            position: absolute;
+            bottom: 35px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(248, 113, 113, 0.2);
+            border: 1px solid var(--highlight-color);
+            padding: 4px 12px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            color: var(--highlight-color);
+            opacity: 0;
+            transition: opacity 0.4s ease;
+            white-space: nowrap;
+        }
+        
+        .compare-note.visible {
+            opacity: 1;
+        }
+        
+        .calc-panel {
+            grid-column: 1 / -1;
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 16px;
+            padding: 14px 20px;
+            opacity: 0;
+            transform: translateY(30px);
+            transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .calc-panel.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .calc-title {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--accent);
+            margin-bottom: 10px;
+        }
+        
+        .compare-table-container {
+            display: grid;
+            grid-template-columns: 1fr 1px 1fr;
+            gap: 16px;
+        }
+        
+        .divider {
+            background: var(--border);
+        }
+        
+        .compare-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        .compare-table th {
+            text-align: center;
+            padding: 8px 10px;
+            font-size: 0.85rem;
+            color: var(--muted);
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .compare-table td {
+            text-align: center;
+            padding: 8px 10px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        
+        .compare-table.fcfs-table {
+            opacity: 0.7;
+        }
+        
+        .compare-table.sjf-table td {
+            color: var(--accent);
+        }
+        
+        .calc-row {
+            opacity: 0;
+            transform: translateY(10px);
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .calc-row.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .calc-value {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        .calc-value.highlight {
+            color: var(--highlight-color);
+            font-weight: 700;
+        }
+        
+        .calc-value.better {
+            color: #4ade80;
+            font-weight: 700;
+        }
+        
+        .avg-row td {
+            border-top: 2px solid var(--border);
+            font-weight: 700;
+        }
+        
+        .avg-row.sjf td {
+            color: #4ade80;
+        }
+        
+        .summary-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(10, 14, 20, 0.9);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.5s ease;
+            z-index: 100;
+        }
+        
+        .summary-overlay.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        
+        .summary-card {
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 20px;
+            padding: 28px 36px;
+            max-width: 650px;
+            transform: scale(0.9);
+            transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .summary-overlay.visible .summary-card {
+            transform: scale(1);
+        }
+        
+        .summary-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--accent);
+            margin-bottom: 16px;
+            text-align: center;
+        }
+        
+        .summary-text {
+            font-size: 1.05rem;
+            line-height: 1.8;
+        }
+        
+        .summary-text .pros {
+            color: #4ade80;
+        }
+        
+        .summary-text .cons {
+            color: #f87171;
+        }
+        
+        .summary-text .key {
+            color: #fbbf24;
+        }
+        
+        .progress-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: var(--border);
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--j4-color), var(--accent));
+            width: 0%;
+            transition: width 0.1s linear;
+        }
+        
+        .scene-indicator {
+            position: fixed;
+            bottom: 12px;
+            right: 20px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            color: var(--muted);
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        @media (max-width: 900px) {
+            .stage {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto 1fr auto;
+            }
+            
+            .job-list-panel {
+                max-height: 180px;
+                overflow-y: auto;
+            }
+            
+            .compare-container {
+                flex-direction: column;
+                gap: 20px;
+            }
+            
+            .compare-box {
+                min-width: auto;
+                width: 90%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-layer">
+        <div class="bg-gradient"></div>
+        <div class="bg-grid"></div>
+    </div>
+    
+    <div class="main-container">
+        <div class="header" id="header">
+            <h1 class="main-title">SJF/SPF 短作业/短进程优先调度算法</h1>
+            <p class="subtitle">非抢占式 · 选最短作业执行</p>
+        </div>
+        
+        <div class="control-bar">
+            <button class="control-btn" id="playBtn">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                    <polygon points="5,3 19,12 5,21"/>
+                </svg>
+                播放
+            </button>
+            <button class="control-btn" id="pauseBtn" disabled>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                    <rect x="6" y="4" width="4" height="16"/>
+                    <rect x="14" y="4" width="4" height="16"/>
+                </svg>
+                暂停
+            </button>
+            <button class="control-btn" id="resetBtn">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                    <path d="M3 3v5h5"/>
+                </svg>
+                重置
+            </button>
+            <button class="control-btn" id="prevBtn" disabled>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                    <polygon points="19,3 5,12 19,21"/>
+                </svg>
+                上一场景
+            </button>
+            <button class="control-btn" id="nextBtn">
+                下一场景
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                    <polygon points="5,3 19,12 5,21"/>
+                </svg>
+            </button>
+        </div>
+        
+        <div class="hint-container">
+            <div class="hint-box" id="hintBox"></div>
+        </div>
+        
+        <div class="stage" id="stage">
+            <div class="concept-panel" id="conceptPanel">
+                <div class="compare-container">
+                    <div class="compare-box fcfs" id="fcfsBox">
+                        <div class="compare-title fcfs-title">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="23 4 23 10 17 10"/>
+                                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                            </svg>
+                            FCFS 核心规则
+                        </div>
+                        <div class="compare-text">按到达顺序执行<br>先到先服务</div>
+                    </div>
+                    <div class="compare-box sjf" id="sjfBox">
+                        <div class="compare-title sjf-title">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                                <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+                                <line x1="12" y1="22.08" x2="12" y2="12"/>
+                            </svg>
+                            SJF 核心规则
+                        </div>
+                        <div class="compare-text"><strong>就绪队列中选运行时间最短的作业执行</strong></div>
+                    </div>
+                </div>
+                <div class="non-preemptive-note" id="nonPreemptiveNote">
+                    ⚠️ 非抢占式：一旦执行，直到完成
+                </div>
+            </div>
+            
+            <div class="job-list-panel" id="jobListPanel">
+                <div class="panel-title">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                    </svg>
+                    作业列表
+                    <span class="same-batch-tag">与FCFS同批次</span>
+                </div>
+                <table class="job-table">
+                    <thead>
+                        <tr>
+                            <th>作业</th>
+                            <th>到达</th>
+                            <th>服务</th>
+                        </tr>
+                    </thead>
+                    <tbody id="jobTableBody">
+                        <tr class="job-row" id="jobRow1">
+                            <td><span class="job-id j1">J1</span></td>
+                            <td class="calc-value">0s</td>
+                            <td class="calc-value">4s</td>
+                        </tr>
+                        <tr class="job-row" id="jobRow2">
+                            <td><span class="job-id j2">J2</span></td>
+                            <td class="calc-value">1s</td>
+                            <td class="calc-value">3s</td>
+                        </tr>
+                        <tr class="job-row" id="jobRow3">
+                            <td><span class="job-id j3">J3</span></td>
+                            <td class="calc-value">2s</td>
+                            <td class="calc-value">2s</td>
+                        </tr>
+                        <tr class="job-row" id="jobRow4">
+                            <td><span class="job-id j4">J4</span></td>
+                            <td class="calc-value">4s</td>
+                            <td class="calc-value">1s</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="gantt-panel" id="ganttPanel">
+                <div class="gantt-header">
+                    <div class="gantt-title">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="18" height="18" rx="2"/>
+                            <path d="M3 9h18"/>
+                            <path d="M3 15h18"/>
+                            <path d="M9 3v18"/>
+                            <path d="M15 3v18"/>
+                        </svg>
+                        SJF 甘特图
+                    </div>
+                    <div class="ready-queue-hint" id="readyQueueHint">就绪队列: -</div>
+                </div>
+                <div class="gantt-container" id="ganttContainer">
+                    <div class="cpu-indicator" id="cpuIndicator">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="4" y="4" width="16" height="16" rx="2"/>
+                            <rect x="9" y="9" width="6" height="6"/>
+                            <line x1="9" y1="1" x2="9" y2="4"/>
+                            <line x1="15" y1="1" x2="15" y2="4"/>
+                            <line x1="9" y1="20" x2="9" y2="23"/>
+                            <line x1="15" y1="20" x2="15" y2="23"/>
+                            <line x1="20" y1="9" x2="23" y2="9"/>
+                            <line x1="20" y1="14" x2="23" y2="14"/>
+                            <line x1="1" y1="9" x2="4" y2="9"/>
+                            <line x1="1" y1="14" x2="4" y2="14"/>
+                        </svg>
+                    </div>
+                    <div class="gantt-bar-container" id="ganttBarContainer">
+                        <div class="gantt-bar j1" id="ganttBar1">
+                            <span class="gantt-bar-label">J1 (0-4s)</span>
+                        </div>
+                        <div class="gantt-bar j4" id="ganttBar4">
+                            <span class="gantt-bar-label">J4 (4-5s)</span>
+                        </div>
+                        <div class="gantt-bar j3" id="ganttBar3">
+                            <span class="gantt-bar-label">J3 (5-7s)</span>
+                        </div>
+                        <div class="gantt-bar j2" id="ganttBar2">
+                            <span class="gantt-bar-label">J2 (7-10s)</span>
+                        </div>
+                    </div>
+                    <div class="time-indicator" id="timeIndicator"></div>
+                    <div class="compare-note" id="compareNote"></div>
+                    <div class="gantt-axis" id="ganttAxis"></div>
+                </div>
+            </div>
+            
+            <div class="calc-panel" id="calcPanel">
+                <div class="calc-title">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: inline; vertical-align: middle; margin-right: 8px;">
+                        <line x1="18" y1="20" x2="18" y2="10"/>
+                        <line x1="12" y1="20" x2="12" y2="4"/>
+                        <line x1="6" y1="20" x2="6" y2="14"/>
+                    </svg>
+                    性能对比：SJF vs FCFS
+                </div>
+                <div class="compare-table-container">
+                    <table class="compare-table fcfs-table">
+                        <thead>
+                            <tr>
+                                <th colspan="4" style="color: var(--muted);">FCFS 执行顺序: J1→J2→J3→J4</th>
+                            </tr>
+                            <tr>
+                                <th>作业</th>
+                                <th>完成</th>
+                                <th>周转</th>
+                                <th>等待</th>
+                            </tr>
+                        </thead>
+                        <tbody id="fcfsTableBody">
+                            <tr class="calc-row" id="fcfsRow1">
+                                <td><span class="job-id j1">J1</span></td>
+                                <td class="calc-value">4</td>
+                                <td class="calc-value">4</td>
+                                <td class="calc-value">0</td>
+                            </tr>
+                            <tr class="calc-row" id="fcfsRow2">
+                                <td><span class="job-id j2">J2</span></td>
+                                <td class="calc-value">7</td>
+                                <td class="calc-value">6</td>
+                                <td class="calc-value">3</td>
+                            </tr>
+                            <tr class="calc-row" id="fcfsRow3">
+                                <td><span class="job-id j3">J3</span></td>
+                                <td class="calc-value">9</td>
+                                <td class="calc-value">7</td>
+                                <td class="calc-value">5</td>
+                            </tr>
+                            <tr class="calc-row" id="fcfsRow4">
+                                <td><span class="job-id j4">J4</span></td>
+                                <td class="calc-value">10</td>
+                                <td class="calc-value">6</td>
+                                <td class="calc-value">5</td>
+                            </tr>
+                            <tr class="calc-row avg-row" id="fcfsAvgRow">
+                                <td colspan="2" style="text-align: right;">平均：</td>
+                                <td class="calc-value highlight">5.75s</td>
+                                <td class="calc-value highlight">3.25s</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <div class="divider"></div>
+                    <table class="compare-table sjf-table">
+                        <thead>
+                            <tr>
+                                <th colspan="4" style="color: var(--accent);">SJF 执行顺序: J1→J4→J3→J2</th>
+                            </tr>
+                            <tr>
+                                <th>作业</th>
+                                <th>完成</th>
+                                <th>周转</th>
+                                <th>等待</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sjfTableBody">
+                            <tr class="calc-row" id="sjfRow1">
+                                <td><span class="job-id j1">J1</span></td>
+                                <td class="calc-value">4</td>
+                                <td class="calc-value">4</td>
+                                <td class="calc-value">0</td>
+                            </tr>
+                            <tr class="calc-row" id="sjfRow4">
+                                <td><span class="job-id j4">J4</span></td>
+                                <td class="calc-value">5</td>
+                                <td class="calc-value">1</td>
+                                <td class="calc-value">0</td>
+                            </tr>
+                            <tr class="calc-row" id="sjfRow3">
+                                <td><span class="job-id j3">J3</span></td>
+                                <td class="calc-value">7</td>
+                                <td class="calc-value">5</td>
+                                <td class="calc-value">3</td>
+                            </tr>
+                            <tr class="calc-row" id="sjfRow2">
+                                <td><span class="job-id j2">J2</span></td>
+                                <td class="calc-value">10</td>
+                                <td class="calc-value">9</td>
+                                <td class="calc-value">6</td>
+                            </tr>
+                            <tr class="calc-row avg-row sjf" id="sjfAvgRow">
+                                <td colspan="2" style="text-align: right;">平均：</td>
+                                <td class="calc-value better">4.75s</td>
+                                <td class="calc-value better">2.25s</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="summary-overlay" id="summaryOverlay">
+        <div class="summary-card">
+            <h2 class="summary-title">SJF 核心特点</h2>
+            <p class="summary-text">
+                <span class="pros">✅ 优点</span>：平均等待/周转时间最短（非抢占式调度中理论最优）<br><br>
+                <span class="cons">❌ 缺点</span>：<br>
+                • 长作业可能"饥饿"（如J2等待时间变长）<br>
+                • 需提前估计作业运行时间（实际难精准）<br><br>
+                <span class="key">⚠️ 扩展</span>：抢占式SJF（SRTF）可进一步优化，但复杂度更高
+            </p>
+        </div>
+    </div>
+    
+    <div class="progress-bar">
+        <div class="progress-fill" id="progressFill"></div>
+    </div>
+    
+    <div class="scene-indicator" id="sceneIndicator">场景 1/5</div>
+    
+    <script>
+        const dom = {
+            header: null,
+            hintBox: null,
+            conceptPanel: null,
+            fcfsBox: null,
+            sjfBox: null,
+            nonPreemptiveNote: null,
+            jobListPanel: null,
+            ganttPanel: null,
+            ganttContainer: null,
+            ganttAxis: null,
+            ganttBars: {},
+            cpuIndicator: null,
+            timeIndicator: null,
+            readyQueueHint: null,
+            compareNote: null,
+            calcPanel: null,
+            fcfsRows: [],
+            sjfRows: [],
+            summaryOverlay: null,
+            progressFill: null,
+            sceneIndicator: null,
+            playBtn: null,
+            pauseBtn: null,
+            resetBtn: null,
+            prevBtn: null,
+            nextBtn: null,
+            jobRows: []
+        };
+        
+        const scenes = [
+            {
+                name: 'SJF核心概念引入',
+                duration: 15000,
+                actions: [
+                    { time: 0, type: 'showHeader' },
+                    { time: 300, type: 'showHint', text: 'SJF（短作业优先）是对FCFS的优化算法...' },
+                    { time: 800, type: 'showConceptPanel' },
+                    { time: 1200, type: 'showFcfsBox' },
+                    { time: 2000, type: 'showSjfBox' },
+                    { time: 4000, type: 'showNonPreemptiveNote' },
+                    { time: 6000, type: 'showHint', text: '每次调度时，CPU会优先分配给当前就绪队列中运行时间最短的作业，同样是"非抢占式"。' },
+                    { time: 10000, type: 'showHint', text: '核心差异：FCFS按到达顺序，SJF按运行时间长短选择。' }
+                ]
+            },
+            {
+                name: '初始作业数据展示',
+                duration: 10000,
+                actions: [
+                    { time: 0, type: 'hideConceptPanel' },
+                    { time: 300, type: 'showJobList' },
+                    { time: 500, type: 'showJobRow', index: 1 },
+                    { time: 1500, type: 'showJobRow', index: 2 },
+                    { time: 2500, type: 'showJobRow', index: 3 },
+                    { time: 3500, type: 'showJobRow', index: 4 },
+                    { time: 4500, type: 'showHint', text: '四个作业：J1(服务4s)、J2(服务3s)、J3(服务2s)、J4(服务1s)' },
+                    { time: 5000, type: 'showGanttPlaceholder' },
+                    { time: 7000, type: 'showHint', text: '与FCFS使用相同数据，便于对比两种算法的性能差异。' }
+                ]
+            },
+            {
+                name: '调度过程动态演示',
+                duration: 30000,
+                actions: [
+                    { time: 0, type: 'showHint', text: '开始SJF调度演示，核心是"每次选最短"...' },
+                    { time: 500, type: 'initGanttAxis' },
+                    { time: 1000, type: 'showCPU' },
+                    { time: 1200, type: 'showReadyQueueHint', text: '就绪队列: J1(4s)' },
+                    { time: 1500, type: 'showTimeIndicator', time: 0 },
+                    { time: 2000, type: 'showHint', text: '0秒只有J1到达，无选择空间，执行J1' },
+                    { time: 2500, type: 'activateJob', index: 1 },
+                    { time: 3000, type: 'showGanttBar', index: 1 },
+                    { time: 5500, type: 'completeJob', index: 1 },
+                    { time: 6000, type: 'showTimeIndicator', time: 4 },
+                    { time: 6500, type: 'showReadyQueueHint', text: '就绪队列: J2(3s), J3(2s), J4(1s)' },
+                    { time: 7000, type: 'selectJob', index: 4 },
+                    { time: 7500, type: 'showHint', text: '4秒时J2、J3、J4都已到达，J4运行时间最短(1s)，优先执行J4' },
+                    { time: 8000, type: 'showCompareNote', text: 'FCFS此处执行J2，SJF选最短的J4' },
+                    { time: 8500, type: 'activateJob', index: 4 },
+                    { time: 9000, type: 'showGanttBar', index: 4 },
+                    { time: 10500, type: 'hideCompareNote' },
+                    { time: 11000, type: 'completeJob', index: 4 },
+                    { time: 11500, type: 'showTimeIndicator', time: 5 },
+                    { time: 12000, type: 'showReadyQueueHint', text: '就绪队列: J2(3s), J3(2s)' },
+                    { time: 12500, type: 'selectJob', index: 3 },
+                    { time: 13000, type: 'showHint', text: '5秒J4完成，剩余J2(3s)、J3(2s)，选更短的J3' },
+                    { time: 13500, type: 'activateJob', index: 3 },
+                    { time: 14000, type: 'showGanttBar', index: 3 },
+                    { time: 16000, type: 'completeJob', index: 3 },
+                    { time: 16500, type: 'showTimeIndicator', time: 7 },
+                    { time: 17000, type: 'showReadyQueueHint', text: '就绪队列: J2(3s)' },
+                    { time: 17500, type: 'selectJob', index: 2 },
+                    { time: 18000, type: 'showHint', text: '7秒J3完成，最后执行J2' },
+                    { time: 18500, type: 'activateJob', index: 2 },
+                    { time: 19000, type: 'showGanttBar', index: 2 },
+                    { time: 21500, type: 'completeJob', index: 2 },
+                    { time: 22000, type: 'hideCPU' },
+                    { time: 22500, type: 'hideTimeIndicator' },
+                    { time: 23000, type: 'hideReadyQueueHint' },
+                    { time: 23500, type: 'showHint', text: 'SJF执行顺序: J1(0-4) → J4(4-5) → J3(5-7) → J2(7-10)' },
+                    { time: 27000, type: 'showHint', text: '对比FCFS的J1→J2→J3→J4，SJF的执行顺序完全不同！' }
+                ]
+            },
+            {
+                name: '性能指标对比',
+                duration: 20000,
+                actions: [
+                    { time: 0, type: 'showHint', text: '现在对比SJF和FCFS的性能指标...' },
+                    { time: 500, type: 'showCalcPanel' },
+                    { time: 1000, type: 'showFcfsRow', index: 1 },
+                    { time: 1500, type: 'showSjfRow', index: 1 },
+                    { time: 2000, type: 'showFcfsRow', index: 2 },
+                    { time: 2500, type: 'showSjfRow', index: 4 },
+                    { time: 3000, type: 'showHint', text: 'J4在SJF中优先执行，周转时间仅1s，而FCFS中需要等待6s' },
+                    { time: 5000, type: 'showFcfsRow', index: 3 },
+                    { time: 5500, type: 'showSjfRow', index: 3 },
+                    { time: 6000, type: 'showFcfsRow', index: 4 },
+                    { time: 6500, type: 'showSjfRow', index: 2 },
+                    { time: 7000, type: 'showHint', text: '注意：J2在SJF中等待时间变长(6s)，这是长作业的"饥饿"问题' },
+                    { time: 10000, type: 'showFcfsAvgRow' },
+                    { time: 10500, type: 'showSjfAvgRow' },
+                    { time: 11000, type: 'showHint', text: 'SJF平均周转时间4.75s < FCFS的5.75s，平均等待时间2.25s < 3.25s' },
+                    { time: 15000, type: 'showHint', text: 'SJF在平均性能上明显优于FCFS！' }
+                ]
+            },
+            {
+                name: '算法特点总结',
+                duration: 10000,
+                actions: [
+                    { time: 0, type: 'showHint', text: '总结SJF算法的核心特点...' },
+                    { time: 500, type: 'showSummary' },
+                    { time: 6000, type: 'showHint', text: 'SJF是非抢占式调度中理论最优的算法，但存在长作业饥饿问题。' }
+                ]
+            }
+        ];
+        
+        let appState = {
+            currentScene: 0,
+            isPlaying: false,
+            isPaused: false,
+            sceneTimeout: null,
+            actionTimeouts: [],
+            sceneStartTime: 0,
+            progressInterval: null
+        };
+        
+        function initialize() {
+            dom.header = document.getElementById('header');
+            dom.hintBox = document.getElementById('hintBox');
+            dom.conceptPanel = document.getElementById('conceptPanel');
+            dom.fcfsBox = document.getElementById('fcfsBox');
+            dom.sjfBox = document.getElementById('sjfBox');
+            dom.nonPreemptiveNote = document.getElementById('nonPreemptiveNote');
+            dom.jobListPanel = document.getElementById('jobListPanel');
+            dom.ganttPanel = document.getElementById('ganttPanel');
+            dom.ganttContainer = document.getElementById('ganttContainer');
+            dom.ganttAxis = document.getElementById('ganttAxis');
+            dom.ganttBars = {
+                1: document.getElementById('ganttBar1'),
+                2: document.getElementById('ganttBar2'),
+                3: document.getElementById('ganttBar3'),
+                4: document.getElementById('ganttBar4')
+            };
+            dom.cpuIndicator = document.getElementById('cpuIndicator');
+            dom.timeIndicator = document.getElementById('timeIndicator');
+            dom.readyQueueHint = document.getElementById('readyQueueHint');
+            dom.compareNote = document.getElementById('compareNote');
+            dom.calcPanel = document.getElementById('calcPanel');
+            dom.fcfsRows = [
+                document.getElementById('fcfsRow1'),
+                document.getElementById('fcfsRow2'),
+                document.getElementById('fcfsRow3'),
+                document.getElementById('fcfsRow4'),
+                document.getElementById('fcfsAvgRow')
+            ];
+            dom.sjfRows = [
+                document.getElementById('sjfRow1'),
+                document.getElementById('sjfRow4'),
+                document.getElementById('sjfRow3'),
+                document.getElementById('sjfRow2'),
+                document.getElementById('sjfAvgRow')
+            ];
+            dom.summaryOverlay = document.getElementById('summaryOverlay');
+            dom.progressFill = document.getElementById('progressFill');
+            dom.sceneIndicator = document.getElementById('sceneIndicator');
+            dom.playBtn = document.getElementById('playBtn');
+            dom.pauseBtn = document.getElementById('pauseBtn');
+            dom.resetBtn = document.getElementById('resetBtn');
+            dom.prevBtn = document.getElementById('prevBtn');
+            dom.nextBtn = document.getElementById('nextBtn');
+            dom.jobRows = [
+                document.getElementById('jobRow1'),
+                document.getElementById('jobRow2'),
+                document.getElementById('jobRow3'),
+                document.getElementById('jobRow4')
+            ];
+            
+            dom.playBtn.addEventListener('click', startPlayback);
+            dom.pauseBtn.addEventListener('click', pausePlayback);
+            dom.resetBtn.addEventListener('click', resetAll);
+            dom.prevBtn.addEventListener('click', prevScene);
+            dom.nextBtn.addEventListener('click', nextScene);
+            
+            updateSceneIndicator();
+        }
+        
+        function showHeader() {
+            dom.header.classList.add('visible');
+        }
+        
+        function showHint(text) {
+            dom.hintBox.textContent = text;
+            dom.hintBox.classList.add('visible');
+        }
+        
+        function hideHint() {
+            dom.hintBox.classList.remove('visible');
+        }
+        
+        function showConceptPanel() {
+            dom.conceptPanel.classList.add('visible');
+        }
+        
+        function hideConceptPanel() {
+            dom.conceptPanel.classList.remove('visible');
+            dom.fcfsBox.classList.remove('visible');
+            dom.sjfBox.classList.remove('visible');
+            dom.nonPreemptiveNote.classList.remove('visible');
+        }
+        
+        function showFcfsBox() {
+            dom.fcfsBox.classList.add('visible');
+        }
+        
+        function showSjfBox() {
+            dom.sjfBox.classList.add('visible');
+        }
+        
+        function showNonPreemptiveNote() {
+            dom.nonPreemptiveNote.classList.add('visible');
+        }
+        
+        function showJobList() {
+            dom.jobListPanel.classList.add('visible');
+        }
+        
+        function showJobRow(index) {
+            dom.jobRows[index - 1].classList.add('visible');
+        }
+        
+        function showGanttPlaceholder() {
+            dom.ganttPanel.classList.add('visible');
+        }
+        
+        function initGanttAxis() {
+            const containerWidth = dom.ganttContainer.offsetWidth - 60;
+            const unitWidth = containerWidth / 10;
+            
+            dom.ganttAxis.innerHTML = '';
+            
+            for (let i = 0; i <= 10; i++) {
+                const tick = document.createElement('div');
+                tick.className = 'gantt-tick';
+                tick.style.left = `${i * unitWidth}px`;
+                
+                const label = document.createElement('span');
+                label.className = 'gantt-tick-label';
+                label.style.left = `${i * unitWidth}px`;
+                label.textContent = `${i}s`;
+                
+                dom.ganttAxis.appendChild(tick);
+                dom.ganttAxis.appendChild(label);
+            }
+            
+            const container = document.getElementById('ganttBarContainer');
+            container.style.width = `${containerWidth}px`;
+            
+            const barConfigs = [
+                { index: 1, width: 4, left: 0 },
+                { index: 4, width: 1, left: 4 },
+                { index: 3, width: 2, left: 5 },
+                { index: 2, width: 3, left: 7 }
+            ];
+            
+            barConfigs.forEach(config => {
+                const bar = dom.ganttBars[config.index];
+                bar.style.width = `${config.width * unitWidth}px`;
+                bar.style.left = `${config.left * unitWidth}px`;
+            });
+        }
+        
+        function showCPU() {
+            dom.cpuIndicator.classList.add('visible');
+        }
+        
+        function hideCPU() {
+            dom.cpuIndicator.classList.remove('visible');
+        }
+        
+        function showTimeIndicator(time) {
+            const containerWidth = dom.ganttContainer.offsetWidth - 60;
+            const unitWidth = containerWidth / 10;
+            
+            dom.timeIndicator.style.left = `${40 + time * unitWidth}px`;
+            dom.timeIndicator.setAttribute('data-time', `${time}s`);
+            dom.timeIndicator.classList.add('visible');
+        }
+        
+        function hideTimeIndicator() {
+            dom.timeIndicator.classList.remove('visible');
+        }
+        
+        function showReadyQueueHint(text) {
+            dom.readyQueueHint.textContent = text;
+            dom.readyQueueHint.classList.add('visible');
+        }
+        
+        function hideReadyQueueHint() {
+            dom.readyQueueHint.classList.remove('visible');
+        }
+        
+        function showCompareNote(text) {
+            dom.compareNote.textContent = text;
+            dom.compareNote.classList.add('visible');
+        }
+        
+        function hideCompareNote() {
+            dom.compareNote.classList.remove('visible');
+        }
+        
+        function activateJob(index) {
+            dom.jobRows[index - 1].classList.add('active');
+        }
+        
+        function completeJob(index) {
+            dom.jobRows[index - 1].classList.remove('active');
+            dom.jobRows[index - 1].classList.add('completed');
+        }
+        
+        function selectJob(index) {
+            dom.jobRows.forEach((row, i) => {
+                if (i !== index - 1) {
+                    row.classList.remove('selected');
+                }
+            });
+            dom.jobRows[index - 1].classList.add('selected');
+        }
+        
+        function showGanttBar(index) {
+            dom.ganttBars[index].classList.add('visible');
+        }
+        
+        function showCalcPanel() {
+            dom.calcPanel.classList.add('visible');
+        }
+        
+        function showFcfsRow(index) {
+            dom.fcfsRows[index - 1].classList.add('visible');
+        }
+        
+        function showSjfRow(index) {
+            const sjfIndexMap = { 1: 0, 4: 1, 3: 2, 2: 3 };
+            dom.sjfRows[sjfIndexMap[index]].classList.add('visible');
+        }
+        
+        function showFcfsAvgRow() {
+            dom.fcfsRows[4].classList.add('visible');
+        }
+        
+        function showSjfAvgRow() {
+            dom.sjfRows[4].classList.add('visible');
+        }
+        
+        function showSummary() {
+            dom.summaryOverlay.classList.add('visible');
+        }
+        
+        function hideSummary() {
+            dom.summaryOverlay.classList.remove('visible');
+        }
+        
+        function executeAction(action) {
+            switch (action.type) {
+                case 'showHeader': showHeader(); break;
+                case 'showHint': showHint(action.text); break;
+                case 'hideHint': hideHint(); break;
+                case 'showConceptPanel': showConceptPanel(); break;
+                case 'hideConceptPanel': hideConceptPanel(); break;
+                case 'showFcfsBox': showFcfsBox(); break;
+                case 'showSjfBox': showSjfBox(); break;
+                case 'showNonPreemptiveNote': showNonPreemptiveNote(); break;
+                case 'showJobList': showJobList(); break;
+                case 'showJobRow': showJobRow(action.index); break;
+                case 'showGanttPlaceholder': showGanttPlaceholder(); break;
+                case 'initGanttAxis': initGanttAxis(); break;
+                case 'showCPU': showCPU(); break;
+                case 'hideCPU': hideCPU(); break;
+                case 'showTimeIndicator': showTimeIndicator(action.time); break;
+                case 'hideTimeIndicator': hideTimeIndicator(); break;
+                case 'showReadyQueueHint': showReadyQueueHint(action.text); break;
+                case 'hideReadyQueueHint': hideReadyQueueHint(); break;
+                case 'showCompareNote': showCompareNote(action.text); break;
+                case 'hideCompareNote': hideCompareNote(); break;
+                case 'activateJob': activateJob(action.index); break;
+                case 'completeJob': completeJob(action.index); break;
+                case 'selectJob': selectJob(action.index); break;
+                case 'showGanttBar': showGanttBar(action.index); break;
+                case 'showCalcPanel': showCalcPanel(); break;
+                case 'showFcfsRow': showFcfsRow(action.index); break;
+                case 'showSjfRow': showSjfRow(action.index); break;
+                case 'showFcfsAvgRow': showFcfsAvgRow(); break;
+                case 'showSjfAvgRow': showSjfAvgRow(); break;
+                case 'showSummary': showSummary(); break;
+                case 'hideSummary': hideSummary(); break;
+            }
+        }
+        
+        function runScene(sceneIndex) {
+            const scene = scenes[sceneIndex];
+            appState.sceneStartTime = Date.now();
+            
+            scene.actions.forEach(action => {
+                const timeout = setTimeout(() => {
+                    if (appState.isPlaying && !appState.isPaused) {
+                        executeAction(action);
+                    }
+                }, action.time);
+                appState.actionTimeouts.push(timeout);
+            });
+            
+            appState.progressInterval = setInterval(() => {
+                if (appState.isPlaying && !appState.isPaused) {
+                    const elapsed = Date.now() - appState.sceneStartTime;
+                    const progress = Math.min((elapsed / scene.duration) * 100, 100);
+                    dom.progressFill.style.width = `${(sceneIndex / scenes.length) * 100 + (progress / scenes.length)}%`;
+                }
+            }, 50);
+            
+            appState.sceneTimeout = setTimeout(() => {
+                clearInterval(appState.progressInterval);
+                if (appState.currentScene < scenes.length - 1) {
+                    appState.currentScene++;
+                    updateSceneIndicator();
+                    runScene(appState.currentScene);
+                } else {
+                    stopPlayback();
+                }
+            }, scene.duration);
+        }
+        
+        function startPlayback() {
+            if (appState.isPlaying) return;
+            
+            appState.isPlaying = true;
+            appState.isPaused = false;
+            
+            dom.playBtn.disabled = true;
+            dom.pauseBtn.disabled = false;
+            dom.prevBtn.disabled = false;
+            dom.nextBtn.disabled = false;
+            
+            runScene(appState.currentScene);
+        }
+        
+        function pausePlayback() {
+            appState.isPaused = !appState.isPaused;
+            
+            if (appState.isPaused) {
+                dom.pauseBtn.innerHTML = `
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                        <polygon points="5,3 19,12 5,21"/>
+                    </svg>
+                    继续
+                `;
+            } else {
+                dom.pauseBtn.innerHTML = `
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                        <rect x="6" y="4" width="4" height="16"/>
+                        <rect x="14" y="4" width="4" height="16"/>
+                    </svg>
+                    暂停
+                `;
+            }
+        }
+        
+        function stopPlayback() {
+            appState.isPlaying = false;
+            appState.isPaused = false;
+            
+            clearTimeout(appState.sceneTimeout);
+            appState.actionTimeouts.forEach(clearTimeout);
+            appState.actionTimeouts = [];
+            clearInterval(appState.progressInterval);
+            
+            dom.playBtn.disabled = false;
+            dom.pauseBtn.disabled = true;
+            dom.pauseBtn.innerHTML = `
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                    <rect x="6" y="4" width="4" height="16"/>
+                    <rect x="14" y="4" width="4" height="16"/>
+                </svg>
+                暂停
+            `;
+        }
+        
+        function resetAll() {
+            stopPlayback();
+            
+            appState.currentScene = 0;
+            
+            dom.header.classList.remove('visible');
+            dom.hintBox.classList.remove('visible');
+            dom.conceptPanel.classList.remove('visible');
+            dom.fcfsBox.classList.remove('visible');
+            dom.sjfBox.classList.remove('visible');
+            dom.nonPreemptiveNote.classList.remove('visible');
+            dom.jobListPanel.classList.remove('visible');
+            dom.ganttPanel.classList.remove('visible');
+            dom.calcPanel.classList.remove('visible');
+            dom.summaryOverlay.classList.remove('visible');
+            dom.cpuIndicator.classList.remove('visible');
+            dom.timeIndicator.classList.remove('visible');
+            dom.readyQueueHint.classList.remove('visible');
+            dom.compareNote.classList.remove('visible');
+            dom.progressFill.style.width = '0%';
+            
+            dom.jobRows.forEach(row => {
+                row.classList.remove('visible', 'active', 'completed', 'selected');
+            });
+            
+            Object.values(dom.ganttBars).forEach(bar => {
+                bar.classList.remove('visible');
+            });
+            
+            dom.fcfsRows.forEach(row => {
+                row.classList.remove('visible');
+            });
+            
+            dom.sjfRows.forEach(row => {
+                row.classList.remove('visible');
+            });
+            
+            updateSceneIndicator();
+        }
+        
+        function prevScene() {
+            if (appState.currentScene > 0) {
+                stopPlayback();
+                resetAll();
+                appState.currentScene--;
+                updateSceneIndicator();
+                startPlayback();
+            }
+        }
+        
+        function nextScene() {
+            if (appState.currentScene < scenes.length - 1) {
+                stopPlayback();
+                resetAll();
+                appState.currentScene++;
+                updateSceneIndicator();
+                startPlayback();
+            }
+        }
+        
+        function updateSceneIndicator() {
+            dom.sceneIndicator.textContent = `场景 ${appState.currentScene + 1}/${scenes.length}: ${scenes[appState.currentScene].name}`;
+        }
+        
+        document.addEventListener('DOMContentLoaded', initialize);
+    </script>
+</body>
+</html>

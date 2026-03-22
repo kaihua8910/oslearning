@@ -1,0 +1,1573 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RR 时间轮转调度算法</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0e14;
+            --fg: #ffffff;
+            --muted: #9ca3af;
+            --accent: #60a5fa;
+            --card: #1a1f2e;
+            --border: #3b4252;
+            
+            --j1-color: #4A90E2;
+            --j2-color: #5CB85C;
+            --j3-color: #F0AD4E;
+            --j4-color: #9067C6;
+            --highlight-color: #f87171;
+            --timeslice-color: #fbbf24;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Noto Sans SC', sans-serif;
+            background: var(--bg);
+            color: var(--fg);
+            min-height: 100vh;
+            overflow: hidden;
+        }
+        
+        .bg-layer {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            overflow: hidden;
+        }
+        
+        .bg-gradient {
+            position: absolute;
+            inset: 0;
+            background: 
+                radial-gradient(ellipse 60% 40% at 50% 0%, rgba(251, 191, 36, 0.12) 0%, transparent 60%),
+                radial-gradient(ellipse 50% 30% at 10% 90%, rgba(92, 184, 92, 0.1) 0%, transparent 50%),
+                radial-gradient(ellipse 50% 30% at 90% 90%, rgba(74, 144, 226, 0.1) 0%, transparent 50%);
+        }
+        
+        .bg-grid {
+            position: absolute;
+            inset: 0;
+            background-image: 
+                linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+        
+        .main-container {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding: 12px 20px;
+        }
+        
+        .header {
+            text-align: center;
+            opacity: 0;
+            transform: translateY(-30px);
+            transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .header.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .main-title {
+            font-size: clamp(1.5rem, 3.5vw, 2.2rem);
+            font-weight: 900;
+            letter-spacing: -0.02em;
+            color: var(--fg);
+            text-shadow: 0 2px 20px rgba(251, 191, 36, 0.3);
+        }
+        
+        .subtitle {
+            font-size: clamp(0.85rem, 1.6vw, 1rem);
+            color: var(--muted);
+            margin-top: 4px;
+            font-weight: 500;
+        }
+        
+        .control-bar {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin-top: 8px;
+        }
+        
+        .control-btn {
+            padding: 6px 16px;
+            border-radius: 30px;
+            border: 2px solid var(--border);
+            background: var(--card);
+            color: var(--fg);
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: inherit;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .control-btn:hover {
+            border-color: var(--accent);
+            transform: translateY(-2px);
+        }
+        
+        .control-btn.active {
+            background: linear-gradient(135deg, var(--accent), #2563eb);
+            border-color: transparent;
+            box-shadow: 0 4px 20px rgba(96, 165, 250, 0.4);
+        }
+        
+        .control-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .hint-container {
+            text-align: center;
+            margin-top: 6px;
+            min-height: 36px;
+        }
+        
+        .hint-box {
+            display: inline-block;
+            background: var(--card);
+            border: 2px solid var(--border);
+            padding: 6px 16px;
+            border-radius: 10px;
+            font-size: 0.95rem;
+            font-weight: 500;
+            max-width: min(700px, 90vw);
+            text-align: center;
+            opacity: 0;
+            transform: translateY(-15px);
+            transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+        }
+        
+        .hint-box.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .stage {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 220px 1fr;
+            grid-template-rows: auto 1fr auto;
+            gap: 10px;
+            margin-top: 6px;
+            min-height: 0;
+        }
+        
+        .concept-panel {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 20px;
+            opacity: 0;
+            transition: opacity 0.6s ease;
+            pointer-events: none;
+            z-index: 10;
+        }
+        
+        .concept-panel.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        
+        .compare-container {
+            display: flex;
+            gap: 24px;
+            justify-content: center;
+            align-items: stretch;
+        }
+        
+        .compare-box {
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            padding: 16px 20px;
+            min-width: 200px;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .compare-box.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .compare-box.fcfs, .compare-box.sjf {
+            opacity: 0.6;
+        }
+        
+        .compare-box.rr {
+            border-color: var(--timeslice-color);
+            box-shadow: 0 0 30px rgba(251, 191, 36, 0.2);
+        }
+        
+        .compare-title {
+            font-size: 1rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .compare-title.fcfs-title { color: var(--muted); }
+        .compare-title.sjf-title { color: var(--muted); }
+        .compare-title.rr-title { color: var(--timeslice-color); }
+        
+        .compare-text {
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+        
+        .rr-rule {
+            margin-top: 20px;
+            padding: 12px 20px;
+            background: rgba(248, 113, 113, 0.1);
+            border: 1px solid var(--highlight-color);
+            border-radius: 8px;
+            font-size: 1rem;
+            color: var(--highlight-color);
+            font-weight: 600;
+            opacity: 0;
+            transform: translateY(10px);
+            transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+            text-align: center;
+        }
+        
+        .rr-rule.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .timeslice-tag {
+            display: inline-block;
+            background: rgba(251, 191, 36, 0.2);
+            border: 2px solid var(--timeslice-color);
+            padding: 6px 16px;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            color: var(--timeslice-color);
+            font-weight: 700;
+            margin-top: 12px;
+            opacity: 0;
+            transform: scale(0.9);
+            transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .timeslice-tag.visible {
+            opacity: 1;
+            transform: scale(1);
+        }
+        
+        .job-list-panel {
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            padding: 10px;
+            opacity: 0;
+            transform: translateX(-30px);
+            transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .job-list-panel.visible {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        
+        .panel-title {
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--accent);
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .job-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        .job-table th {
+            text-align: left;
+            padding: 6px 4px;
+            font-size: 0.8rem;
+            color: var(--muted);
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .job-table td {
+            padding: 8px 4px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        
+        .job-row {
+            opacity: 0;
+            transform: translateX(-20px);
+            transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .job-row.visible {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        
+        .job-row.running {
+            background: rgba(96, 165, 250, 0.2);
+            border-left: 3px solid var(--accent);
+        }
+        
+        .job-row.completed {
+            opacity: 0.4;
+            text-decoration: line-through;
+        }
+        
+        .job-id {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            border-radius: 5px;
+            font-weight: 700;
+            font-size: 0.8rem;
+        }
+        
+        .job-id.j1 { background: var(--j1-color); }
+        .job-id.j2 { background: var(--j2-color); }
+        .job-id.j3 { background: var(--j3-color); }
+        .job-id.j4 { background: var(--j4-color); }
+        
+        .remaining-time {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--timeslice-color);
+        }
+        
+        .cpu-panel {
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            padding: 12px;
+            opacity: 0;
+            transform: translateX(30px);
+            transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        .cpu-panel.visible {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        
+        .cpu-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+            margin-bottom: 10px;
+        }
+        
+        .cpu-title {
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--accent);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .timeslice-timer {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(251, 191, 36, 0.1);
+            border: 1px solid var(--timeslice-color);
+            padding: 4px 12px;
+            border-radius: 20px;
+            opacity: 0;
+            transform: scale(0.9);
+            transition: all 0.4s ease;
+        }
+        
+        .timeslice-timer.visible {
+            opacity: 1;
+            transform: scale(1);
+        }
+        
+        .timeslice-timer.active {
+            animation: pulse 1s ease-in-out infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.4); }
+            50% { box-shadow: 0 0 0 8px rgba(251, 191, 36, 0); }
+        }
+        
+        .timer-label {
+            font-size: 0.75rem;
+            color: var(--timeslice-color);
+        }
+        
+        .timer-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: var(--timeslice-color);
+            min-width: 24px;
+            text-align: center;
+        }
+        
+        .cpu-execution-area {
+            width: 100%;
+            min-height: 100px;
+            background: rgba(0, 0, 0, 0.2);
+            border: 2px dashed var(--border);
+            border-radius: 8px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+        }
+        
+        .cpu-executing-job {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            opacity: 0;
+            transform: scale(0.8);
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .cpu-executing-job.visible {
+            opacity: 1;
+            transform: scale(1);
+        }
+        
+        .cpu-job-block {
+            width: 80px;
+            height: 50px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 1.2rem;
+            color: white;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        }
+        
+        .cpu-job-block.j1 { background: linear-gradient(135deg, var(--j1-color), #3a7bd5); }
+        .cpu-job-block.j2 { background: linear-gradient(135deg, var(--j2-color), #4a9c4a); }
+        .cpu-job-block.j3 { background: linear-gradient(135deg, var(--j3-color), #d99a3a); }
+        .cpu-job-block.j4 { background: linear-gradient(135deg, var(--j4-color), #7a5ab0); }
+        
+        .cpu-job-info {
+            font-size: 0.85rem;
+            color: var(--muted);
+        }
+        
+        .cpu-idle {
+            font-size: 1rem;
+            color: var(--muted);
+            opacity: 0.5;
+        }
+        
+        .queue-panel {
+            grid-column: 1 / -1;
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            padding: 12px 16px;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .queue-panel.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .queue-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .queue-title {
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--accent);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .queue-direction {
+            font-size: 0.8rem;
+            color: var(--muted);
+        }
+        
+        .queue-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-height: 60px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            padding: 8px 12px;
+            overflow-x: auto;
+        }
+        
+        .queue-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            padding: 6px 10px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            opacity: 0;
+            transform: translateX(20px);
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            flex-shrink: 0;
+        }
+        
+        .queue-item.visible {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        
+        .queue-item.highlight {
+            background: rgba(251, 191, 36, 0.2);
+            border: 1px solid var(--timeslice-color);
+        }
+        
+        .queue-item .job-id {
+            width: 36px;
+            height: 36px;
+            font-size: 0.9rem;
+        }
+        
+        .queue-item .remaining-time {
+            font-size: 0.75rem;
+        }
+        
+        .queue-arrow {
+            color: var(--muted);
+            font-size: 1.2rem;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .queue-arrow.visible {
+            opacity: 1;
+        }
+        
+        .queue-empty {
+            font-size: 0.9rem;
+            color: var(--muted);
+            opacity: 0.5;
+        }
+        
+        .gantt-panel {
+            grid-column: 1 / -1;
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            padding: 12px 16px;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .gantt-panel.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .gantt-title {
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--accent);
+            margin-bottom: 10px;
+        }
+        
+        .gantt-container {
+            position: relative;
+            min-height: 80px;
+        }
+        
+        .gantt-axis {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 25px;
+            border-top: 2px solid var(--border);
+        }
+        
+        .gantt-tick {
+            position: absolute;
+            bottom: 0;
+            width: 2px;
+            height: 8px;
+            background: var(--border);
+        }
+        
+        .gantt-tick-label {
+            position: absolute;
+            bottom: -18px;
+            transform: translateX(-50%);
+            font-size: 0.75rem;
+            color: var(--muted);
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        .gantt-bar-container {
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 10px;
+            height: 40px;
+        }
+        
+        .gantt-bar {
+            position: absolute;
+            height: 36px;
+            top: 2px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 0.85rem;
+            color: white;
+            opacity: 0;
+            transform: scaleX(0);
+            transform-origin: left center;
+            transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+        }
+        
+        .gantt-bar.visible {
+            opacity: 1;
+            transform: scaleX(1);
+        }
+        
+        .gantt-bar.j1 { background: linear-gradient(135deg, var(--j1-color), #3a7bd5); }
+        .gantt-bar.j2 { background: linear-gradient(135deg, var(--j2-color), #4a9c4a); }
+        .gantt-bar.j3 { background: linear-gradient(135deg, var(--j3-color), #d99a3a); }
+        .gantt-bar.j4 { background: linear-gradient(135deg, var(--j4-color), #7a5ab0); }
+        
+        .summary-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(10, 14, 20, 0.9);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.5s ease;
+            z-index: 100;
+        }
+        
+        .summary-overlay.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        
+        .summary-card {
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 16px;
+            padding: 24px 32px;
+            max-width: 600px;
+            transform: scale(0.9);
+            transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .summary-overlay.visible .summary-card {
+            transform: scale(1);
+        }
+        
+        .summary-title {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: var(--timeslice-color);
+            margin-bottom: 14px;
+            text-align: center;
+        }
+        
+        .summary-text {
+            font-size: 1rem;
+            line-height: 1.7;
+        }
+        
+        .summary-text .pros {
+            color: #4ade80;
+        }
+        
+        .summary-text .cons {
+            color: #f87171;
+        }
+        
+        .summary-text .key {
+            color: #fbbf24;
+        }
+        
+        .progress-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: var(--border);
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--timeslice-color), var(--accent));
+            width: 0%;
+            transition: width 0.1s linear;
+        }
+        
+        .scene-indicator {
+            position: fixed;
+            bottom: 10px;
+            right: 16px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            padding: 5px 12px;
+            border-radius: 16px;
+            font-size: 0.8rem;
+            color: var(--muted);
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        @media (max-width: 900px) {
+            .stage {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto auto 1fr auto;
+            }
+            
+            .compare-container {
+                flex-direction: column;
+                gap: 12px;
+            }
+            
+            .compare-box {
+                min-width: auto;
+                width: 90%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-layer">
+        <div class="bg-gradient"></div>
+        <div class="bg-grid"></div>
+    </div>
+    
+    <div class="main-container">
+        <div class="header" id="header">
+            <h1 class="main-title">RR 时间轮转调度算法</h1>
+            <p class="subtitle">抢占式分时调度 · 固定时间片 · 公平轮转</p>
+        </div>
+        
+        <div class="control-bar">
+            <button class="control-btn" id="playBtn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <polygon points="5,3 19,12 5,21"/>
+                </svg>
+                播放
+            </button>
+            <button class="control-btn" id="pauseBtn" disabled>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <rect x="6" y="4" width="4" height="16"/>
+                    <rect x="14" y="4" width="4" height="16"/>
+                </svg>
+                暂停
+            </button>
+            <button class="control-btn" id="resetBtn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                    <path d="M3 3v5h5"/>
+                </svg>
+                重置
+            </button>
+            <button class="control-btn" id="prevBtn" disabled>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <polygon points="19,3 5,12 19,21"/>
+                </svg>
+                上一场景
+            </button>
+            <button class="control-btn" id="nextBtn">
+                下一场景
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <polygon points="5,3 19,12 5,21"/>
+                </svg>
+            </button>
+        </div>
+        
+        <div class="hint-container">
+            <div class="hint-box" id="hintBox"></div>
+        </div>
+        
+        <div class="stage" id="stage">
+            <div class="concept-panel" id="conceptPanel">
+                <div class="compare-container">
+                    <div class="compare-box fcfs" id="fcfsBox">
+                        <div class="compare-title fcfs-title">FCFS</div>
+                        <div class="compare-text">按到达顺序<br>非抢占</div>
+                    </div>
+                    <div class="compare-box sjf" id="sjfBox">
+                        <div class="compare-title sjf-title">SJF</div>
+                        <div class="compare-text">按运行时长<br>非抢占</div>
+                    </div>
+                    <div class="compare-box rr" id="rrBox">
+                        <div class="compare-title rr-title">RR</div>
+                        <div class="compare-text"><strong>按时间片<br>抢占式<br>循环执行</strong></div>
+                    </div>
+                </div>
+                <div class="rr-rule" id="rrRule">
+                    为每个进程分配固定时间片，时间片用完立即抢占CPU，进程回到就绪队列尾部，依次轮转执行
+                </div>
+                <div class="timeslice-tag" id="timesliceTag">本次演示：时间片 = 1秒</div>
+            </div>
+            
+            <div class="job-list-panel" id="jobListPanel">
+                <div class="panel-title">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                    </svg>
+                    作业信息
+                </div>
+                <table class="job-table">
+                    <thead>
+                        <tr>
+                            <th>作业</th>
+                            <th>到达</th>
+                            <th>运行</th>
+                            <th>剩余</th>
+                        </tr>
+                    </thead>
+                    <tbody id="jobTableBody">
+                        <tr class="job-row" id="jobRow1">
+                            <td><span class="job-id j1">J1</span></td>
+                            <td>0s</td>
+                            <td>4s</td>
+                            <td class="remaining-time" id="remaining1">4s</td>
+                        </tr>
+                        <tr class="job-row" id="jobRow2">
+                            <td><span class="job-id j2">J2</span></td>
+                            <td>1s</td>
+                            <td>3s</td>
+                            <td class="remaining-time" id="remaining2">3s</td>
+                        </tr>
+                        <tr class="job-row" id="jobRow3">
+                            <td><span class="job-id j3">J3</span></td>
+                            <td>2s</td>
+                            <td>2s</td>
+                            <td class="remaining-time" id="remaining3">2s</td>
+                        </tr>
+                        <tr class="job-row" id="jobRow4">
+                            <td><span class="job-id j4">J4</span></td>
+                            <td>4s</td>
+                            <td>1s</td>
+                            <td class="remaining-time" id="remaining4">1s</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="cpu-panel" id="cpuPanel">
+                <div class="cpu-header">
+                    <div class="cpu-title">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="4" y="4" width="16" height="16" rx="2"/>
+                            <rect x="9" y="9" width="6" height="6"/>
+                        </svg>
+                        CPU 执行区
+                    </div>
+                    <div class="timeslice-timer" id="timesliceTimer">
+                        <span class="timer-label">时间片:</span>
+                        <span class="timer-value" id="timerValue">1</span>
+                        <span class="timer-label">s</span>
+                    </div>
+                </div>
+                <div class="cpu-execution-area" id="cpuExecutionArea">
+                    <div class="cpu-idle" id="cpuIdle">空闲</div>
+                    <div class="cpu-executing-job" id="cpuExecutingJob">
+                        <div class="cpu-job-block" id="cpuJobBlock">J1</div>
+                        <div class="cpu-job-info" id="cpuJobInfo">剩余: 4s</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="queue-panel" id="queuePanel">
+                <div class="queue-header">
+                    <div class="queue-title">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="8" y1="6" x2="21" y2="6"/>
+                            <line x1="8" y1="12" x2="21" y2="12"/>
+                            <line x1="8" y1="18" x2="21" y2="18"/>
+                            <line x1="3" y1="6" x2="3.01" y2="6"/>
+                            <line x1="3" y1="12" x2="3.01" y2="12"/>
+                            <line x1="3" y1="18" x2="3.01" y2="18"/>
+                        </svg>
+                        就绪队列
+                    </div>
+                    <div class="queue-direction">队首 → 队尾</div>
+                </div>
+                <div class="queue-container" id="queueContainer">
+                    <span class="queue-empty" id="queueEmpty">队列为空</span>
+                </div>
+            </div>
+            
+            <div class="gantt-panel" id="ganttPanel">
+                <div class="gantt-title">RR 甘特图</div>
+                <div class="gantt-container" id="ganttContainer">
+                    <div class="gantt-bar-container" id="ganttBarContainer"></div>
+                    <div class="gantt-axis" id="ganttAxis"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="summary-overlay" id="summaryOverlay">
+        <div class="summary-card">
+            <h2 class="summary-title">RR 核心特点</h2>
+            <p class="summary-text">
+                <span class="pros">✅ 优点</span>：<br>
+                • 抢占式，公平性高，无进程饥饿<br>
+                • 分时响应快，适合交互式操作系统<br>
+                • 实现简单，通用性极强<br><br>
+                <span class="cons">❌ 缺点</span>：<br>
+                • 时间片过短：切换频繁，CPU开销大<br>
+                • 时间片过长：退化成FCFS，失去分时意义<br><br>
+                <span class="key">⚠️ 关键考点</span>：时间片大小是RR性能核心，需合理设置
+            </p>
+        </div>
+    </div>
+    
+    <div class="progress-bar">
+        <div class="progress-fill" id="progressFill"></div>
+    </div>
+    
+    <div class="scene-indicator" id="sceneIndicator">场景 1/6</div>
+    
+    <script>
+        const dom = {};
+        
+        const jobs = [
+            { id: 'J1', arrival: 0, service: 4, remaining: 4 },
+            { id: 'J2', arrival: 1, service: 3, remaining: 3 },
+            { id: 'J3', arrival: 2, service: 2, remaining: 2 },
+            { id: 'J4', arrival: 4, service: 1, remaining: 1 }
+        ];
+        
+        const rrSequence = [
+            { job: 0, start: 0, end: 1 },
+            { job: 1, start: 1, end: 2 },
+            { job: 2, start: 2, end: 3 },
+            { job: 3, start: 3, end: 4 },
+            { job: 0, start: 4, end: 5 },
+            { job: 1, start: 5, end: 6 },
+            { job: 2, start: 6, end: 7 },
+            { job: 0, start: 7, end: 8 },
+            { job: 1, start: 8, end: 9 }
+        ];
+        
+        const scenes = [
+            {
+                name: 'RR概念引入',
+                duration: 15000,
+                actions: [
+                    { time: 0, type: 'showHeader' },
+                    { time: 300, type: 'showHint', text: 'RR是操作系统最常用的分时抢占式调度算法...' },
+                    { time: 800, type: 'showConceptPanel' },
+                    { time: 1200, type: 'showCompareBox', index: 'fcfs' },
+                    { time: 1800, type: 'showCompareBox', index: 'sjf' },
+                    { time: 2400, type: 'showCompareBox', index: 'rr' },
+                    { time: 3500, type: 'showRrRule' },
+                    { time: 5500, type: 'showTimesliceTag' },
+                    { time: 7000, type: 'showHint', text: '核心就是给每个进程分固定时间片，到点就切换，公平轮转，绝不卡死在一个进程上。' },
+                    { time: 11000, type: 'showHint', text: '本次演示使用1秒作为固定时间片。' }
+                ]
+            },
+            {
+                name: '初始数据展示',
+                duration: 10000,
+                actions: [
+                    { time: 0, type: 'hideConceptPanel' },
+                    { time: 300, type: 'showJobList' },
+                    { time: 500, type: 'showJobRow', index: 1 },
+                    { time: 1500, type: 'showJobRow', index: 2 },
+                    { time: 2500, type: 'showJobRow', index: 3 },
+                    { time: 3500, type: 'showJobRow', index: 4 },
+                    { time: 4500, type: 'showHint', text: '沿用FCFS/SJF相同的4个作业数据，方便横向对比。' },
+                    { time: 5000, type: 'showCpuPanel' },
+                    { time: 5500, type: 'showQueuePanel' },
+                    { time: 7000, type: 'showHint', text: '每个进程会在队列和CPU之间来回轮转，时间片一到就强制切换。' }
+                ]
+            },
+            {
+                name: '第一轮轮转调度',
+                duration: 25000,
+                actions: [
+                    { time: 0, type: 'showHint', text: '开始第一轮轮转，每个进程执行1秒时间片...' },
+                    { time: 500, type: 'showTimer' },
+                    { time: 1000, type: 'addToQueue', jobs: [0] },
+                    { time: 1500, type: 'executeJob', job: 0, remaining: 4 },
+                    { time: 2000, type: 'showHint', text: '0秒J1到达，进入CPU执行，时间片开始倒计时' },
+                    { time: 3000, type: 'startTimer' },
+                    { time: 4500, type: 'timerTick', value: 0 },
+                    { time: 5000, type: 'stopTimer' },
+                    { time: 5500, type: 'showHint', text: 'J1执行1秒，剩余3秒，时间片用完，回到队尾' },
+                    { time: 6000, type: 'jobToQueue', job: 0, remaining: 3 },
+                    { time: 6500, type: 'addToQueue', jobs: [1, 2] },
+                    { time: 7000, type: 'executeJob', job: 1, remaining: 3 },
+                    { time: 7500, type: 'showHint', text: 'CPU切换到J2，执行1秒' },
+                    { time: 8500, type: 'startTimer' },
+                    { time: 10000, type: 'timerTick', value: 0 },
+                    { time: 10500, type: 'stopTimer' },
+                    { time: 11000, type: 'showHint', text: 'J2执行1秒，剩余2秒，回到队尾' },
+                    { time: 11500, type: 'jobToQueue', job: 1, remaining: 2 },
+                    { time: 12000, type: 'executeJob', job: 2, remaining: 2 },
+                    { time: 12500, type: 'showHint', text: 'CPU切换到J3，执行1秒' },
+                    { time: 13500, type: 'startTimer' },
+                    { time: 15000, type: 'timerTick', value: 0 },
+                    { time: 15500, type: 'stopTimer' },
+                    { time: 16000, type: 'showHint', text: 'J3执行1秒，剩余1秒，回到队尾' },
+                    { time: 16500, type: 'jobToQueue', job: 2, remaining: 1 },
+                    { time: 17000, type: 'addToQueue', jobs: [3] },
+                    { time: 17500, type: 'executeJob', job: 3, remaining: 1 },
+                    { time: 18000, type: 'showHint', text: 'CPU切换到J4，执行1秒' },
+                    { time: 19000, type: 'startTimer' },
+                    { time: 20500, type: 'timerTick', value: 0 },
+                    { time: 21000, type: 'stopTimer' },
+                    { time: 21500, type: 'showHint', text: 'J4运行时间刚好1秒，执行完毕，退出！' },
+                    { time: 22000, type: 'jobComplete', job: 3 },
+                    { time: 23000, type: 'showHint', text: '第一轮完成！当前队列：J1(剩3) → J2(剩2) → J3(剩1)' }
+                ]
+            },
+            {
+                name: '第二轮轮转调度',
+                duration: 20000,
+                actions: [
+                    { time: 0, type: 'showHint', text: '第二轮开始，继续轮转...' },
+                    { time: 500, type: 'executeJob', job: 0, remaining: 3 },
+                    { time: 1000, type: 'showHint', text: 'J1执行1秒，剩余2秒' },
+                    { time: 2000, type: 'startTimer' },
+                    { time: 3500, type: 'timerTick', value: 0 },
+                    { time: 4000, type: 'stopTimer' },
+                    { time: 4500, type: 'jobToQueue', job: 0, remaining: 2 },
+                    { time: 5000, type: 'executeJob', job: 1, remaining: 2 },
+                    { time: 5500, type: 'showHint', text: 'J2执行1秒，剩余1秒' },
+                    { time: 6500, type: 'startTimer' },
+                    { time: 8000, type: 'timerTick', value: 0 },
+                    { time: 8500, type: 'stopTimer' },
+                    { time: 9000, type: 'jobToQueue', job: 1, remaining: 1 },
+                    { time: 9500, type: 'executeJob', job: 2, remaining: 1 },
+                    { time: 10000, type: 'showHint', text: 'J3执行1秒，运行完毕，退出！' },
+                    { time: 11000, type: 'startTimer' },
+                    { time: 12500, type: 'timerTick', value: 0 },
+                    { time: 13000, type: 'stopTimer' },
+                    { time: 13500, type: 'jobComplete', job: 2 },
+                    { time: 14500, type: 'showHint', text: '第二轮完成！当前队列：J1(剩2) → J2(剩1)' }
+                ]
+            },
+            {
+                name: '第三轮+完成',
+                duration: 15000,
+                actions: [
+                    { time: 0, type: 'showHint', text: '第三轮开始，剩余J1、J2...' },
+                    { time: 500, type: 'executeJob', job: 0, remaining: 2 },
+                    { time: 1000, type: 'showHint', text: 'J1执行1秒，剩余1秒' },
+                    { time: 2000, type: 'startTimer' },
+                    { time: 3500, type: 'timerTick', value: 0 },
+                    { time: 4000, type: 'stopTimer' },
+                    { time: 4500, type: 'jobToQueue', job: 0, remaining: 1 },
+                    { time: 5000, type: 'executeJob', job: 1, remaining: 1 },
+                    { time: 5500, type: 'showHint', text: 'J2执行1秒，运行完毕，退出！' },
+                    { time: 6500, type: 'startTimer' },
+                    { time: 8000, type: 'timerTick', value: 0 },
+                    { time: 8500, type: 'stopTimer' },
+                    { time: 9000, type: 'jobComplete', job: 1 },
+                    { time: 9500, type: 'executeJob', job: 0, remaining: 1 },
+                    { time: 10000, type: 'showHint', text: 'J1执行最后1秒，运行完毕，退出！' },
+                    { time: 11000, type: 'startTimer' },
+                    { time: 12500, type: 'timerTick', value: 0 },
+                    { time: 13000, type: 'stopTimer' },
+                    { time: 13500, type: 'jobComplete', job: 0 },
+                    { time: 14000, type: 'showHint', text: '所有进程执行完毕！' }
+                ]
+            },
+            {
+                name: '甘特图与总结',
+                duration: 15000,
+                actions: [
+                    { time: 0, type: 'hideTimer' },
+                    { time: 300, type: 'showGanttPanel' },
+                    { time: 800, type: 'initGantt' },
+                    { time: 1300, type: 'showHint', text: '完整RR甘特图：J1(0-1)→J2(1-2)→J3(2-3)→J4(3-4)→J1(4-5)→J2(5-6)→J3(6-7)→J1(7-8)→J2(8-9)' },
+                    { time: 5000, type: 'showHint', text: '按时间片依次轮转，公平性拉满，解决了长作业饥饿问题。' },
+                    { time: 9000, type: 'showSummary' },
+                    { time: 13000, type: 'showHint', text: '时间片的设置是RR的核心考点！' }
+                ]
+            }
+        ];
+        
+        let appState = {
+            currentScene: 0,
+            isPlaying: false,
+            isPaused: false,
+            sceneTimeout: null,
+            actionTimeouts: [],
+            sceneStartTime: 0,
+            progressInterval: null,
+            queue: [],
+            jobRemaining: [4, 3, 2, 1],
+            completedJobs: []
+        };
+        
+        function initialize() {
+            dom.header = document.getElementById('header');
+            dom.hintBox = document.getElementById('hintBox');
+            dom.conceptPanel = document.getElementById('conceptPanel');
+            dom.fcfsBox = document.getElementById('fcfsBox');
+            dom.sjfBox = document.getElementById('sjfBox');
+            dom.rrBox = document.getElementById('rrBox');
+            dom.rrRule = document.getElementById('rrRule');
+            dom.timesliceTag = document.getElementById('timesliceTag');
+            dom.jobListPanel = document.getElementById('jobListPanel');
+            dom.cpuPanel = document.getElementById('cpuPanel');
+            dom.timesliceTimer = document.getElementById('timesliceTimer');
+            dom.timerValue = document.getElementById('timerValue');
+            dom.cpuIdle = document.getElementById('cpuIdle');
+            dom.cpuExecutingJob = document.getElementById('cpuExecutingJob');
+            dom.cpuJobBlock = document.getElementById('cpuJobBlock');
+            dom.cpuJobInfo = document.getElementById('cpuJobInfo');
+            dom.queuePanel = document.getElementById('queuePanel');
+            dom.queueContainer = document.getElementById('queueContainer');
+            dom.queueEmpty = document.getElementById('queueEmpty');
+            dom.ganttPanel = document.getElementById('ganttPanel');
+            dom.ganttContainer = document.getElementById('ganttContainer');
+            dom.ganttBarContainer = document.getElementById('ganttBarContainer');
+            dom.ganttAxis = document.getElementById('ganttAxis');
+            dom.summaryOverlay = document.getElementById('summaryOverlay');
+            dom.progressFill = document.getElementById('progressFill');
+            dom.sceneIndicator = document.getElementById('sceneIndicator');
+            dom.playBtn = document.getElementById('playBtn');
+            dom.pauseBtn = document.getElementById('pauseBtn');
+            dom.resetBtn = document.getElementById('resetBtn');
+            dom.prevBtn = document.getElementById('prevBtn');
+            dom.nextBtn = document.getElementById('nextBtn');
+            dom.jobRows = [
+                document.getElementById('jobRow1'),
+                document.getElementById('jobRow2'),
+                document.getElementById('jobRow3'),
+                document.getElementById('jobRow4')
+            ];
+            
+            dom.playBtn.addEventListener('click', startPlayback);
+            dom.pauseBtn.addEventListener('click', pausePlayback);
+            dom.resetBtn.addEventListener('click', resetAll);
+            dom.prevBtn.addEventListener('click', prevScene);
+            dom.nextBtn.addEventListener('click', nextScene);
+            
+            updateSceneIndicator();
+        }
+        
+        function showHeader() {
+            dom.header.classList.add('visible');
+        }
+        
+        function showHint(text) {
+            dom.hintBox.textContent = text;
+            dom.hintBox.classList.add('visible');
+        }
+        
+        function showConceptPanel() {
+            dom.conceptPanel.classList.add('visible');
+        }
+        
+        function hideConceptPanel() {
+            dom.conceptPanel.classList.remove('visible');
+            dom.fcfsBox.classList.remove('visible');
+            dom.sjfBox.classList.remove('visible');
+            dom.rrBox.classList.remove('visible');
+            dom.rrRule.classList.remove('visible');
+            dom.timesliceTag.classList.remove('visible');
+        }
+        
+        function showCompareBox(index) {
+            if (index === 'fcfs') dom.fcfsBox.classList.add('visible');
+            if (index === 'sjf') dom.sjfBox.classList.add('visible');
+            if (index === 'rr') dom.rrBox.classList.add('visible');
+        }
+        
+        function showRrRule() {
+            dom.rrRule.classList.add('visible');
+        }
+        
+        function showTimesliceTag() {
+            dom.timesliceTag.classList.add('visible');
+        }
+        
+        function showJobList() {
+            dom.jobListPanel.classList.add('visible');
+        }
+        
+        function showJobRow(index) {
+            dom.jobRows[index - 1].classList.add('visible');
+        }
+        
+        function showCpuPanel() {
+            dom.cpuPanel.classList.add('visible');
+            dom.cpuIdle.classList.add('visible');
+            dom.cpuExecutingJob.classList.remove('visible');
+        }
+        
+        function showQueuePanel() {
+            dom.queuePanel.classList.add('visible');
+        }
+        
+        function showTimer() {
+            dom.timesliceTimer.classList.add('visible');
+            dom.timerValue.textContent = '1';
+        }
+        
+        function hideTimer() {
+            dom.timesliceTimer.classList.remove('visible');
+        }
+        
+        function startTimer() {
+            dom.timesliceTimer.classList.add('active');
+            dom.timerValue.textContent = '1';
+        }
+        
+        function stopTimer() {
+            dom.timesliceTimer.classList.remove('active');
+        }
+        
+        function timerTick(value) {
+            dom.timerValue.textContent = value;
+        }
+        
+        function executeJob(jobIndex, remaining) {
+            const job = jobs[jobIndex];
+            dom.cpuIdle.classList.remove('visible');
+            dom.cpuExecutingJob.classList.add('visible');
+            dom.cpuJobBlock.textContent = job.id;
+            dom.cpuJobBlock.className = `cpu-job-block j${jobIndex + 1}`;
+            dom.cpuJobInfo.textContent = `剩余: ${remaining}s`;
+            
+            dom.jobRows.forEach((row, i) => {
+                row.classList.remove('running');
+                if (i === jobIndex) row.classList.add('running');
+            });
+            
+            appState.jobRemaining[jobIndex] = remaining;
+            document.getElementById(`remaining${jobIndex + 1}`).textContent = remaining + 's';
+        }
+        
+        function jobToQueue(jobIndex, remaining) {
+            appState.queue.push({ index: jobIndex, remaining: remaining });
+            renderQueue();
+            
+            dom.cpuExecutingJob.classList.remove('visible');
+            dom.cpuIdle.classList.add('visible');
+            dom.jobRows[jobIndex].classList.remove('running');
+        }
+        
+        function addToQueue(jobs) {
+            jobs.forEach(jobIndex => {
+                if (!appState.queue.find(q => q.index === jobIndex) && !appState.completedJobs.includes(jobIndex)) {
+                    appState.queue.push({ index: jobIndex, remaining: appState.jobRemaining[jobIndex] });
+                }
+            });
+            renderQueue();
+        }
+        
+        function jobComplete(jobIndex) {
+            appState.completedJobs.push(jobIndex);
+            appState.queue = appState.queue.filter(q => q.index !== jobIndex);
+            renderQueue();
+            
+            dom.cpuExecutingJob.classList.remove('visible');
+            dom.cpuIdle.classList.add('visible');
+            dom.jobRows[jobIndex].classList.remove('running');
+            dom.jobRows[jobIndex].classList.add('completed');
+        }
+        
+        function renderQueue() {
+            dom.queueContainer.innerHTML = '';
+            
+            if (appState.queue.length === 0) {
+                dom.queueContainer.innerHTML = '<span class="queue-empty">队列为空</span>';
+                return;
+            }
+            
+            appState.queue.forEach((item, i) => {
+                const queueItem = document.createElement('div');
+                queueItem.className = `queue-item visible${i === 0 ? ' highlight' : ''}`;
+                queueItem.innerHTML = `
+                    <span class="job-id j${item.index + 1}">${jobs[item.index].id}</span>
+                    <span class="remaining-time">剩${item.remaining}s</span>
+                `;
+                dom.queueContainer.appendChild(queueItem);
+                
+                if (i < appState.queue.length - 1) {
+                    const arrow = document.createElement('span');
+                    arrow.className = 'queue-arrow visible';
+                    arrow.textContent = '→';
+                    dom.queueContainer.appendChild(arrow);
+                }
+            });
+            
+            if (appState.queue.length > 0) {
+                appState.queue.shift();
+            }
+        }
+        
+        function showGanttPanel() {
+            dom.ganttPanel.classList.add('visible');
+        }
+        
+        function initGantt() {
+            const containerWidth = dom.ganttContainer.offsetWidth - 20;
+            const unitWidth = containerWidth / 9;
+            
+            dom.ganttAxis.innerHTML = '';
+            for (let i = 0; i <= 9; i++) {
+                const tick = document.createElement('div');
+                tick.className = 'gantt-tick';
+                tick.style.left = `${i * unitWidth}px`;
+                
+                const label = document.createElement('span');
+                label.className = 'gantt-tick-label';
+                label.style.left = `${i * unitWidth}px`;
+                label.textContent = `${i}s`;
+                
+                dom.ganttAxis.appendChild(tick);
+                dom.ganttAxis.appendChild(label);
+            }
+            
+            dom.ganttBarContainer.innerHTML = '';
+            
+            rrSequence.forEach((item, i) => {
+                setTimeout(() => {
+                    const bar = document.createElement('div');
+                    bar.className = `gantt-bar j${item.job + 1} visible`;
+                    bar.style.width = `${unitWidth - 2}px`;
+                    bar.style.left = `${item.start * unitWidth}px`;
+                    bar.textContent = `J${item.job + 1}`;
+                    dom.ganttBarContainer.appendChild(bar);
+                }, i * 150);
+            });
+        }
+        
+        function showSummary() {
+            dom.summaryOverlay.classList.add('visible');
+        }
+        
+        function executeAction(action) {
+            switch (action.type) {
+                case 'showHeader': showHeader(); break;
+                case 'showHint': showHint(action.text); break;
+                case 'showConceptPanel': showConceptPanel(); break;
+                case 'hideConceptPanel': hideConceptPanel(); break;
+                case 'showCompareBox': showCompareBox(action.index); break;
+                case 'showRrRule': showRrRule(); break;
+                case 'showTimesliceTag': showTimesliceTag(); break;
+                case 'showJobList': showJobList(); break;
+                case 'showJobRow': showJobRow(action.index); break;
+                case 'showCpuPanel': showCpuPanel(); break;
+                case 'showQueuePanel': showQueuePanel(); break;
+                case 'showTimer': showTimer(); break;
+                case 'hideTimer': hideTimer(); break;
+                case 'startTimer': startTimer(); break;
+                case 'stopTimer': stopTimer(); break;
+                case 'timerTick': timerTick(action.value); break;
+                case 'executeJob': executeJob(action.job, action.remaining); break;
+                case 'jobToQueue': jobToQueue(action.job, action.remaining); break;
+                case 'addToQueue': addToQueue(action.jobs); break;
+                case 'jobComplete': jobComplete(action.job); break;
+                case 'showGanttPanel': showGanttPanel(); break;
+                case 'initGantt': initGantt(); break;
+                case 'showSummary': showSummary(); break;
+            }
+        }
+        
+        function runScene(sceneIndex) {
+            const scene = scenes[sceneIndex];
+            appState.sceneStartTime = Date.now();
+            
+            scene.actions.forEach(action => {
+                const timeout = setTimeout(() => {
+                    if (appState.isPlaying && !appState.isPaused) {
+                        executeAction(action);
+                    }
+                }, action.time);
+                appState.actionTimeouts.push(timeout);
+            });
+            
+            appState.progressInterval = setInterval(() => {
+                if (appState.isPlaying && !appState.isPaused) {
+                    const elapsed = Date.now() - appState.sceneStartTime;
+                    const progress = Math.min((elapsed / scene.duration) * 100, 100);
+                    dom.progressFill.style.width = `${(sceneIndex / scenes.length) * 100 + (progress / scenes.length)}%`;
+                }
+            }, 50);
+            
+            appState.sceneTimeout = setTimeout(() => {
+                clearInterval(appState.progressInterval);
+                if (appState.currentScene < scenes.length - 1) {
+                    appState.currentScene++;
+                    updateSceneIndicator();
+                    runScene(appState.currentScene);
+                } else {
+                    stopPlayback();
+                }
+            }, scene.duration);
+        }
+        
+        function startPlayback() {
+            if (appState.isPlaying) return;
+            
+            appState.isPlaying = true;
+            appState.isPaused = false;
+            
+            dom.playBtn.disabled = true;
+            dom.pauseBtn.disabled = false;
+            dom.prevBtn.disabled = false;
+            dom.nextBtn.disabled = false;
+            
+            runScene(appState.currentScene);
+        }
+        
+        function pausePlayback() {
+            appState.isPaused = !appState.isPaused;
+            
+            if (appState.isPaused) {
+                dom.pauseBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>继续`;
+            } else {
+                dom.pauseBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>暂停`;
+            }
+        }
+        
+        function stopPlayback() {
+            appState.isPlaying = false;
+            appState.isPaused = false;
+            
+            clearTimeout(appState.sceneTimeout);
+            appState.actionTimeouts.forEach(clearTimeout);
+            appState.actionTimeouts = [];
+            clearInterval(appState.progressInterval);
+            
+            dom.playBtn.disabled = false;
+            dom.pauseBtn.disabled = true;
+            dom.pauseBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>暂停`;
+        }
+        
+        function resetAll() {
+            stopPlayback();
+            
+            appState.currentScene = 0;
+            appState.queue = [];
+            appState.jobRemaining = [4, 3, 2, 1];
+            appState.completedJobs = [];
+            
+            dom.header.classList.remove('visible');
+            dom.hintBox.classList.remove('visible');
+            dom.conceptPanel.classList.remove('visible');
+            dom.fcfsBox.classList.remove('visible');
+            dom.sjfBox.classList.remove('visible');
+            dom.rrBox.classList.remove('visible');
+            dom.rrRule.classList.remove('visible');
+            dom.timesliceTag.classList.remove('visible');
+            dom.jobListPanel.classList.remove('visible');
+            dom.cpuPanel.classList.remove('visible');
+            dom.queuePanel.classList.remove('visible');
+            dom.ganttPanel.classList.remove('visible');
+            dom.summaryOverlay.classList.remove('visible');
+            dom.timesliceTimer.classList.remove('visible');
+            dom.progressFill.style.width = '0%';
+            
+            dom.jobRows.forEach((row, i) => {
+                row.classList.remove('visible', 'running', 'completed');
+                document.getElementById(`remaining${i + 1}`).textContent = jobs[i].service + 's';
+            });
+            
+            dom.queueContainer.innerHTML = '<span class="queue-empty">队列为空</span>';
+            dom.ganttBarContainer.innerHTML = '';
+            
+            updateSceneIndicator();
+        }
+        
+        function prevScene() {
+            if (appState.currentScene > 0) {
+                stopPlayback();
+                resetAll();
+                appState.currentScene--;
+                updateSceneIndicator();
+                startPlayback();
+            }
+        }
+        
+        function nextScene() {
+            if (appState.currentScene < scenes.length - 1) {
+                stopPlayback();
+                resetAll();
+                appState.currentScene++;
+                updateSceneIndicator();
+                startPlayback();
+            }
+        }
+        
+        function updateSceneIndicator() {
+            dom.sceneIndicator.textContent = `场景 ${appState.currentScene + 1}/${scenes.length}: ${scenes[appState.currentScene].name}`;
+        }
+        
+        document.addEventListener('DOMContentLoaded', initialize);
+    </script>
+</body>
+</html>
