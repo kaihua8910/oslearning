@@ -1,0 +1,1417 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>医生看病 - 多道程序设计</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0e14;
+            --fg: #ffffff;
+            --muted: #9ca3af;
+            --accent: #60a5fa;
+            --card: #1a1f2e;
+            --border: #3b4252;
+            
+            --normal-patient: #3b82f6;
+            --urgent-patient: #ef4444;
+            --doctor-color: #22c55e;
+            --lab-color: #fbbf24;
+            --waiting-color: #6b7280;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Noto Sans SC', sans-serif;
+            background: var(--bg);
+            color: var(--fg);
+            min-height: 100vh;
+            overflow: hidden;
+        }
+        
+        .bg-layer {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            overflow: hidden;
+        }
+        
+        .bg-gradient {
+            position: absolute;
+            inset: 0;
+            background: 
+                radial-gradient(ellipse 50% 40% at 30% 30%, rgba(34, 197, 94, 0.12) 0%, transparent 60%),
+                radial-gradient(ellipse 50% 40% at 70% 70%, rgba(59, 130, 246, 0.1) 0%, transparent 60%),
+                radial-gradient(ellipse 60% 30% at 50% 0%, rgba(251, 191, 36, 0.08) 0%, transparent 50%);
+        }
+        
+        .bg-grid {
+            position: absolute;
+            inset: 0;
+            background-image: 
+                linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+        
+        .main-container {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding: 12px 20px;
+        }
+        
+        .header {
+            text-align: center;
+            opacity: 0;
+            transform: translateY(-30px);
+            transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .header.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .main-title {
+            font-size: clamp(1.4rem, 3vw, 2rem);
+            font-weight: 900;
+            letter-spacing: -0.02em;
+            color: var(--fg);
+        }
+        
+        .subtitle {
+            font-size: clamp(0.8rem, 1.4vw, 0.95rem);
+            color: var(--muted);
+            margin-top: 4px;
+            font-weight: 500;
+        }
+        
+        .control-bar {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        .control-btn {
+            padding: 6px 16px;
+            border-radius: 30px;
+            border: 2px solid var(--border);
+            background: var(--card);
+            color: var(--fg);
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: inherit;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .control-btn:hover {
+            border-color: var(--accent);
+            transform: translateY(-2px);
+        }
+        
+        .control-btn.active {
+            background: linear-gradient(135deg, var(--accent), #2563eb);
+            border-color: transparent;
+        }
+        
+        .control-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .home-btn {
+            position: absolute;
+            top: 12px;
+            left: 20px;
+            padding: 8px 16px;
+            border-radius: 30px;
+            border: 2px solid var(--border);
+            background: var(--card);
+            color: var(--fg);
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: inherit;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            text-decoration: none;
+        }
+        
+        .home-btn:hover {
+            border-color: var(--accent);
+            transform: translateY(-2px);
+        }
+        
+        .hint-container {
+            text-align: center;
+            margin-top: 6px;
+            min-height: 36px;
+        }
+        
+        .hint-box {
+            display: inline-block;
+            background: var(--card);
+            border: 2px solid var(--border);
+            padding: 8px 20px;
+            border-radius: 10px;
+            font-size: 0.95rem;
+            font-weight: 500;
+            max-width: min(800px, 90vw);
+            text-align: center;
+            opacity: 0;
+            transform: translateY(-15px);
+            transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .hint-box.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .stage {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 1fr 1.5fr 1fr;
+            gap: 16px;
+            margin-top: 8px;
+            min-height: 0;
+        }
+        
+        .panel {
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            padding: 12px;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .panel.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .panel-title {
+            font-size: 0.9rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .waiting-room {
+            border-color: rgba(59, 130, 246, 0.3);
+        }
+        
+        .waiting-room .panel-title {
+            color: var(--normal-patient);
+        }
+        
+        .patient-queue {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            overflow-y: auto;
+            padding: 4px;
+        }
+        
+        .patient-card {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            background: rgba(255,255,255,0.03);
+            border-radius: 10px;
+            border: 2px solid var(--border);
+            transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .patient-card.normal {
+            border-color: rgba(59, 130, 246, 0.4);
+        }
+        
+        .patient-card.urgent {
+            border-color: rgba(239, 68, 68, 0.6);
+            background: rgba(239, 68, 68, 0.1);
+        }
+        
+        .patient-card.in-doctor {
+            opacity: 0.3;
+        }
+        
+        .patient-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            flex-shrink: 0;
+        }
+        
+        .patient-avatar.normal {
+            background: rgba(59, 130, 246, 0.2);
+            border: 2px solid var(--normal-patient);
+        }
+        
+        .patient-avatar.urgent {
+            background: rgba(239, 68, 68, 0.2);
+            border: 2px solid var(--urgent-patient);
+        }
+        
+        .patient-info {
+            flex: 1;
+            min-width: 0;
+        }
+        
+        .patient-name {
+            font-weight: 600;
+            font-size: 0.85rem;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .patient-tag {
+            font-size: 0.65rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 600;
+        }
+        
+        .patient-tag.urgent {
+            background: rgba(239, 68, 68, 0.3);
+            color: #ef4444;
+        }
+        
+        .patient-tag.normal {
+            background: rgba(59, 130, 246, 0.3);
+            color: #60a5fa;
+        }
+        
+        .patient-detail {
+            font-size: 0.7rem;
+            color: var(--muted);
+            margin-top: 2px;
+        }
+        
+        .doctor-room {
+            border-color: rgba(34, 197, 94, 0.3);
+        }
+        
+        .doctor-room .panel-title {
+            color: var(--doctor-color);
+        }
+        
+        .doctor-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+        }
+        
+        .doctor-visual {
+            width: 120px;
+            height: 120px;
+            border-radius: 20px;
+            background: rgba(107, 114, 128, 0.2);
+            border: 3px solid var(--waiting-color);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+        
+        .doctor-visual.active {
+            border-color: var(--doctor-color);
+            background: rgba(34, 197, 94, 0.15);
+            box-shadow: 0 0 30px rgba(34, 197, 94, 0.3);
+        }
+        
+        .doctor-icon {
+            font-size: 3rem;
+        }
+        
+        .doctor-label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--muted);
+            margin-top: 4px;
+        }
+        
+        .doctor-visual.active .doctor-label {
+            color: var(--doctor-color);
+        }
+        
+        .current-patient {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 16px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 10px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            min-width: 150px;
+            justify-content: center;
+        }
+        
+        .time-slice-container {
+            margin-top: 8px;
+            text-align: center;
+        }
+        
+        .time-slice-label {
+            font-size: 0.75rem;
+            color: var(--muted);
+            margin-bottom: 4px;
+        }
+        
+        .time-slice-bar {
+            width: 150px;
+            height: 8px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        
+        .time-slice-progress {
+            height: 100%;
+            background: linear-gradient(90deg, var(--doctor-color), #16a34a);
+            border-radius: 4px;
+            transition: width 0.1s linear;
+            width: 100%;
+        }
+        
+        .lab-room {
+            border-color: rgba(251, 191, 36, 0.3);
+        }
+        
+        .lab-room .panel-title {
+            color: var(--lab-color);
+        }
+        
+        .lab-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+        }
+        
+        .lab-visual {
+            width: 100px;
+            height: 100px;
+            border-radius: 16px;
+            background: rgba(107, 114, 128, 0.2);
+            border: 3px solid var(--waiting-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+        
+        .lab-visual.active {
+            border-color: var(--lab-color);
+            background: rgba(251, 191, 36, 0.15);
+            box-shadow: 0 0 30px rgba(251, 191, 36, 0.3);
+        }
+        
+        .lab-visual.active::before {
+            content: '';
+            position: absolute;
+            inset: 15px;
+            border-radius: 50%;
+            border: 3px solid transparent;
+            border-top-color: var(--lab-color);
+            animation: labSpin 1s linear infinite;
+        }
+        
+        @keyframes labSpin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .lab-icon {
+            font-size: 2.5rem;
+        }
+        
+        .lab-status {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--muted);
+        }
+        
+        .lab-status.active {
+            color: var(--lab-color);
+        }
+        
+        .lab-queue {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        
+        .lab-patient {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            font-weight: 700;
+        }
+        
+        .lab-patient.normal {
+            background: rgba(59, 130, 246, 0.3);
+            border: 2px solid var(--normal-patient);
+        }
+        
+        .lab-patient.urgent {
+            background: rgba(239, 68, 68, 0.3);
+            border: 2px solid var(--urgent-patient);
+        }
+        
+        .summary-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.85);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.5s ease;
+        }
+        
+        .summary-overlay.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        
+        .summary-card {
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 20px;
+            padding: 30px 40px;
+            max-width: 650px;
+            text-align: center;
+            transform: scale(0.9);
+            transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .summary-overlay.visible .summary-card {
+            transform: scale(1);
+        }
+        
+        .summary-title {
+            font-size: 1.5rem;
+            font-weight: 900;
+            margin-bottom: 24px;
+            color: var(--doctor-color);
+        }
+        
+        .summary-items {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+        
+        .summary-item {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 14px;
+            background: rgba(255,255,255,0.03);
+            border-radius: 12px;
+            text-align: left;
+        }
+        
+        .summary-icon {
+            width: 50px;
+            height: 50px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            flex-shrink: 0;
+        }
+        
+        .summary-icon.multi { background: rgba(34, 197, 94, 0.2); }
+        .summary-icon.priority { background: rgba(239, 68, 68, 0.2); }
+        .summary-icon.timeslice { background: rgba(251, 191, 36, 0.2); }
+        
+        .summary-text h4 {
+            font-size: 1rem;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+        
+        .summary-text p {
+            font-size: 0.85rem;
+            color: var(--muted);
+        }
+        
+        .summary-close {
+            margin-top: 24px;
+            padding: 10px 30px;
+            border-radius: 30px;
+            background: linear-gradient(135deg, var(--doctor-color), #16a34a);
+            border: none;
+            color: white;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .summary-close:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(34, 197, 94, 0.3);
+        }
+        
+        .progress-bar {
+            position: absolute;
+            bottom: 12px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 8px;
+        }
+        
+        .progress-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--border);
+            transition: all 0.3s ease;
+        }
+        
+        .progress-dot.active {
+            background: var(--accent);
+            transform: scale(1.2);
+        }
+        
+        .progress-dot.completed {
+            background: var(--doctor-color);
+        }
+        
+        .mapping-table {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 10px;
+            padding: 10px;
+            background: rgba(255,255,255,0.03);
+            border-radius: 8px;
+        }
+        
+        .mapping-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.75rem;
+        }
+        
+        .mapping-icon {
+            font-size: 1rem;
+        }
+        
+        .completed-patient {
+            opacity: 0.5;
+            text-decoration: line-through;
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-layer">
+        <div class="bg-gradient"></div>
+        <div class="bg-grid"></div>
+    </div>
+    
+    <div class="main-container">
+        <a href="index.html" class="home-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                <polyline points="9 22 9 12 15 12 15 22"/>
+            </svg>
+            返回主页
+        </a>
+        
+        <header class="header" id="header">
+            <h1 class="main-title">医生看病 - 多道程序设计</h1>
+            <p class="subtitle">ClinicOS: 用生活化类比理解操作系统核心概念</p>
+        </header>
+        
+        <div class="control-bar">
+            <button class="control-btn" id="playBtn" onclick="togglePlay()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" id="playIcon">
+                    <polygon points="5 3 19 12 5 21 5 3"/>
+                </svg>
+                <span id="playText">播放</span>
+            </button>
+            <button class="control-btn" id="resetBtn" onclick="resetAnimation()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="1 4 1 10 7 10"/>
+                    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+                </svg>
+                重置
+            </button>
+            <button class="control-btn" id="prevBtn" onclick="prevScene()" disabled>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="15 18 9 12 15 6"/>
+                </svg>
+                上一幕
+            </button>
+            <button class="control-btn" id="nextBtn" onclick="nextScene()" disabled>
+                下一幕
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="9 18 15 12 9 6"/>
+                </svg>
+            </button>
+        </div>
+        
+        <div class="hint-container">
+            <div class="hint-box" id="hintBox">点击播放按钮开始演示医生看病类比多道程序设计</div>
+        </div>
+        
+        <div class="stage">
+            <div class="panel waiting-room" id="waitingRoomPanel">
+                <div class="panel-title">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                        <circle cx="9" cy="7" r="4"/>
+                        <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                    </svg>
+                    候诊室 (就绪队列)
+                </div>
+                <div class="patient-queue" id="patientQueue">
+                </div>
+            </div>
+            
+            <div class="panel doctor-room" id="doctorPanel">
+                <div class="panel-title">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+                    </svg>
+                    医生诊室 (CPU)
+                </div>
+                <div class="doctor-content">
+                    <div class="doctor-visual" id="doctorVisual">
+                        <span class="doctor-icon">👨‍⚕️</span>
+                        <span class="doctor-label">医生空闲</span>
+                    </div>
+                    <div class="current-patient" id="currentPatient" style="display: none;">
+                        <span>正在看诊:</span>
+                        <span id="patientName">-</span>
+                    </div>
+                    <div class="time-slice-container" id="timeSliceContainer" style="display: none;">
+                        <div class="time-slice-label">时间片倒计时</div>
+                        <div class="time-slice-bar">
+                            <div class="time-slice-progress" id="timeSliceProgress"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="panel lab-room" id="labPanel">
+                <div class="panel-title">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                    </svg>
+                    化验室 (I/O设备)
+                </div>
+                <div class="lab-content">
+                    <div class="lab-visual" id="labVisual">
+                        <span class="lab-icon">🔬</span>
+                    </div>
+                    <div class="lab-status" id="labStatus">空闲</div>
+                    <div class="lab-queue" id="labQueue"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="progress-bar" id="progressBar">
+            <div class="progress-dot active" id="dot1"></div>
+            <div class="progress-dot" id="dot2"></div>
+            <div class="progress-dot" id="dot3"></div>
+            <div class="progress-dot" id="dot4"></div>
+        </div>
+    </div>
+    
+    <div class="summary-overlay" id="summaryOverlay">
+        <div class="summary-card">
+            <h3 class="summary-title">多道程序设计核心概念</h3>
+            <div class="summary-items">
+                <div class="summary-item">
+                    <div class="summary-icon multi">🔄</div>
+                    <div class="summary-text">
+                        <h4>多道程序 (Multiprogramming)</h4>
+                        <p>病人去化验时医生不空闲，立即叫下一位，消除CPU等待时间</p>
+                    </div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-icon priority">🚨</div>
+                    <div class="summary-text">
+                        <h4>优先级调度 (Priority Scheduling)</h4>
+                        <p>急诊病人可以插队，确保紧急任务优先处理</p>
+                    </div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-icon timeslice">⏳</div>
+                    <div class="summary-text">
+                        <h4>时间片轮转 (Round Robin)</h4>
+                        <p>限时看诊保证公平，防止长任务霸占CPU</p>
+                    </div>
+                </div>
+            </div>
+            <button class="summary-close" onclick="closeSummary()">完成学习</button>
+        </div>
+    </div>
+
+    <script>
+        let isPlaying = false;
+        let currentScene = 0;
+        let animationTimeout = null;
+        let sceneTimeout = null;
+        let timeSliceInterval = null;
+        
+        const patients = {
+            A: { id: 'A', name: '病人A', type: 'normal', consultTime: 5000, needsLab: true, labDuration: 3000, status: 'waiting', remainingTime: 5000 },
+            B: { id: 'B', name: '病人B', type: 'normal', consultTime: 4000, needsLab: false, labDuration: 0, status: 'waiting', remainingTime: 4000 },
+            C: { id: 'C', name: '病人C', type: 'normal', consultTime: 6000, needsLab: true, labDuration: 2500, status: 'waiting', remainingTime: 6000 },
+            D: { id: 'D', name: '病人D', type: 'normal', consultTime: 4500, needsLab: false, labDuration: 0, status: 'waiting', remainingTime: 4500 },
+            E: { id: 'E', name: '病人E', type: 'normal', consultTime: 5500, needsLab: true, labDuration: 2000, status: 'waiting', remainingTime: 5500 },
+            S: { id: 'S', name: '急诊S', type: 'urgent', consultTime: 3000, needsLab: false, labDuration: 0, status: 'waiting', remainingTime: 3000 }
+        };
+        
+        const state = {
+            waitingQueue: [],
+            labQueue: [],
+            currentPatient: null,
+            doctorBusy: false,
+            labBusy: false,
+            timeSlice: 3000,
+            timeSliceRemaining: 0
+        };
+        
+        const hints = [
+            '点击播放按钮开始演示医生看病类比多道程序设计',
+            '场景一：基础多道程序 - 当病人去化验时，医生不空闲，立即叫下一位',
+            '场景二：优先级调度 - 急诊病人可以插队，优先处理紧急任务',
+            '场景三：时间片轮转 - 限时看诊保证公平，防止长任务霸占CPU',
+            '多道程序设计核心概念总结'
+        ];
+        
+        function init() {
+            document.getElementById('header').classList.add('visible');
+            document.getElementById('waitingRoomPanel').classList.add('visible');
+            document.getElementById('doctorPanel').classList.add('visible');
+            document.getElementById('labPanel').classList.add('visible');
+            document.getElementById('hintBox').classList.add('visible');
+            updateHint(0);
+        }
+        
+        function updateHint(index) {
+            const hintBox = document.getElementById('hintBox');
+            hintBox.classList.remove('visible');
+            setTimeout(() => {
+                hintBox.textContent = hints[index];
+                hintBox.classList.add('visible');
+            }, 300);
+        }
+        
+        function updateProgress(scene) {
+            for (let i = 1; i <= 4; i++) {
+                const dot = document.getElementById('dot' + i);
+                dot.classList.remove('active', 'completed');
+                if (i < scene) {
+                    dot.classList.add('completed');
+                } else if (i === scene) {
+                    dot.classList.add('active');
+                }
+            }
+        }
+        
+        function createPatientCard(patient, inQueue = true) {
+            const card = document.createElement('div');
+            card.className = `patient-card ${patient.type}`;
+            card.id = `patient-${patient.id}`;
+            
+            const emoji = patient.type === 'urgent' ? '🤒' : '😷';
+            
+            card.innerHTML = `
+                <div class="patient-avatar ${patient.type}">${emoji}</div>
+                <div class="patient-info">
+                    <div class="patient-name">
+                        ${patient.name}
+                        <span class="patient-tag ${patient.type}">${patient.type === 'urgent' ? '急诊' : '普通'}</span>
+                    </div>
+                    <div class="patient-detail">看诊: ${patient.consultTime/1000}s ${patient.needsLab ? '| 需化验' : ''}</div>
+                </div>
+            `;
+            
+            return card;
+        }
+        
+        function renderWaitingQueue() {
+            const queueEl = document.getElementById('patientQueue');
+            queueEl.innerHTML = '';
+            
+            state.waitingQueue.forEach(patientId => {
+                const patient = patients[patientId];
+                if (patient && patient.status !== 'finished') {
+                    const card = createPatientCard(patient);
+                    queueEl.appendChild(card);
+                }
+            });
+        }
+        
+        function setDoctorStatus(busy, patient = null) {
+            const visual = document.getElementById('doctorVisual');
+            const currentPatientEl = document.getElementById('currentPatient');
+            
+            state.doctorBusy = busy;
+            state.currentPatient = patient;
+            
+            if (busy && patient) {
+                visual.classList.add('active');
+                visual.querySelector('.doctor-label').textContent = '看诊中';
+                currentPatientEl.style.display = 'flex';
+                document.getElementById('patientName').textContent = patient.name;
+                patient.status = 'consulting';
+            } else {
+                visual.classList.remove('active');
+                visual.querySelector('.doctor-label').textContent = '医生空闲';
+                currentPatientEl.style.display = 'none';
+            }
+        }
+        
+        function setLabStatus(busy, patients = []) {
+            const visual = document.getElementById('labVisual');
+            const status = document.getElementById('labStatus');
+            const queue = document.getElementById('labQueue');
+            
+            state.labBusy = busy;
+            state.labQueue = patients;
+            
+            if (busy && patients.length > 0) {
+                visual.classList.add('active');
+                status.textContent = '化验中';
+                status.classList.add('active');
+                
+                queue.innerHTML = '';
+                patients.forEach(p => {
+                    const item = document.createElement('div');
+                    item.className = `lab-patient ${p.type}`;
+                    item.textContent = p.id;
+                    queue.appendChild(item);
+                });
+            } else {
+                visual.classList.remove('active');
+                status.textContent = '空闲';
+                status.classList.remove('active');
+                queue.innerHTML = '';
+            }
+        }
+        
+        function showTimeSlice(show) {
+            const container = document.getElementById('timeSliceContainer');
+            container.style.display = show ? 'block' : 'none';
+        }
+        
+        function updateTimeSliceProgress(percent) {
+            document.getElementById('timeSliceProgress').style.width = percent + '%';
+        }
+        
+        function togglePlay() {
+            if (isPlaying) {
+                pause();
+            } else {
+                play();
+            }
+        }
+        
+        function play() {
+            isPlaying = true;
+            document.getElementById('playIcon').innerHTML = '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>';
+            document.getElementById('playText').textContent = '暂停';
+            document.getElementById('playBtn').classList.add('active');
+            document.getElementById('prevBtn').disabled = false;
+            document.getElementById('nextBtn').disabled = false;
+            
+            if (currentScene === 0) {
+                currentScene = 1;
+                runScene1();
+            }
+        }
+        
+        function pause() {
+            isPlaying = false;
+            document.getElementById('playIcon').innerHTML = '<polygon points="5 3 19 12 5 21 5 3"/>';
+            document.getElementById('playText').textContent = '播放';
+            document.getElementById('playBtn').classList.remove('active');
+            
+            if (animationTimeout) clearTimeout(animationTimeout);
+            if (sceneTimeout) clearTimeout(sceneTimeout);
+            if (timeSliceInterval) clearInterval(timeSliceInterval);
+        }
+        
+        function resetAnimation() {
+            pause();
+            currentScene = 0;
+            
+            Object.keys(patients).forEach(key => {
+                patients[key].status = 'waiting';
+                patients[key].remainingTime = patients[key].consultTime;
+            });
+            
+            state.waitingQueue = [];
+            state.labQueue = [];
+            state.currentPatient = null;
+            state.doctorBusy = false;
+            state.labBusy = false;
+            
+            document.getElementById('patientQueue').innerHTML = '';
+            setDoctorStatus(false);
+            setLabStatus(false);
+            showTimeSlice(false);
+            
+            document.getElementById('summaryOverlay').classList.remove('visible');
+            
+            updateProgress(0);
+            updateHint(0);
+            
+            document.getElementById('prevBtn').disabled = true;
+            document.getElementById('nextBtn').disabled = true;
+        }
+        
+        function prevScene() {
+            if (currentScene > 1) {
+                resetAnimation();
+                currentScene = currentScene - 1;
+                play();
+            }
+        }
+        
+        function nextScene() {
+            if (currentScene < 4 && currentScene > 0) {
+                if (animationTimeout) clearTimeout(animationTimeout);
+                if (sceneTimeout) clearTimeout(sceneTimeout);
+                if (timeSliceInterval) clearInterval(timeSliceInterval);
+                currentScene = currentScene + 1;
+                runScene(currentScene);
+            }
+        }
+        
+        function runScene(scene) {
+            updateProgress(scene);
+            updateHint(scene);
+            
+            switch(scene) {
+                case 1: runScene1(); break;
+                case 2: runScene2(); break;
+                case 3: runScene3(); break;
+                case 4: runScene4(); break;
+            }
+        }
+        
+        function runScene1() {
+            updateProgress(1);
+            showTimeSlice(false);
+            
+            state.waitingQueue = ['A', 'B', 'C', 'D', 'E'];
+            renderWaitingQueue();
+            
+            animationTimeout = setTimeout(() => {
+                if (!isPlaying) return;
+                
+                const patientA = patients.A;
+                state.waitingQueue = state.waitingQueue.filter(id => id !== 'A');
+                renderWaitingQueue();
+                setDoctorStatus(true, patientA);
+                
+                animationTimeout = setTimeout(() => {
+                    if (!isPlaying) return;
+                    
+                    if (patientA.needsLab) {
+                        patientA.status = 'in_lab';
+                        setDoctorStatus(false);
+                        setLabStatus(true, [patientA]);
+                        
+                        animationTimeout = setTimeout(() => {
+                            if (!isPlaying) return;
+                            
+                            const patientB = patients.B;
+                            state.waitingQueue = state.waitingQueue.filter(id => id !== 'B');
+                            renderWaitingQueue();
+                            setDoctorStatus(true, patientB);
+                            
+                            animationTimeout = setTimeout(() => {
+                                if (!isPlaying) return;
+                                
+                                patientB.status = 'finished';
+                                setDoctorStatus(false);
+                                
+                                const patientC = patients.C;
+                                state.waitingQueue = state.waitingQueue.filter(id => id !== 'C');
+                                renderWaitingQueue();
+                                setDoctorStatus(true, patientC);
+                                
+                                animationTimeout = setTimeout(() => {
+                                    if (!isPlaying) return;
+                                    
+                                    if (patientC.needsLab) {
+                                        patientC.status = 'in_lab';
+                                        setDoctorStatus(false);
+                                        setLabStatus(true, [patientA, patientC]);
+                                        
+                                        animationTimeout = setTimeout(() => {
+                                            if (!isPlaying) return;
+                                            
+                                            setLabStatus(false, [patientC]);
+                                            patientA.status = 'waiting';
+                                            state.waitingQueue.push('A');
+                                            renderWaitingQueue();
+                                            
+                                            const patientD = patients.D;
+                                            state.waitingQueue = state.waitingQueue.filter(id => id !== 'D');
+                                            renderWaitingQueue();
+                                            setDoctorStatus(true, patientD);
+                                            
+                                            animationTimeout = setTimeout(() => {
+                                                if (!isPlaying) return;
+                                                
+                                                patientD.status = 'finished';
+                                                setDoctorStatus(false);
+                                                
+                                                setLabStatus(false);
+                                                patientC.status = 'waiting';
+                                                state.waitingQueue.push('C');
+                                                renderWaitingQueue();
+                                                
+                                                const patientE = patients.E;
+                                                state.waitingQueue = state.waitingQueue.filter(id => id !== 'E');
+                                                renderWaitingQueue();
+                                                setDoctorStatus(true, patientE);
+                                                
+                                                animationTimeout = setTimeout(() => {
+                                                    if (!isPlaying) return;
+                                                    
+                                                    if (patientE.needsLab) {
+                                                        patientE.status = 'in_lab';
+                                                        setDoctorStatus(false);
+                                                        setLabStatus(true, [patientE]);
+                                                        
+                                                        animationTimeout = setTimeout(() => {
+                                                            if (!isPlaying) return;
+                                                            
+                                                            state.waitingQueue = state.waitingQueue.filter(id => id !== 'A');
+                                                            renderWaitingQueue();
+                                                            setDoctorStatus(true, patients.A);
+                                                            
+                                                            animationTimeout = setTimeout(() => {
+                                                                if (!isPlaying) return;
+                                                                patients.A.status = 'finished';
+                                                                setDoctorStatus(false);
+                                                                
+                                                                state.waitingQueue = state.waitingQueue.filter(id => id !== 'C');
+                                                                renderWaitingQueue();
+                                                                setDoctorStatus(true, patients.C);
+                                                                
+                                                                animationTimeout = setTimeout(() => {
+                                                                    if (!isPlaying) return;
+                                                                    patients.C.status = 'finished';
+                                                                    setDoctorStatus(false);
+                                                                    
+                                                                    setLabStatus(false);
+                                                                    patientE.status = 'finished';
+                                                                    
+                                                                    sceneTimeout = setTimeout(() => {
+                                                                        if (isPlaying && currentScene === 1) {
+                                                                            currentScene = 2;
+                                                                            runScene2();
+                                                                        }
+                                                                    }, 1000);
+                                                                }, 2500);
+                                                            }, 3000);
+                                                        }, 2000);
+                                                    }
+                                                }, 5500);
+                                            }, 4500);
+                                        }, 2500);
+                                    }
+                                }, 6000);
+                            }, 4000);
+                        }, 500);
+                    }
+                }, 2000);
+            }, 1000);
+        }
+        
+        function runScene2() {
+            updateProgress(2);
+            showTimeSlice(false);
+            
+            Object.keys(patients).forEach(key => {
+                patients[key].status = 'waiting';
+                patients[key].remainingTime = patients[key].consultTime;
+            });
+            
+            state.waitingQueue = ['A', 'B', 'C', 'D'];
+            state.labQueue = [];
+            state.currentPatient = null;
+            state.doctorBusy = false;
+            state.labBusy = false;
+            
+            renderWaitingQueue();
+            setDoctorStatus(false);
+            setLabStatus(false);
+            
+            animationTimeout = setTimeout(() => {
+                if (!isPlaying) return;
+                
+                const patientB = patients.B;
+                state.waitingQueue = state.waitingQueue.filter(id => id !== 'B');
+                renderWaitingQueue();
+                setDoctorStatus(true, patientB);
+                
+                animationTimeout = setTimeout(() => {
+                    if (!isPlaying) return;
+                    
+                    const patientS = patients.S;
+                    state.waitingQueue.unshift('S');
+                    renderWaitingQueue();
+                    
+                    animationTimeout = setTimeout(() => {
+                        if (!isPlaying) return;
+                        
+                        patientB.status = 'waiting';
+                        state.waitingQueue.push('B');
+                        renderWaitingQueue();
+                        setDoctorStatus(false);
+                        
+                        animationTimeout = setTimeout(() => {
+                            if (!isPlaying) return;
+                            
+                            state.waitingQueue = state.waitingQueue.filter(id => id !== 'S');
+                            renderWaitingQueue();
+                            setDoctorStatus(true, patientS);
+                            
+                            animationTimeout = setTimeout(() => {
+                                if (!isPlaying) return;
+                                
+                                patientS.status = 'finished';
+                                setDoctorStatus(false);
+                                
+                                state.waitingQueue = state.waitingQueue.filter(id => id !== 'B');
+                                renderWaitingQueue();
+                                setDoctorStatus(true, patients.B);
+                                
+                                animationTimeout = setTimeout(() => {
+                                    if (!isPlaying) return;
+                                    
+                                    patients.B.status = 'finished';
+                                    setDoctorStatus(false);
+                                    
+                                    state.waitingQueue = state.waitingQueue.filter(id => id !== 'A');
+                                    renderWaitingQueue();
+                                    setDoctorStatus(true, patients.A);
+                                    
+                                    animationTimeout = setTimeout(() => {
+                                        if (!isPlaying) return;
+                                        patients.A.status = 'finished';
+                                        setDoctorStatus(false);
+                                        
+                                        state.waitingQueue = state.waitingQueue.filter(id => id !== 'C');
+                                        renderWaitingQueue();
+                                        setDoctorStatus(true, patients.C);
+                                        
+                                        animationTimeout = setTimeout(() => {
+                                            if (!isPlaying) return;
+                                            patients.C.status = 'finished';
+                                            setDoctorStatus(false);
+                                            
+                                            state.waitingQueue = state.waitingQueue.filter(id => id !== 'D');
+                                            renderWaitingQueue();
+                                            setDoctorStatus(true, patients.D);
+                                            
+                                            animationTimeout = setTimeout(() => {
+                                                if (!isPlaying) return;
+                                                patients.D.status = 'finished';
+                                                setDoctorStatus(false);
+                                                
+                                                sceneTimeout = setTimeout(() => {
+                                                    if (isPlaying && currentScene === 2) {
+                                                        currentScene = 3;
+                                                        runScene3();
+                                                    }
+                                                }, 1000);
+                                            }, 4500);
+                                        }, 6000);
+                                    }, 5000);
+                                }, 4000);
+                            }, 3000);
+                        }, 500);
+                    }, 1500);
+                }, 2000);
+            }, 1000);
+        }
+        
+        function runScene3() {
+            updateProgress(3);
+            showTimeSlice(true);
+            
+            Object.keys(patients).forEach(key => {
+                patients[key].status = 'waiting';
+                patients[key].remainingTime = patients[key].consultTime;
+            });
+            
+            state.waitingQueue = ['A', 'B', 'C', 'D', 'E'];
+            state.labQueue = [];
+            state.currentPatient = null;
+            state.doctorBusy = false;
+            state.labBusy = false;
+            state.timeSlice = 3000;
+            
+            renderWaitingQueue();
+            setDoctorStatus(false);
+            setLabStatus(false);
+            
+            const runTimeSlice = (patientId, callback) => {
+                const patient = patients[patientId];
+                state.waitingQueue = state.waitingQueue.filter(id => id !== patientId);
+                renderWaitingQueue();
+                setDoctorStatus(true, patient);
+                
+                let elapsed = 0;
+                const interval = 50;
+                updateTimeSliceProgress(100);
+                
+                timeSliceInterval = setInterval(() => {
+                    if (!isPlaying) {
+                        clearInterval(timeSliceInterval);
+                        return;
+                    }
+                    
+                    elapsed += interval;
+                    const remaining = state.timeSlice - elapsed;
+                    updateTimeSliceProgress((remaining / state.timeSlice) * 100);
+                    
+                    if (elapsed >= state.timeSlice) {
+                        clearInterval(timeSliceInterval);
+                        
+                        patient.remainingTime -= state.timeSlice;
+                        
+                        if (patient.remainingTime > 0) {
+                            patient.status = 'waiting';
+                            state.waitingQueue.push(patientId);
+                            renderWaitingQueue();
+                        } else {
+                            patient.status = 'finished';
+                        }
+                        
+                        setDoctorStatus(false);
+                        callback();
+                    }
+                }, interval);
+            };
+            
+            const runSequence = (queue, index, onComplete) => {
+                if (index >= queue.length) {
+                    onComplete();
+                    return;
+                }
+                
+                const patientId = queue[index];
+                if (patients[patientId].status === 'finished') {
+                    runSequence(queue, index + 1, onComplete);
+                    return;
+                }
+                
+                runTimeSlice(patientId, () => {
+                    animationTimeout = setTimeout(() => {
+                        if (!isPlaying) return;
+                        
+                        const newQueue = state.waitingQueue.slice();
+                        if (newQueue.length > 0) {
+                            runSequence(newQueue, 0, onComplete);
+                        } else {
+                            onComplete();
+                        }
+                    }, 500);
+                });
+            };
+            
+            animationTimeout = setTimeout(() => {
+                if (!isPlaying) return;
+                
+                runSequence(['A', 'B', 'C', 'D', 'E'], 0, () => {
+                    sceneTimeout = setTimeout(() => {
+                        if (isPlaying && currentScene === 3) {
+                            currentScene = 4;
+                            runScene4();
+                        }
+                    }, 1000);
+                });
+            }, 1000);
+        }
+        
+        function runScene4() {
+            updateProgress(4);
+            showTimeSlice(false);
+            pause();
+            document.getElementById('playIcon').innerHTML = '<polygon points="5 3 19 12 5 21 5 3"/>';
+            document.getElementById('playText').textContent = '播放';
+            document.getElementById('playBtn').classList.remove('active');
+            
+            document.getElementById('summaryOverlay').classList.add('visible');
+        }
+        
+        function closeSummary() {
+            document.getElementById('summaryOverlay').classList.remove('visible');
+        }
+        
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>

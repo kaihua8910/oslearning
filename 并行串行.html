@@ -1,0 +1,1065 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>串行·并行·并发——任务执行模式对比</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0c1015;
+            --bg-secondary: #141c24;
+            --bg-tertiary: #1c2730;
+            --fg: #e8edf5;
+            --muted: #6a7d8f;
+            --serial-color: #f97316;
+            --serial-glow: rgba(249, 115, 22, 0.4);
+            --parallel-color: #22c55e;
+            --parallel-glow: rgba(34, 197, 94, 0.4);
+            --concurrent-color: #3b82f6;
+            --concurrent-glow: rgba(59, 130, 246, 0.4);
+            --card: rgba(20, 28, 36, 0.95);
+            --border: rgba(255, 255, 255, 0.1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Noto Sans SC', sans-serif;
+            background: var(--bg);
+            color: var(--fg);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .bg-pattern {
+            position: fixed;
+            inset: 0;
+            background: 
+                radial-gradient(circle at 20% 30%, rgba(249, 115, 22, 0.05) 0%, transparent 50%),
+                radial-gradient(circle at 50% 50%, rgba(34, 197, 94, 0.05) 0%, transparent 50%),
+                radial-gradient(circle at 80% 70%, rgba(59, 130, 246, 0.05) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .bg-grid {
+            position: fixed;
+            inset: 0;
+            background-image: 
+                linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+            background-size: 40px 40px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* 模式面板 */
+        .mode-panel {
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 16px;
+            overflow: hidden;
+            transition: all 0.4s ease;
+        }
+
+        .mode-panel:hover {
+            transform: translateY(-4px);
+        }
+
+        .mode-panel.serial {
+            border-color: rgba(249, 115, 22, 0.3);
+        }
+
+        .mode-panel.parallel {
+            border-color: rgba(34, 197, 94, 0.3);
+        }
+
+        .mode-panel.concurrent {
+            border-color: rgba(59, 130, 246, 0.3);
+        }
+
+        .mode-header {
+            padding: 16px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .mode-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+        }
+
+        .mode-icon.serial { background: linear-gradient(135deg, var(--serial-color), #ea580c); }
+        .mode-icon.parallel { background: linear-gradient(135deg, var(--parallel-color), #16a34a); }
+        .mode-icon.concurrent { background: linear-gradient(135deg, var(--concurrent-color), #2563eb); }
+
+        /* CPU 可视化 */
+        .cpu-container {
+            position: relative;
+            padding: 20px;
+            min-height: 200px;
+        }
+
+        .cpu-core {
+            width: 60px;
+            height: 60px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 12px;
+            position: absolute;
+            transition: all 0.3s ease;
+        }
+
+        .cpu-core.active {
+            box-shadow: 0 0 30px currentColor;
+        }
+
+        .cpu-core.idle {
+            opacity: 0.3;
+        }
+
+        .cpu-core.serial-active {
+            background: linear-gradient(135deg, var(--serial-color), #ea580c);
+            color: white;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        .cpu-core.parallel-active {
+            background: linear-gradient(135deg, var(--parallel-color), #16a34a);
+            color: white;
+        }
+
+        .cpu-core.concurrent-active {
+            background: linear-gradient(135deg, var(--concurrent-color), #2563eb);
+            color: white;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        /* 任务块 */
+        .task-block {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 14px;
+            transition: all 0.4s ease;
+            position: absolute;
+        }
+
+        .task-block.task-a { background: #ef4444; color: white; }
+        .task-block.task-b { background: #8b5cf6; color: white; }
+        .task-block.task-c { background: #06b6d4; color: white; }
+        .task-block.task-d { background: #eab308; color: white; }
+
+        .task-block.executing {
+            box-shadow: 0 0 20px currentColor;
+            animation: task-pulse 0.5s ease-in-out infinite;
+        }
+
+        .task-block.completed {
+            opacity: 0.4;
+            transform: scale(0.8);
+        }
+
+        @keyframes task-pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+
+        /* 时间轴 */
+        .timeline-container {
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 16px;
+        }
+
+        .timeline-track {
+            height: 24px;
+            background: var(--bg-tertiary);
+            border-radius: 4px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .timeline-segment {
+            position: absolute;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 700;
+            transition: all 0.3s ease;
+        }
+
+        .timeline-progress {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.1);
+            width: 0%;
+            transition: width 0.1s linear;
+        }
+
+        /* 状态指示 */
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 14px;
+            background: var(--bg-secondary);
+            border-radius: 20px;
+            font-size: 13px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .status-dot.running { background: #22c55e; animation: dot-blink 0.8s ease-in-out infinite; }
+        .status-dot.paused { background: #f59e0b; }
+        .status-dot.idle { background: var(--muted); }
+
+        @keyframes dot-blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        /* 控制按钮 */
+        .control-btn {
+            padding: 12px 24px;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .control-btn-primary {
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            color: white;
+        }
+
+        .control-btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(34, 197, 94, 0.3);
+        }
+
+        .control-btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--fg);
+            border: 2px solid var(--border);
+        }
+
+        .control-btn-secondary:hover {
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+
+        .control-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* 速度滑块 */
+        .speed-slider {
+            -webkit-appearance: none;
+            width: 120px;
+            height: 6px;
+            border-radius: 3px;
+            background: var(--bg-tertiary);
+            outline: none;
+        }
+
+        .speed-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .speed-slider::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+        }
+
+        /* 对比说明 */
+        .compare-card {
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .compare-card:hover {
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .compare-card.serial { border-left: 4px solid var(--serial-color); }
+        .compare-card.parallel { border-left: 4px solid var(--parallel-color); }
+        .compare-card.concurrent { border-left: 4px solid var(--concurrent-color); }
+
+        /* 返回按钮 */
+        .back-btn {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: var(--card);
+            border: 2px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            z-index: 100;
+        }
+
+        .back-btn:hover {
+            border-color: rgba(255, 255, 255, 0.3);
+            transform: scale(1.1);
+        }
+
+        /* 动画 */
+        .fade-in {
+            animation: fadeIn 0.6s ease-out forwards;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .slide-up {
+            animation: slideUp 0.5s ease-out forwards;
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* 进度条 */
+        .progress-bar {
+            height: 4px;
+            background: var(--bg-secondary);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--serial-color), var(--parallel-color), var(--concurrent-color));
+            width: 0%;
+            transition: width 0.1s linear;
+        }
+
+        /* 队列可视化 */
+        .queue-container {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            padding: 10px;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            min-height: 56px;
+            align-items: center;
+        }
+
+        .queue-item {
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 14px;
+            animation: queue-enter 0.3s ease-out;
+        }
+
+        @keyframes queue-enter {
+            from { opacity: 0; transform: translateX(-20px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        @media (max-width: 1024px) {
+            .mode-panels-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+    <div class="bg-pattern"></div>
+    <div class="bg-grid"></div>
+
+    <!-- 返回按钮 -->
+    <button class="back-btn" onclick="goHome()" title="返回主页">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+        </svg>
+    </button>
+
+    <div class="relative z-10 max-w-7xl mx-auto px-4 py-8">
+        <!-- 标题区 -->
+        <header class="text-center mb-8">
+            <h1 class="text-2xl md:text-3xl font-black mb-2 tracking-tight" id="main-title"></h1>
+            <p class="text-sm md:text-base text-[var(--muted)]" id="sub-title">理解三种任务执行模式的核心差异</p>
+        </header>
+
+        <!-- 进度条 -->
+        <div class="progress-bar mb-6">
+            <div class="progress-fill" id="progress"></div>
+        </div>
+
+        <!-- 主控制区 -->
+        <div class="bg-[var(--card)] rounded-xl p-5 border border-[var(--border)] mb-6">
+            <div class="flex flex-wrap items-center justify-center gap-4">
+                <div class="status-indicator">
+                    <div class="status-dot" id="status-dot"></div>
+                    <span id="status-text">就绪</span>
+                </div>
+                
+                <button class="control-btn control-btn-primary" id="btn-start" onclick="startAnimation()">
+                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M8 5v14l11-7z"/>
+                    </svg>
+                    开始演示
+                </button>
+                
+                <button class="control-btn control-btn-secondary" id="btn-pause" onclick="togglePause()" disabled>
+                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24" id="pause-icon">
+                        <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+                    </svg>
+                    <span id="pause-text">暂停</span>
+                </button>
+                
+                <button class="control-btn control-btn-secondary" onclick="resetAnimation()">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                    重置
+                </button>
+                
+                <div class="flex items-center gap-3 ml-4">
+                    <span class="text-sm text-[var(--muted)]">速度:</span>
+                    <input type="range" class="speed-slider" id="speed-slider" min="0.5" max="3" step="0.5" value="1" onchange="updateSpeed()">
+                    <span class="text-sm mono" id="speed-value">1x</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 三模式对比面板 -->
+        <div class="grid md:grid-cols-3 gap-5 mb-6 mode-panels-grid">
+            <!-- 串行模式 -->
+            <div class="mode-panel serial">
+                <div class="mode-header">
+                    <div class="mode-icon serial">
+                        <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M7 7h10v2H7zm0 4h10v2H7zm0 4h10v2H7z"/>
+                        </svg>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-lg">串行执行</h3>
+                        <p class="text-xs text-[var(--muted)]">Serial Execution</p>
+                    </div>
+                </div>
+                <div class="cpu-container" id="serial-container">
+                    <div class="cpu-core serial-active idle" id="serial-cpu">CPU</div>
+                    <!-- 任务由JS生成 -->
+                </div>
+                <div class="timeline-container">
+                    <div class="text-xs text-[var(--muted)] mb-2">执行时间线</div>
+                    <div class="timeline-track" id="serial-timeline">
+                        <div class="timeline-progress" id="serial-progress"></div>
+                    </div>
+                </div>
+                <div class="px-4 pb-4">
+                    <div class="text-xs text-[var(--muted)] mb-2">等待队列</div>
+                    <div class="queue-container" id="serial-queue"></div>
+                </div>
+            </div>
+
+            <!-- 并行模式 -->
+            <div class="mode-panel parallel">
+                <div class="mode-header">
+                    <div class="mode-icon parallel">
+                        <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M4 6h6v6H4V6zm10 0h6v6h-6V6zM4 16h6v6H4v-6zm10 0h6v6h-6v-6z"/>
+                        </svg>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-lg">并行执行</h3>
+                        <p class="text-xs text-[var(--muted)]">Parallel Execution</p>
+                    </div>
+                </div>
+                <div class="cpu-container" id="parallel-container">
+                    <div class="flex justify-center gap-4 pt-2">
+                        <div class="cpu-core parallel-active idle" id="parallel-cpu-0" style="position: relative;">核心1</div>
+                        <div class="cpu-core parallel-active idle" id="parallel-cpu-1" style="position: relative;">核心2</div>
+                        <div class="cpu-core parallel-active idle" id="parallel-cpu-2" style="position: relative;">核心3</div>
+                        <div class="cpu-core parallel-active idle" id="parallel-cpu-3" style="position: relative;">核心4</div>
+                    </div>
+                </div>
+                <div class="timeline-container">
+                    <div class="text-xs text-[var(--muted)] mb-2">执行时间线</div>
+                    <div class="timeline-track" id="parallel-timeline">
+                        <div class="timeline-progress" id="parallel-progress"></div>
+                    </div>
+                </div>
+                <div class="px-4 pb-4">
+                    <div class="text-xs text-[var(--muted)] mb-2">等待队列</div>
+                    <div class="queue-container" id="parallel-queue"></div>
+                </div>
+            </div>
+
+            <!-- 并发模式 -->
+            <div class="mode-panel concurrent">
+                <div class="mode-header">
+                    <div class="mode-icon concurrent">
+                        <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                        </svg>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-lg">并发执行</h3>
+                        <p class="text-xs text-[var(--muted)]">Concurrent Execution</p>
+                    </div>
+                </div>
+                <div class="cpu-container" id="concurrent-container">
+                    <div class="cpu-core concurrent-active idle" id="concurrent-cpu">CPU</div>
+                    <div class="text-center mt-4 text-xs text-[var(--muted)]">时间片轮转调度</div>
+                </div>
+                <div class="timeline-container">
+                    <div class="text-xs text-[var(--muted)] mb-2">执行时间线</div>
+                    <div class="timeline-track" id="concurrent-timeline">
+                        <div class="timeline-progress" id="concurrent-progress"></div>
+                    </div>
+                </div>
+                <div class="px-4 pb-4">
+                    <div class="text-xs text-[var(--muted)] mb-2">就绪队列</div>
+                    <div class="queue-container" id="concurrent-queue"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 旁白讲解区 -->
+        <div class="bg-[var(--card)] rounded-xl p-5 border border-[var(--border)] mb-6">
+            <div class="flex items-start gap-3">
+                <div class="w-10 h-10 rounded-full bg-gradient-to-br from-[#3b82f6] to-[#8b5cf6] flex items-center justify-center flex-shrink-0">
+                    <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                    </svg>
+                </div>
+                <div class="flex-1">
+                    <h4 class="font-bold text-sm mb-1">讲解</h4>
+                    <p class="text-[var(--muted)] leading-relaxed transition-opacity duration-300" id="narration">点击"开始演示"按钮，观察串行、并行、并发三种执行模式的差异。</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 核心对比说明 -->
+        <div class="grid md:grid-cols-3 gap-4 mb-6">
+            <div class="compare-card serial">
+                <h4 class="font-bold mb-3 text-[var(--serial-color)]">串行特点</h4>
+                <ul class="space-y-2 text-sm text-[var(--muted)]">
+                    <li>单核CPU，一次处理一个任务</li>
+                    <li>任务按顺序排队执行</li>
+                    <li>总耗时 = 所有任务时间之和</li>
+                    <li>实现简单，但效率最低</li>
+                </ul>
+            </div>
+            <div class="compare-card parallel">
+                <h4 class="font-bold mb-3 text-[var(--parallel-color)]">并行特点</h4>
+                <ul class="space-y-2 text-sm text-[var(--muted)]">
+                    <li>多核CPU，同时处理多个任务</li>
+                    <li>真正的同时执行</li>
+                    <li>总耗时大大缩短</li>
+                    <li>需要硬件支持</li>
+                </ul>
+            </div>
+            <div class="compare-card concurrent">
+                <h4 class="font-bold mb-3 text-[var(--concurrent-color)]">并发特点</h4>
+                <ul class="space-y-2 text-sm text-[var(--muted)]">
+                    <li>单核CPU，交替执行任务</li>
+                    <li>时间片轮转，看起来同时</li>
+                    <li>宏观并行，微观串行</li>
+                    <li>提高响应性</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- 统计数据 -->
+        <div class="bg-[var(--card)] rounded-xl p-5 border border-[var(--border)]">
+            <h3 class="font-bold mb-4 text-center">执行效率对比</h3>
+            <div class="grid grid-cols-3 gap-4 text-center">
+                <div>
+                    <div class="text-2xl font-black text-[var(--serial-color)] mono" id="serial-time">0s</div>
+                    <div class="text-xs text-[var(--muted)]">串行耗时</div>
+                </div>
+                <div>
+                    <div class="text-2xl font-black text-[var(--parallel-color)] mono" id="parallel-time">0s</div>
+                    <div class="text-xs text-[var(--muted)]">并行耗时</div>
+                </div>
+                <div>
+                    <div class="text-2xl font-black text-[var(--concurrent-color)] mono" id="concurrent-time">0s</div>
+                    <div class="text-xs text-[var(--muted)]">并发耗时</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==================== 状态管理 ====================
+        var animationState = {
+            isPlaying: false,
+            isPaused: false,
+            currentTime: 0,
+            totalDuration: 20000,
+            speed: 1
+        };
+
+        var progressIntervalId = null;
+        var animationTimeouts = [];
+
+        // 任务数据
+        var tasks = [
+            { id: 'A', duration: 3000, color: '#ef4444' },
+            { id: 'B', duration: 2500, color: '#8b5cf6' },
+            { id: 'C', duration: 2000, color: '#06b6d4' },
+            { id: 'D', duration: 1500, color: '#eab308' }
+        ];
+
+        var taskColors = {
+            'A': '#ef4444',
+            'B': '#8b5cf6',
+            'C': '#06b6d4',
+            'D': '#eab308'
+        };
+
+        // ==================== 初始化 ====================
+        document.addEventListener('DOMContentLoaded', function() {
+            initTitle();
+            initQueues();
+        });
+
+        function initTitle() {
+            var titleText = '串行 · 并行 · 并发 — 任务执行模式对比';
+            var titleEl = document.getElementById('main-title');
+            if (!titleEl) return;
+            
+            titleEl.innerHTML = '';
+            for (var i = 0; i < titleText.length; i++) {
+                var span = document.createElement('span');
+                span.style.opacity = '0';
+                span.style.animation = 'fadeIn 0.4s ease-out forwards';
+                span.style.animationDelay = (i * 0.02) + 's';
+                span.textContent = titleText[i];
+                titleEl.appendChild(span);
+            }
+        }
+
+        function initQueues() {
+            renderQueue('serial-queue', tasks.map(function(t) { return t.id; }));
+            renderQueue('parallel-queue', tasks.map(function(t) { return t.id; }));
+            renderQueue('concurrent-queue', tasks.map(function(t) { return t.id; }));
+            updateStatus('idle', '就绪');
+        }
+
+        function renderQueue(containerId, taskIds) {
+            var container = document.getElementById(containerId);
+            if (!container) return;
+            
+            var html = '';
+            for (var i = 0; i < taskIds.length; i++) {
+                html += '<div class="queue-item" style="background: ' + taskColors[taskIds[i]] + '">' + taskIds[i] + '</div>';
+            }
+            if (taskIds.length === 0) {
+                html = '<span class="text-xs text-[var(--muted)]">队列空</span>';
+            }
+            container.innerHTML = html;
+        }
+
+        // ==================== 辅助函数 ====================
+        function updateNarration(text) {
+            var el = document.getElementById('narration');
+            if (el) {
+                el.style.opacity = '0';
+                setTimeout(function() {
+                    el.textContent = text;
+                    el.style.opacity = '1';
+                }, 150);
+            }
+        }
+
+        function updateStatus(state, text) {
+            var dot = document.getElementById('status-dot');
+            var textEl = document.getElementById('status-text');
+            if (dot) {
+                dot.className = 'status-dot ' + state;
+            }
+            if (textEl) {
+                textEl.textContent = text;
+            }
+        }
+
+        function updateProgress() {
+            if (!animationState.isPlaying || animationState.isPaused) return;
+            
+            animationState.currentTime += 100;
+            var progress = Math.min((animationState.currentTime / animationState.totalDuration) * 100, 100);
+            
+            document.getElementById('progress').style.width = progress + '%';
+            
+            // 更新各模式进度
+            document.getElementById('serial-progress').style.width = progress + '%';
+            document.getElementById('parallel-progress').style.width = progress + '%';
+            document.getElementById('concurrent-progress').style.width = progress + '%';
+        }
+
+        function updateSpeed() {
+            var slider = document.getElementById('speed-slider');
+            var value = document.getElementById('speed-value');
+            if (slider && value) {
+                animationState.speed = parseFloat(slider.value);
+                value.textContent = slider.value + 'x';
+            }
+        }
+
+        function updateTimes(serial, parallel, concurrent) {
+            document.getElementById('serial-time').textContent = serial + 's';
+            document.getElementById('parallel-time').textContent = parallel + 's';
+            document.getElementById('concurrent-time').textContent = concurrent + 's';
+        }
+
+        function clearAllTimers() {
+            if (progressIntervalId) {
+                clearInterval(progressIntervalId);
+                progressIntervalId = null;
+            }
+            for (var i = 0; i < animationTimeouts.length; i++) {
+                clearTimeout(animationTimeouts[i]);
+            }
+            animationTimeouts = [];
+        }
+
+        function goHome() {
+            if (confirm('确定要返回主页吗？')) {
+                window.location.href = 'index.html';
+            }
+        }
+
+        // ==================== 动画执行 ====================
+        function startAnimation() {
+            if (animationState.isPlaying) return;
+            
+            animationState.isPlaying = true;
+            animationState.isPaused = false;
+            animationState.currentTime = 0;
+            
+            document.getElementById('btn-start').disabled = true;
+            document.getElementById('btn-pause').disabled = false;
+            
+            initQueues();
+            clearAllTimers();
+            
+            progressIntervalId = setInterval(updateProgress, 100);
+            
+            // 同时启动三种模式的动画
+            runSerialMode();
+            runParallelMode();
+            runConcurrentMode();
+            
+            updateStatus('running', '执行中');
+            updateNarration('观察三种执行模式的差异：串行按顺序执行，并行同时执行，并发交替执行。');
+            
+            // 动画完成
+            animationTimeouts.push(setTimeout(function() {
+                animationComplete();
+            }, animationState.totalDuration / animationState.speed));
+        }
+
+        // 串行模式动画
+        function runSerialMode() {
+            var cpu = document.getElementById('serial-cpu');
+            var queue = tasks.slice();
+            var totalDuration = 0;
+            
+            for (var i = 0; i < tasks.length; i++) {
+                totalDuration += tasks[i].duration;
+            }
+            
+            animationState.totalDuration = Math.max(animationState.totalDuration, totalDuration / animationState.speed);
+            
+            function executeTask(index) {
+                if (index >= tasks.length) {
+                    cpu.classList.add('idle');
+                    cpu.classList.remove('active');
+                    updateNarration('串行执行完成：所有任务按顺序依次执行，总耗时最长。');
+                    renderQueue('serial-queue', []);
+                    return;
+                }
+                
+                var task = tasks[index];
+                cpu.classList.remove('idle');
+                cpu.classList.add('active');
+                cpu.textContent = task.id;
+                
+                // 更新队列
+                var remaining = tasks.slice(index + 1).map(function(t) { return t.id; });
+                renderQueue('serial-queue', remaining);
+                
+                animationTimeouts.push(setTimeout(function() {
+                    executeTask(index + 1);
+                }, task.duration / animationState.speed));
+            }
+            
+            executeTask(0);
+        }
+
+        // 并行模式动画
+        function runParallelMode() {
+            var cores = [
+                document.getElementById('parallel-cpu-0'),
+                document.getElementById('parallel-cpu-1'),
+                document.getElementById('parallel-cpu-2'),
+                document.getElementById('parallel-cpu-3')
+            ];
+            
+            // 分配任务到核心
+            for (var i = 0; i < tasks.length; i++) {
+                var core = cores[i];
+                var task = tasks[i];
+                
+                core.classList.remove('idle');
+                core.classList.add('active');
+                core.textContent = task.id;
+                
+                (function(c, t, idx) {
+                    animationTimeouts.push(setTimeout(function() {
+                        c.classList.add('idle');
+                        c.classList.remove('active');
+                        c.textContent = '核心' + (idx + 1);
+                        
+                        // 更新队列
+                        var remaining = [];
+                        for (var j = 0; j < tasks.length; j++) {
+                            var stillRunning = false;
+                            for (var k = 0; k < 4; k++) {
+                                if (cores[k].textContent === tasks[j].id) {
+                                    stillRunning = true;
+                                    break;
+                                }
+                            }
+                            if (stillRunning) remaining.push(tasks[j].id);
+                        }
+                        renderQueue('parallel-queue', remaining);
+                    }, t.duration / animationState.speed));
+                })(core, task, i);
+            }
+            
+            // 初始队列显示正在执行
+            renderQueue('parallel-queue', []);
+        }
+
+        // 并发模式动画
+        function runConcurrentMode() {
+            var cpu = document.getElementById('concurrent-cpu');
+            var taskIndex = 0;
+            var timeSlice = 500; // 时间片
+            var remainingTime = tasks.map(function(t) { return t.duration; });
+            
+            function schedule() {
+                // 找到还有剩余时间的任务
+                var hasWork = false;
+                for (var i = 0; i < remainingTime.length; i++) {
+                    if (remainingTime[i] > 0) {
+                        hasWork = true;
+                        break;
+                    }
+                }
+                
+                if (!hasWork) {
+                    cpu.classList.add('idle');
+                    cpu.classList.remove('active');
+                    cpu.textContent = 'CPU';
+                    renderQueue('concurrent-queue', []);
+                    updateNarration('并发执行完成：通过时间片轮转，宏观上看起来同时执行，微观上仍是串行。');
+                    return;
+                }
+                
+                // 轮转找到下一个有剩余时间的任务
+                var found = false;
+                var attempts = 0;
+                while (!found && attempts < tasks.length) {
+                    if (remainingTime[taskIndex] > 0) {
+                        found = true;
+                    } else {
+                        taskIndex = (taskIndex + 1) % tasks.length;
+                        attempts++;
+                    }
+                }
+                
+                if (!found) {
+                    schedule();
+                    return;
+                }
+                
+                var currentTask = tasks[taskIndex];
+                cpu.classList.remove('idle');
+                cpu.classList.add('active');
+                cpu.textContent = currentTask.id;
+                
+                // 更新队列显示
+                var readyQueue = [];
+                for (var j = 0; j < tasks.length; j++) {
+                    if (remainingTime[j] > 0 && j !== taskIndex) {
+                        readyQueue.push(tasks[j].id);
+                    }
+                }
+                renderQueue('concurrent-queue', readyQueue);
+                
+                // 执行时间片
+                var executeTime = Math.min(timeSlice, remainingTime[taskIndex]);
+                remainingTime[taskIndex] -= executeTime;
+                
+                animationTimeouts.push(setTimeout(function() {
+                    taskIndex = (taskIndex + 1) % tasks.length;
+                    schedule();
+                }, executeTime / animationState.speed));
+            }
+            
+            schedule();
+        }
+
+        // ==================== 控制函数 ====================
+        function togglePause() {
+            animationState.isPaused = !animationState.isPaused;
+            
+            var pauseText = document.getElementById('pause-text');
+            var pauseIcon = document.getElementById('pause-icon');
+            
+            if (animationState.isPaused) {
+                pauseText.textContent = '继续';
+                pauseIcon.innerHTML = '<path d="M8 5v14l11-7z"/>';
+                updateStatus('paused', '已暂停');
+            } else {
+                pauseText.textContent = '暂停';
+                pauseIcon.innerHTML = '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>';
+                updateStatus('running', '执行中');
+            }
+        }
+
+        function resetAnimation() {
+            animationState.isPlaying = false;
+            animationState.isPaused = false;
+            animationState.currentTime = 0;
+            
+            clearAllTimers();
+            
+            document.getElementById('progress').style.width = '0%';
+            document.getElementById('serial-progress').style.width = '0%';
+            document.getElementById('parallel-progress').style.width = '0%';
+            document.getElementById('concurrent-progress').style.width = '0%';
+            
+            document.getElementById('btn-start').disabled = false;
+            document.getElementById('btn-pause').disabled = true;
+            document.getElementById('pause-text').textContent = '暂停';
+            document.getElementById('pause-icon').innerHTML = '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>';
+            
+            // 重置CPU显示
+            document.getElementById('serial-cpu').textContent = 'CPU';
+            document.getElementById('serial-cpu').classList.add('idle');
+            document.getElementById('serial-cpu').classList.remove('active');
+            
+            for (var i = 0; i < 4; i++) {
+                var core = document.getElementById('parallel-cpu-' + i);
+                core.textContent = '核心' + (i + 1);
+                core.classList.add('idle');
+                core.classList.remove('active');
+            }
+            
+            document.getElementById('concurrent-cpu').textContent = 'CPU';
+            document.getElementById('concurrent-cpu').classList.add('idle');
+            document.getElementById('concurrent-cpu').classList.remove('active');
+            
+            initQueues();
+            updateStatus('idle', '就绪');
+            updateNarration('点击"开始演示"按钮，观察串行、并行、并发三种执行模式的差异。');
+            updateTimes(0, 0, 0);
+        }
+
+        function animationComplete() {
+            animationState.isPlaying = false;
+            
+            document.getElementById('btn-start').disabled = false;
+            document.getElementById('btn-pause').disabled = true;
+            
+            updateStatus('idle', '完成');
+            
+            // 计算并显示最终耗时
+            var serialTime = 0;
+            var parallelTime = 0;
+            var concurrentTime = 0;
+            
+            for (var i = 0; i < tasks.length; i++) {
+                serialTime += tasks[i].duration;
+            }
+            serialTime = Math.round(serialTime / 1000);
+            
+            // 并行时间为最长任务
+            parallelTime = Math.round(Math.max.apply(null, tasks.map(function(t) { return t.duration; })) / 1000);
+            
+            // 并发时间约等于串行时间
+            concurrentTime = serialTime;
+            
+            updateTimes(serialTime, parallelTime, concurrentTime);
+            
+            updateNarration('演示完成！串行耗时' + serialTime + '秒，并行耗时' + parallelTime + '秒，并发总耗时' + concurrentTime + '秒但响应更快。并行效率最高，但需要多核硬件支持。');
+        }
+    </script>
+</body>
+</html>
