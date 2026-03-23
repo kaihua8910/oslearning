@@ -1,0 +1,1375 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>分段内存管理——逻辑地址的"寻宝之旅"</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a1628;
+            --bg-secondary: #0f1f3a;
+            --bg-tertiary: #162a4a;
+            --fg: #f0f7ff;
+            --muted: #7a9bc5;
+            --accent: #00ccff;
+            --accent-glow: rgba(0, 204, 255, 0.4);
+            --segment-blue: #0066ff;
+            --offset-purple: #9933ff;
+            --pass-green: #33ff66;
+            --fail-red: #ff3333;
+            --base-yellow: #ffcc00;
+            --physical-gold: #ffd700;
+            --card: rgba(22, 42, 74, 0.8);
+            --border: rgba(0, 204, 255, 0.3);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Noto Sans SC', sans-serif;
+            background: var(--bg);
+            color: var(--fg);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* 背景网格 */
+        .bg-grid {
+            position: fixed;
+            inset: 0;
+            background-image: 
+                linear-gradient(rgba(0, 204, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 204, 255, 0.03) 1px, transparent 1px);
+            background-size: 40px 40px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* 背景光晕 */
+        .bg-glow {
+            position: fixed;
+            border-radius: 50%;
+            filter: blur(120px);
+            opacity: 0.2;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .bg-glow-1 {
+            width: 500px;
+            height: 500px;
+            top: -150px;
+            left: -150px;
+            background: var(--segment-blue);
+        }
+
+        .bg-glow-2 {
+            width: 400px;
+            height: 400px;
+            bottom: -100px;
+            right: -100px;
+            background: var(--offset-purple);
+        }
+
+        /* 逻辑地址样式 */
+        .logic-address {
+            font-size: 48px;
+            font-weight: 700;
+            color: var(--accent);
+            text-shadow: 0 0 30px var(--accent-glow);
+            letter-spacing: 2px;
+        }
+
+        .segment-num {
+            color: var(--segment-blue);
+            text-shadow: 0 0 20px rgba(0, 102, 255, 0.6);
+        }
+
+        .offset-num {
+            color: var(--offset-purple);
+            text-shadow: 0 0 20px rgba(153, 51, 255, 0.6);
+        }
+
+        /* 段表样式 */
+        .segment-table {
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            backdrop-filter: blur(10px);
+        }
+
+        .segment-table th {
+            background: rgba(0, 204, 255, 0.15);
+            padding: 12px 20px;
+            font-weight: 700;
+            font-size: 16px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .segment-table td {
+            padding: 10px 20px;
+            font-size: 18px;
+            font-weight: 500;
+            border-bottom: 1px solid rgba(0, 204, 255, 0.1);
+            transition: all 0.3s;
+        }
+
+        .segment-table tr.highlight-row td {
+            background: rgba(51, 255, 102, 0.15);
+            color: var(--pass-green);
+        }
+
+        .segment-table tr.highlight-row td:first-child {
+            box-shadow: inset 3px 0 0 var(--pass-green);
+        }
+
+        /* 天平校验 */
+        .balance-scale {
+            position: relative;
+            width: 300px;
+            height: 180px;
+        }
+
+        .balance-beam {
+            position: absolute;
+            top: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 240px;
+            height: 8px;
+            background: linear-gradient(90deg, var(--muted), var(--fg), var(--muted));
+            border-radius: 4px;
+            transition: transform 0.5s ease;
+            transform-origin: center center;
+        }
+
+        .balance-beam.tilt-left {
+            transform: translateX(-50%) rotate(-10deg);
+        }
+
+        .balance-beam.tilt-right {
+            transform: translateX(-50%) rotate(10deg);
+        }
+
+        .balance-pivot {
+            position: absolute;
+            top: 50px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 0;
+            height: 0;
+            border-left: 20px solid transparent;
+            border-right: 20px solid transparent;
+            border-bottom: 30px solid var(--accent);
+        }
+
+        .balance-plate {
+            position: absolute;
+            width: 80px;
+            height: 60px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+            font-weight: 700;
+            transition: all 0.5s ease;
+        }
+
+        .balance-plate.left {
+            top: 90px;
+            left: 30px;
+            background: rgba(153, 51, 255, 0.2);
+            border: 2px solid var(--offset-purple);
+        }
+
+        .balance-plate.right {
+            top: 90px;
+            right: 30px;
+            background: rgba(51, 255, 102, 0.2);
+            border: 2px solid var(--pass-green);
+        }
+
+        /* 物理内存 */
+        .physical-memory {
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .memory-segment {
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 14px;
+            position: relative;
+            transition: all 0.3s;
+        }
+
+        .memory-segment.code {
+            background: linear-gradient(90deg, rgba(0, 102, 255, 0.3), rgba(0, 102, 255, 0.1));
+            border-left: 3px solid var(--segment-blue);
+        }
+
+        .memory-segment.data {
+            background: linear-gradient(90deg, rgba(153, 51, 255, 0.3), rgba(153, 51, 255, 0.1));
+            border-left: 3px solid var(--offset-purple);
+        }
+
+        .memory-segment.stack {
+            background: linear-gradient(90deg, rgba(255, 204, 0, 0.3), rgba(255, 204, 0, 0.1));
+            border-left: 3px solid var(--base-yellow);
+        }
+
+        .memory-segment.target {
+            background: linear-gradient(90deg, rgba(51, 255, 102, 0.4), rgba(51, 255, 102, 0.1));
+            border-left: 3px solid var(--pass-green);
+            box-shadow: 0 0 20px rgba(51, 255, 102, 0.3);
+        }
+
+        .memory-pointer {
+            position: absolute;
+            top: -30px;
+            width: 4px;
+            height: 30px;
+            background: var(--physical-gold);
+            transition: left 0.8s ease;
+        }
+
+        .memory-pointer::before {
+            content: '';
+            position: absolute;
+            top: -8px;
+            left: -6px;
+            border-left: 8px solid transparent;
+            border-right: 8px solid transparent;
+            border-top: 10px solid var(--physical-gold);
+        }
+
+        /* 计算公式 */
+        .formula-box {
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            padding: 24px 32px;
+            backdrop-filter: blur(10px);
+        }
+
+        .formula {
+            font-size: 28px;
+            font-weight: 700;
+        }
+
+        .formula .highlight-gold {
+            color: var(--physical-gold);
+            text-shadow: 0 0 15px rgba(255, 215, 0, 0.6);
+        }
+
+        .formula .highlight-blue {
+            color: var(--segment-blue);
+        }
+
+        .formula .highlight-purple {
+            color: var(--offset-purple);
+        }
+
+        .formula .highlight-yellow {
+            color: var(--base-yellow);
+        }
+
+        /* 状态指示器 */
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: 700;
+            font-size: 16px;
+        }
+
+        .status-badge.success {
+            background: rgba(51, 255, 102, 0.2);
+            color: var(--pass-green);
+            border: 2px solid var(--pass-green);
+        }
+
+        .status-badge.error {
+            background: rgba(255, 51, 51, 0.2);
+            color: var(--fail-red);
+            border: 2px solid var(--fail-red);
+            animation: error-flash 0.3s ease 3;
+        }
+
+        @keyframes error-flash {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* 对比卡片 */
+        .compare-card {
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 16px;
+            padding: 24px;
+            backdrop-filter: blur(10px);
+        }
+
+        .compare-card.paging {
+            border-color: var(--segment-blue);
+        }
+
+        .compare-card.segmenting {
+            border-color: var(--pass-green);
+        }
+
+        .compare-card.winner {
+            box-shadow: 0 0 30px rgba(51, 255, 102, 0.3);
+        }
+
+        /* 进度条 */
+        .progress-bar {
+            height: 4px;
+            background: var(--bg-tertiary);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--segment-blue), var(--accent), var(--offset-purple));
+            width: 0%;
+            transition: width 0.1s linear;
+        }
+
+        /* 按钮 */
+        .btn {
+            padding: 12px 28px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--segment-blue), var(--accent));
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px var(--accent-glow);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: var(--card);
+            color: var(--fg);
+            border: 2px solid var(--border);
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            border-color: var(--accent);
+        }
+
+        .btn-secondary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* 动画 */
+        .fade-in {
+            animation: fadeIn 0.6s ease-out forwards;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .slide-in-left {
+            animation: slideInLeft 0.6s ease-out forwards;
+        }
+
+        @keyframes slideInLeft {
+            from { opacity: 0; transform: translateX(-50px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .slide-in-right {
+            animation: slideInRight 0.6s ease-out forwards;
+        }
+
+        @keyframes slideInRight {
+            from { opacity: 0; transform: translateX(50px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .split-animation {
+            animation: splitApart 0.8s ease-out forwards;
+        }
+
+        @keyframes splitApart {
+            0% { opacity: 0; transform: scale(0.8); }
+            50% { opacity: 1; transform: scale(1.1); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+
+        .number-pop {
+            animation: numberPop 0.4s ease-out;
+        }
+
+        @keyframes numberPop {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.3); }
+            100% { transform: scale(1); }
+        }
+
+        .glow-pulse {
+            animation: glowPulse 1s ease-in-out infinite;
+        }
+
+        @keyframes glowPulse {
+            0%, 100% { filter: drop-shadow(0 0 10px currentColor); }
+            50% { filter: drop-shadow(0 0 25px currentColor); }
+        }
+
+        /* 场景指示器 */
+        .scene-indicator {
+            width: 32px;
+            height: 4px;
+            border-radius: 2px;
+            background: var(--bg-tertiary);
+            transition: background 0.3s;
+        }
+
+        .scene-indicator.active {
+            background: linear-gradient(90deg, var(--segment-blue), var(--accent));
+        }
+
+        /* 程序段可视化 */
+        .program-segments {
+            display: flex;
+            gap: 8px;
+            align-items: flex-end;
+        }
+
+        .prog-segment {
+            border-radius: 8px 8px 0 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        .prog-segment.code {
+            height: 80px;
+            width: 60px;
+            background: linear-gradient(to top, rgba(0, 102, 255, 0.4), rgba(0, 102, 255, 0.1));
+            border: 2px solid var(--segment-blue);
+            border-bottom: none;
+        }
+
+        .prog-segment.data {
+            height: 50px;
+            width: 60px;
+            background: linear-gradient(to top, rgba(153, 51, 255, 0.4), rgba(153, 51, 255, 0.1));
+            border: 2px solid var(--offset-purple);
+            border-bottom: none;
+        }
+
+        .prog-segment.stack {
+            height: 60px;
+            width: 60px;
+            background: linear-gradient(to top, rgba(255, 204, 0, 0.4), rgba(255, 204, 0, 0.1));
+            border: 2px solid var(--base-yellow);
+            border-bottom: none;
+        }
+
+        @media (max-width: 768px) {
+            .logic-address { font-size: 32px; }
+            .formula { font-size: 20px; }
+            .segment-table td { padding: 8px 12px; font-size: 14px; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+
+        /* 返回主页按钮 */
+        .home-btn {
+            position: fixed;
+            top: 16px;
+            left: 16px;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 50px;
+            color: var(--fg);
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            font-family: inherit;
+        }
+        
+        .home-btn:hover {
+            background: var(--accent);
+            border-color: var(--accent);
+            transform: translateY(-2px);
+        }
+
+        /* 总结面板 */
+        .summary-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(10, 22, 40, 0.95);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.5s ease;
+            z-index: 200;
+        }
+        
+        .summary-overlay.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        
+        .summary-card {
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 20px;
+            padding: 28px 36px;
+            max-width: 560px;
+            position: relative;
+            transform: scale(0.9);
+            transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .summary-overlay.visible .summary-card {
+            transform: scale(1);
+        }
+        
+        .summary-close {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            border: none;
+            background: var(--border);
+            color: var(--fg);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+        
+        .summary-close:hover {
+            background: #f87171;
+            transform: scale(1.1);
+        }
+        
+        .summary-title {
+            font-size: 1.3rem;
+            font-weight: 700;
+            margin-bottom: 16px;
+            padding-right: 30px;
+        }
+        
+        .summary-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            margin-bottom: 10px;
+            padding: 10px 12px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+        }
+        
+        .summary-num {
+            width: 24px;
+            height: 24px;
+            background: var(--accent);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 0.75rem;
+            color: var(--bg);
+            flex-shrink: 0;
+        }
+        
+        .summary-text {
+            font-size: 0.9rem;
+            line-height: 1.6;
+        }
+        
+        .summary-text strong {
+            color: var(--accent);
+        }
+        
+        .summary-actions {
+            margin-top: 20px;
+            text-align: center;
+        }
+        
+        .summary-btn {
+            padding: 10px 24px;
+            border-radius: 25px;
+            border: none;
+            font-weight: 600;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-family: inherit;
+            background: var(--accent);
+            color: var(--bg);
+        }
+        
+        .summary-btn:hover {
+            filter: brightness(1.2);
+            transform: scale(1.05);
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+    <div class="bg-grid"></div>
+    <div class="bg-glow bg-glow-1"></div>
+    <div class="bg-glow bg-glow-2"></div>
+
+    <a href="index.html" class="home-btn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+            <polyline points="9 22 9 12 15 12 15 22"/>
+        </svg>
+        返回主页
+    </a>
+
+    <div class="relative z-10 max-w-6xl mx-auto px-4 py-6">
+        <!-- 标题 -->
+        <header class="text-center mb-6">
+            <h1 class="text-3xl md:text-4xl font-black mb-2 tracking-tight" id="main-title"></h1>
+            <p class="text-lg text-[var(--muted)]" id="sub-title">区别于分页的逻辑整理式管理</p>
+        </header>
+
+        <!-- 进度条 -->
+        <div class="progress-bar mb-4">
+            <div class="progress-fill" id="progress"></div>
+        </div>
+
+        <!-- 主舞台 -->
+        <div id="stage" class="min-h-[500px] relative">
+            <!-- 场景内容将由JS动态渲染 -->
+        </div>
+
+        <!-- 旁白区 -->
+        <div class="mt-6 bg-[var(--card)] rounded-xl p-5 border-2 border-[var(--border)] backdrop-blur">
+            <div class="flex items-start gap-3">
+                <div class="w-10 h-10 rounded-full bg-gradient-to-br from-[var(--accent)] to-[var(--segment-blue)] flex items-center justify-center flex-shrink-0">
+                    <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                    </svg>
+                </div>
+                <div>
+                    <h4 class="font-bold mb-1">讲解</h4>
+                    <p class="text-[var(--muted)] leading-relaxed text-lg transition-opacity duration-300" id="narration">点击"开始演示"按钮，开始分段内存管理原理动画展示。</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 控制区 -->
+        <div class="mt-6 flex items-center justify-center gap-4 flex-wrap">
+            <button class="btn btn-primary" id="btn-start">
+                <span class="flex items-center gap-2">
+                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M8 5v14l11-7z"/>
+                    </svg>
+                    开始演示
+                </span>
+            </button>
+            <button class="btn btn-secondary" id="btn-pause" disabled>
+                <span class="flex items-center gap-2" id="btn-pause-content">
+                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+                    </svg>
+                    暂停
+                </span>
+            </button>
+            <button class="btn btn-secondary" id="btn-reset">
+                <span class="flex items-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                    重置
+                </span>
+            </button>
+            
+            <div class="flex items-center gap-2 ml-4">
+                <span class="text-sm text-[var(--muted)]">场景:</span>
+                <div class="flex gap-1" id="scene-indicators">
+                    <span class="scene-indicator" data-scene="1"></span>
+                    <span class="scene-indicator" data-scene="2"></span>
+                    <span class="scene-indicator" data-scene="3"></span>
+                    <span class="scene-indicator" data-scene="4"></span>
+                    <span class="scene-indicator" data-scene="5"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 公式总结 -->
+        <div id="formula-summary" class="mt-6 bg-[var(--card)] rounded-xl p-5 border-2 border-[var(--border)]" style="opacity: 0; transition: opacity 0.5s;">
+            <h3 class="text-lg font-bold mb-4 text-center">分段地址转换全步骤</h3>
+            <div class="grid md:grid-cols-2 gap-4">
+                <div class="bg-[var(--bg-secondary)] rounded-lg p-4">
+                    <div class="flex items-center gap-2 mb-3">
+                        <span class="w-6 h-6 rounded-full bg-[var(--segment-blue)] flex items-center justify-center text-white text-xs font-bold">1</span>
+                        <span class="font-semibold">解析逻辑地址</span>
+                    </div>
+                    <div class="mono text-lg">S = <span class="text-[var(--segment-blue)]">2</span>, W = <span class="text-[var(--offset-purple)]">450</span></div>
+                </div>
+                <div class="bg-[var(--bg-secondary)] rounded-lg p-4">
+                    <div class="flex items-center gap-2 mb-3">
+                        <span class="w-6 h-6 rounded-full bg-[var(--accent)] flex items-center justify-center text-white text-xs font-bold">2</span>
+                        <span class="font-semibold">查询段表</span>
+                    </div>
+                    <div class="mono text-lg">基址 = <span class="text-[var(--base-yellow)]">5000</span>, 长度 = <span class="text-[var(--pass-green)]">600</span></div>
+                </div>
+                <div class="bg-[var(--bg-secondary)] rounded-lg p-4">
+                    <div class="flex items-center gap-2 mb-3">
+                        <span class="w-6 h-6 rounded-full bg-[var(--pass-green)] flex items-center justify-center text-white text-xs font-bold">3</span>
+                        <span class="font-semibold">越界校验</span>
+                    </div>
+                    <div class="mono text-lg">W(450) &lt; 长度(600) = <span class="text-[var(--pass-green)]">通过</span></div>
+                </div>
+                <div class="bg-[var(--bg-secondary)] rounded-lg p-4">
+                    <div class="flex items-center gap-2 mb-3">
+                        <span class="w-6 h-6 rounded-full bg-[var(--physical-gold)] flex items-center justify-center text-black text-xs font-bold">4</span>
+                        <span class="font-semibold">计算物理地址</span>
+                    </div>
+                    <div class="mono text-lg">5000 + 450 = <span class="text-[var(--physical-gold)]">5450</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 总结面板 -->
+    <div class="summary-overlay" id="summaryOverlay">
+        <div class="summary-card">
+            <button class="summary-close" id="summaryClose">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"/>
+                    <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+            </button>
+            <h2 class="summary-title">分段内存管理总结</h2>
+            <div class="summary-item">
+                <div class="summary-num">1</div>
+                <div class="summary-text"><strong>核心思想</strong>：按程序逻辑分段，每段独立编址，通过段表映射到物理内存</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-num">2</div>
+                <div class="summary-text"><strong>地址转换</strong>：逻辑地址[段号, 偏移] → 查段表得基址 → 基址+偏移=物理地址</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-num">3</div>
+                <div class="summary-text"><strong>优点</strong>：编程友好、便于共享保护、无内部碎片</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-num">4</div>
+                <div class="summary-text"><strong>缺点</strong>：有外部碎片、内存利用率较低</div>
+            </div>
+            <div class="summary-actions">
+                <button class="summary-btn" id="replayBtn">重新播放</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==================== 状态管理 ====================
+        var animationState = {
+            isPlaying: false,
+            isPaused: false,
+            currentTime: 0,
+            totalDuration: 110000, // 110秒
+            currentScene: 0
+        };
+
+        var progressIntervalId = null;
+        var sceneTimeouts = [];
+
+        // 段表数据
+        var segmentTable = [
+            { segNum: 0, base: 1000, limit: 500, name: "代码段" },
+            { segNum: 1, base: 3000, limit: 200, name: "数据段" },
+            { segNum: 2, base: 5000, limit: 600, name: "堆栈段" }
+        ];
+
+        // ==================== 初始化 ====================
+        document.addEventListener('DOMContentLoaded', function() {
+            initTitle();
+            bindEvents();
+            renderInitialStage();
+        });
+
+        function initTitle() {
+            var titleText = '分段内存管理——逻辑地址的"寻宝之旅"';
+            var titleEl = document.getElementById('main-title');
+            if (!titleEl) return;
+            
+            titleEl.innerHTML = '';
+            for (var i = 0; i < titleText.length; i++) {
+                var span = document.createElement('span');
+                span.style.opacity = '0';
+                span.style.animation = 'fadeIn 0.5s ease-out forwards';
+                span.style.animationDelay = (i * 0.03) + 's';
+                span.textContent = titleText[i];
+                titleEl.appendChild(span);
+            }
+        }
+
+        function bindEvents() {
+            document.getElementById('btn-start').addEventListener('click', startAnimation);
+            document.getElementById('btn-pause').addEventListener('click', togglePause);
+            document.getElementById('btn-reset').addEventListener('click', resetAnimation);
+            
+            var summaryClose = document.getElementById('summaryClose');
+            var replayBtn = document.getElementById('replayBtn');
+            var summaryOverlay = document.getElementById('summaryOverlay');
+            
+            if (summaryClose) {
+                summaryClose.addEventListener('click', function() {
+                    if (summaryOverlay) summaryOverlay.classList.remove('visible');
+                });
+            }
+            
+            if (replayBtn) {
+                replayBtn.addEventListener('click', function() {
+                    if (summaryOverlay) summaryOverlay.classList.remove('visible');
+                    resetAnimation();
+                    setTimeout(startAnimation, 300);
+                });
+            }
+        }
+
+        // ==================== 场景渲染 ====================
+        function renderInitialStage() {
+            var stage = document.getElementById('stage');
+            stage.innerHTML = '<div class="flex items-center justify-center h-[400px]">' +
+                '<div class="text-center">' +
+                    '<div class="logic-address mono mb-6">逻辑地址: [ <span class="segment-num">2</span> , <span class="offset-num">450</span> ]</div>' +
+                    '<p class="text-[var(--muted)] text-lg">点击开始演示，开启寻宝之旅</p>' +
+                '</div>' +
+            '</div>';
+        }
+
+        // 场景一：逻辑地址拆解
+        function renderScene1() {
+            setSceneIndicator(1);
+            updateNarration("相比于分页把内存切成固定大小的蛋糕块，分段更像规整的逻辑整理箱，按程序的代码、数据、堆栈逻辑拆分。在分段里，地址是一对寻宝坐标，段号是房间号，偏移是进门后的寻宝步数。");
+
+            var stage = document.getElementById('stage');
+            stage.innerHTML = '<div class="space-y-8">' +
+                '<div class="text-center fade-in">' +
+                    '<div class="logic-address mono text-5xl mb-4" id="address-display">' +
+                        '逻辑地址: [ <span class="segment-num" id="seg-display">2</span> , <span class="offset-num" id="off-display">450</span> ]' +
+                    '</div>' +
+                '</div>' +
+                '<div class="flex justify-center gap-8 items-start mt-8">' +
+                    '<div class="text-center slide-in-left" style="animation-delay: 0.3s">' +
+                        '<div class="w-32 h-32 rounded-xl bg-gradient-to-br from-[var(--segment-blue)] to-[rgba(0,102,255,0.3)] flex items-center justify-center mb-3 border-2 border-[var(--segment-blue)] glow-pulse">' +
+                            '<span class="text-4xl font-black text-white mono">2</span>' +
+                        '</div>' +
+                        '<p class="font-bold text-[var(--segment-blue)]">段号 S</p>' +
+                        '<p class="text-sm text-[var(--muted)]">寻宝房间号</p>' +
+                    '</div>' +
+                    '<div class="text-center slide-in-right" style="animation-delay: 0.5s">' +
+                        '<div class="w-32 h-32 rounded-xl bg-gradient-to-br from-[var(--offset-purple)] to-[rgba(153,51,255,0.3)] flex items-center justify-center mb-3 border-2 border-[var(--offset-purple)] glow-pulse">' +
+                            '<span class="text-4xl font-black text-white mono">450</span>' +
+                        '</div>' +
+                        '<p class="font-bold text-[var(--offset-purple)]">段内偏移 W</p>' +
+                        '<p class="text-sm text-[var(--muted)]">寻宝步数</p>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="mt-8 fade-in" style="animation-delay: 0.8s">' +
+                    '<p class="text-center text-[var(--muted)] mb-4">分段 = 按程序逻辑切分，长短不一</p>' +
+                    '<div class="program-segments justify-center">' +
+                        '<div class="prog-segment code">代码段</div>' +
+                        '<div class="prog-segment data">数据段</div>' +
+                        '<div class="prog-segment stack">堆栈段</div>' +
+                    '</div>' +
+                '</div>' +
+            '</div>';
+        }
+
+        // 场景二：越界检查
+        function renderScene2() {
+            setSceneIndicator(2);
+            updateNarration("地址转换前，系统会化身严格安检员，先查段表找到对应段的长度，校验偏移是否超出范围。一旦偏移超标，就是非法访问，系统会直接拦截报错，这就是常见的段错误，合规才能继续下一步。");
+
+            var stage = document.getElementById('stage');
+            stage.innerHTML = '<div class="grid md:grid-cols-2 gap-6">' +
+                '<div class="slide-in-left">' +
+                    '<h3 class="text-lg font-bold mb-4 flex items-center gap-2">' +
+                        '<svg class="w-5 h-5 text-[var(--accent)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">' +
+                            '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>' +
+                        '</svg>' +
+                        '段表（寻宝地图 + 安检手册）' +
+                    '</h3>' +
+                    '<table class="segment-table w-full">' +
+                        '<thead><tr><th>段号</th><th>基址</th><th>段长度</th></tr></thead>' +
+                        '<tbody id="segment-tbody">' +
+                            '<tr><td class="mono">0</td><td class="mono">1000</td><td class="mono">500</td></tr>' +
+                            '<tr><td class="mono">1</td><td class="mono">3000</td><td class="mono">200</td></tr>' +
+                            '<tr id="target-row"><td class="mono">2</td><td class="mono text-[var(--base-yellow)]">5000</td><td class="mono text-[var(--pass-green)]">600</td></tr>' +
+                        '</tbody>' +
+                    '</table>' +
+                '</div>' +
+                '<div class="slide-in-right">' +
+                    '<h3 class="text-lg font-bold mb-4 text-center">越界合法性校验</h3>' +
+                    '<div class="flex justify-center mb-6">' +
+                        '<div class="balance-scale">' +
+                            '<div class="balance-pivot"></div>' +
+                            '<div class="balance-beam" id="balance-beam"></div>' +
+                            '<div class="balance-plate left">' +
+                                '<span class="text-2xl mono text-[var(--offset-purple)]" id="offset-value">450</span>' +
+                                '<span class="text-xs text-[var(--muted)]">偏移W</span>' +
+                            '</div>' +
+                            '<div class="balance-plate right">' +
+                                '<span class="text-2xl mono text-[var(--pass-green)]" id="limit-value">600</span>' +
+                                '<span class="text-xs text-[var(--muted)]">段长度</span>' +
+                            '</div>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="text-center" id="check-result"></div>' +
+                '</div>' +
+            '</div>';
+
+            // 高亮目标行
+            sceneTimeouts.push(setTimeout(function() {
+                var row = document.getElementById('target-row');
+                if (row) row.classList.add('highlight-row');
+            }, 1000));
+
+            // 天平动画
+            sceneTimeouts.push(setTimeout(function() {
+                var beam = document.getElementById('balance-beam');
+                if (beam) beam.classList.add('tilt-right');
+            }, 2000));
+
+            // 显示检查结果
+            sceneTimeouts.push(setTimeout(function() {
+                var result = document.getElementById('check-result');
+                if (result) {
+                    result.innerHTML = '<div class="status-badge success">' +
+                        '<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>' +
+                        '越界检查通过: 450 &lt; 600' +
+                    '</div>';
+                }
+            }, 3000));
+
+            // 异常模拟
+            sceneTimeouts.push(setTimeout(function() {
+                var offsetEl = document.getElementById('offset-value');
+                var beam = document.getElementById('balance-beam');
+                var result = document.getElementById('check-result');
+                
+                if (offsetEl) offsetEl.textContent = '700';
+                if (beam) {
+                    beam.classList.remove('tilt-right');
+                    beam.classList.add('tilt-left');
+                }
+                if (result) {
+                    result.innerHTML = '<div class="status-badge error">' +
+                        '<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>' +
+                        'Segmentation Fault（段越界异常）' +
+                    '</div>';
+                }
+            }, 6000));
+
+            // 恢复正常
+            sceneTimeouts.push(setTimeout(function() {
+                var offsetEl = document.getElementById('offset-value');
+                var beam = document.getElementById('balance-beam');
+                var result = document.getElementById('check-result');
+                
+                if (offsetEl) offsetEl.textContent = '450';
+                if (beam) {
+                    beam.classList.remove('tilt-left');
+                    beam.classList.add('tilt-right');
+                }
+                if (result) {
+                    result.innerHTML = '<div class="status-badge success">' +
+                        '<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>' +
+                        '越界检查通过: 450 &lt; 600' +
+                    '</div>';
+                }
+            }, 9000));
+        }
+
+        // 场景三：基址加偏移
+        function renderScene3() {
+            setSceneIndicator(3);
+            updateNarration("安检合规后，就能进行核心地址计算！从段表中找到对应段的基址，也就是这个逻辑段在物理内存的入口位置，加上段内偏移的步数，直接相加就能得到最终物理地址，逻辑简单又贴合程序结构。");
+
+            var stage = document.getElementById('stage');
+            stage.innerHTML = '<div class="space-y-8">' +
+                '<div class="text-center">' +
+                    '<div class="status-badge success inline-flex mb-6">' +
+                        '<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>' +
+                        '安检通过，开始计算物理地址' +
+                    '</div>' +
+                '</div>' +
+                '<div class="flex justify-center">' +
+                    '<div class="formula-box">' +
+                        '<div class="text-center mb-6">' +
+                            '<span class="text-xl text-[var(--muted)]">物理地址计算公式</span>' +
+                        '</div>' +
+                        '<div class="formula mono text-center" id="formula-display">' +
+                            '物理地址 = 基址 + 段内偏移' +
+                        '</div>' +
+                        '<div class="mt-6 text-center" id="calculation-steps">' +
+                            '<div class="text-2xl mono" id="step1"></div>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="flex justify-center gap-4 mt-8" id="value-boxes">' +
+                    '<div class="text-center fade-in">' +
+                        '<div class="w-24 h-24 rounded-lg bg-gradient-to-br from-[var(--base-yellow)] to-[rgba(255,204,0,0.3)] flex items-center justify-center border-2 border-[var(--base-yellow)]">' +
+                            '<span class="text-3xl font-black text-white mono">5000</span>' +
+                        '</div>' +
+                        '<p class="text-sm mt-2 text-[var(--base-yellow)]">基址</p>' +
+                    '</div>' +
+                    '<div class="flex items-center text-4xl font-bold text-[var(--accent)]">+</div>' +
+                    '<div class="text-center fade-in" style="animation-delay: 0.2s">' +
+                        '<div class="w-24 h-24 rounded-lg bg-gradient-to-br from-[var(--offset-purple)] to-[rgba(153,51,255,0.3)] flex items-center justify-center border-2 border-[var(--offset-purple)]">' +
+                            '<span class="text-3xl font-black text-white mono">450</span>' +
+                        '</div>' +
+                        '<p class="text-sm mt-2 text-[var(--offset-purple)]">段内偏移</p>' +
+                    '</div>' +
+                    '<div class="flex items-center text-4xl font-bold text-[var(--accent)]">=</div>' +
+                    '<div class="text-center fade-in" style="animation-delay: 0.4s">' +
+                        '<div class="w-24 h-24 rounded-lg bg-gradient-to-br from-[var(--physical-gold)] to-[rgba(255,215,0,0.3)] flex items-center justify-center border-2 border-[var(--physical-gold)] glow-pulse" id="result-box">' +
+                            '<span class="text-2xl font-black text-white mono" id="result-value">?</span>' +
+                        '</div>' +
+                        '<p class="text-sm mt-2 text-[var(--physical-gold)]">物理地址</p>' +
+                    '</div>' +
+                '</div>' +
+            '</div>';
+
+            // 计算步骤动画
+            sceneTimeouts.push(setTimeout(function() {
+                var step1 = document.getElementById('step1');
+                if (step1) {
+                    step1.innerHTML = '代入数值: <span class="text-[var(--base-yellow)]">5000</span> + <span class="text-[var(--offset-purple)]">450</span>';
+                }
+            }, 1500));
+
+            sceneTimeouts.push(setTimeout(function() {
+                var result = document.getElementById('result-value');
+                if (result) {
+                    result.textContent = '5450';
+                    result.classList.add('number-pop');
+                }
+            }, 3000));
+
+            sceneTimeouts.push(setTimeout(function() {
+                var step1 = document.getElementById('step1');
+                if (step1) {
+                    step1.innerHTML = '物理地址 = <span class="highlight-gold text-3xl">5450</span>';
+                }
+            }, 3500));
+        }
+
+        // 场景四：物理内存定位
+        function renderScene4() {
+            setSceneIndicator(4);
+            updateNarration("拿到物理地址后，磁头先找到对应段的内存入口基址，再按照偏移量向内走到指定位置，就能精准读取数据。分段按逻辑划分，更贴合程序员编程习惯，不会把程序拆得支离破碎。");
+
+            var stage = document.getElementById('stage');
+            stage.innerHTML = '<div class="space-y-6">' +
+                '<div class="text-center mb-4">' +
+                    '<span class="status-badge success">' +
+                        '<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>' +
+                        '物理地址 5450 已生成' +
+                    '</span>' +
+                '</div>' +
+                '<div class="physical-memory">' +
+                    '<div class="flex justify-between text-sm text-[var(--muted)] mb-2 px-2">' +
+                        '<span>0</span>' +
+                        '<span>2000</span>' +
+                        '<span>4000</span>' +
+                        '<span>6000</span>' +
+                        '<span>8000</span>' +
+                    '</div>' +
+                    '<div class="relative h-16 rounded-lg overflow-hidden bg-[var(--bg-secondary)]" id="memory-bar">' +
+                        '<div class="absolute left-0 top-0 h-full memory-segment code" style="width: 12%"></div>' +
+                        '<div class="absolute top-0 h-full memory-segment data" style="left: 25%; width: 8%"></div>' +
+                        '<div class="absolute top-0 h-full memory-segment target" id="target-segment" style="left: 50%; width: 15%"></div>' +
+                        '<div class="memory-pointer" id="memory-pointer" style="left: 50%"></div>' +
+                    '</div>' +
+                    '<div class="flex justify-between text-sm mt-3">' +
+                        '<div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-[var(--segment-blue)]"></div><span class="text-[var(--muted)]">代码段</span></div>' +
+                        '<div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-[var(--offset-purple)]"></div><span class="text-[var(--muted)]">数据段</span></div>' +
+                        '<div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-[var(--pass-green)]"></div><span class="text-[var(--muted)]">堆栈段(目标)</span></div>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="text-center mt-6" id="memory-info">' +
+                    '<p class="text-[var(--muted)]">正在定位...</p>' +
+                '</div>' +
+            '</div>';
+
+            // 内存指针动画
+            sceneTimeouts.push(setTimeout(function() {
+                var pointer = document.getElementById('memory-pointer');
+                var info = document.getElementById('memory-info');
+                if (pointer) pointer.style.left = '62%'; // 移动到目标位置
+                if (info) info.innerHTML = '<p class="text-[var(--muted)]">基址 5000 → 偏移 450 → <span class="text-[var(--physical-gold)] font-bold">物理地址 5450</span></p>';
+            }, 2000));
+
+            sceneTimeouts.push(setTimeout(function() {
+                var info = document.getElementById('memory-info');
+                if (info) {
+                    info.innerHTML = '<div class="status-badge success text-lg">' +
+                        '<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>' +
+                        '目标数据获取成功' +
+                    '</div>';
+                }
+            }, 4000));
+        }
+
+        // 场景五：总结对比
+        function renderScene5() {
+            setSceneIndicator(5);
+            updateNarration("最后我们对比总结：分页是为了提升内存利用率和机器执行效率，分段是为了贴合编程逻辑、方便程序保护与扩展，二者各有优势，共同构成操作系统内存管理的核心方案。");
+
+            var stage = document.getElementById('stage');
+            stage.innerHTML = '<div class="space-y-6">' +
+                '<div class="grid md:grid-cols-2 gap-6">' +
+                    '<div class="compare-card paging fade-in">' +
+                        '<h4 class="text-xl font-bold mb-4 text-center text-[var(--segment-blue)]">分页内存管理</h4>' +
+                        '<div class="flex justify-center mb-4">' +
+                            '<div class="grid grid-cols-4 gap-1">' +
+                                '<div class="w-10 h-10 rounded bg-[rgba(0,102,255,0.3)] border border-[var(--segment-blue)]"></div>' +
+                                '<div class="w-10 h-10 rounded bg-[rgba(0,102,255,0.3)] border border-[var(--segment-blue)]"></div>' +
+                                '<div class="w-10 h-10 rounded bg-[rgba(0,102,255,0.3)] border border-[var(--segment-blue)]"></div>' +
+                                '<div class="w-10 h-10 rounded bg-[rgba(0,102,255,0.3)] border border-[var(--segment-blue)]"></div>' +
+                            '</div>' +
+                        '</div>' +
+                        '<ul class="space-y-2 text-sm">' +
+                            '<li class="flex items-center gap-2"><span class="text-[var(--segment-blue)]">-</span>固定大小页块</li>' +
+                            '<li class="flex items-center gap-2"><span class="text-[var(--segment-blue)]">-</span>地址靠位移拆分</li>' +
+                            '<li class="flex items-center gap-2"><span class="text-[var(--pass-green)]">+</span>计算快速高效</li>' +
+                            '<li class="flex items-center gap-2"><span class="text-[var(--fail-red)]">x</span>有内部碎片</li>' +
+                            '<li class="flex items-center gap-2"><span class="text-[var(--muted)]">-</span>机器效率优先</li>' +
+                        '</ul>' +
+                    '</div>' +
+                    '<div class="compare-card segmenting winner fade-in" style="animation-delay: 0.2s">' +
+                        '<h4 class="text-xl font-bold mb-4 text-center text-[var(--pass-green)]">分段内存管理</h4>' +
+                        '<div class="flex justify-center mb-4">' +
+                            '<div class="program-segments">' +
+                                '<div class="w-10 h-14 rounded-t bg-[rgba(0,102,255,0.3)] border-t-2 border-l-2 border-r-2 border-[var(--segment-blue)]"></div>' +
+                                '<div class="w-10 h-8 rounded-t bg-[rgba(153,51,255,0.3)] border-t-2 border-l-2 border-r-2 border-[var(--offset-purple)]" style="margin-top: 24px"></div>' +
+                                '<div class="w-10 h-10 rounded-t bg-[rgba(255,204,0,0.3)] border-t-2 border-l-2 border-r-2 border-[var(--base-yellow)]" style="margin-top: 22px"></div>' +
+                            '</div>' +
+                        '</div>' +
+                        '<ul class="space-y-2 text-sm">' +
+                            '<li class="flex items-center gap-2"><span class="text-[var(--pass-green)]">-</span>长短不一逻辑段</li>' +
+                            '<li class="flex items-center gap-2"><span class="text-[var(--pass-green)]">-</span>地址靠加法转换</li>' +
+                            '<li class="flex items-center gap-2"><span class="text-[var(--pass-green)]">+</span>符合编程逻辑</li>' +
+                            '<li class="flex items-center gap-2"><span class="text-[var(--fail-red)]">x</span>有外部碎片</li>' +
+                            '<li class="flex items-center gap-2"><span class="text-[var(--muted)]">-</span>编程友好优先</li>' +
+                        '</ul>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="text-center mt-6 p-4 bg-[var(--card)] rounded-xl border border-[var(--border)]">' +
+                    '<p class="text-lg font-semibold">核心总结：<span class="text-[var(--accent)]">分页适配机器效率，分段适配人类编程逻辑</span></p>' +
+                '</div>' +
+            '</div>';
+
+            // 显示公式总结
+            sceneTimeouts.push(setTimeout(function() {
+                var summary = document.getElementById('formula-summary');
+                if (summary) summary.style.opacity = '1';
+            }, 2000));
+        }
+
+        // ==================== 辅助函数 ====================
+        function updateNarration(text) {
+            var el = document.getElementById('narration');
+            if (el) {
+                el.style.opacity = '0';
+                setTimeout(function() {
+                    el.textContent = text;
+                    el.style.opacity = '1';
+                }, 200);
+            }
+        }
+
+        function setSceneIndicator(sceneNum) {
+            animationState.currentScene = sceneNum;
+            var container = document.getElementById('scene-indicators');
+            if (!container) return;
+            var indicators = container.querySelectorAll('.scene-indicator');
+            for (var i = 0; i < indicators.length; i++) {
+                if (i + 1 <= sceneNum) {
+                    indicators[i].classList.add('active');
+                } else {
+                    indicators[i].classList.remove('active');
+                }
+            }
+        }
+
+        function clearAllTimers() {
+            if (progressIntervalId) {
+                clearInterval(progressIntervalId);
+                progressIntervalId = null;
+            }
+            for (var i = 0; i < sceneTimeouts.length; i++) {
+                clearTimeout(sceneTimeouts[i]);
+            }
+            sceneTimeouts = [];
+        }
+
+        // ==================== 动画控制 ====================
+        function startAnimation() {
+            if (animationState.isPlaying) return;
+            
+            animationState.isPlaying = true;
+            animationState.isPaused = false;
+            animationState.currentTime = 0;
+            
+            document.getElementById('btn-start').disabled = true;
+            document.getElementById('btn-pause').disabled = false;
+            
+            clearAllTimers();
+            
+            // 启动进度更新
+            progressIntervalId = setInterval(updateProgress, 100);
+            
+            // 场景调度
+            sceneTimeouts.push(setTimeout(function() {
+                if (animationState.isPlaying && !animationState.isPaused) renderScene1();
+            }, 0));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                if (animationState.isPlaying && !animationState.isPaused) renderScene2();
+            }, 20000));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                if (animationState.isPlaying && !animationState.isPaused) renderScene3();
+            }, 45000));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                if (animationState.isPlaying && !animationState.isPaused) renderScene4();
+            }, 70000));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                if (animationState.isPlaying && !animationState.isPaused) renderScene5();
+            }, 90000));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                animationComplete();
+            }, 110000));
+        }
+
+        function updateProgress() {
+            if (!animationState.isPlaying) return;
+            
+            if (!animationState.isPaused) {
+                animationState.currentTime += 100;
+                var progress = Math.min((animationState.currentTime / animationState.totalDuration) * 100, 100);
+                var progressEl = document.getElementById('progress');
+                if (progressEl) {
+                    progressEl.style.width = progress + '%';
+                }
+            }
+        }
+
+        function togglePause() {
+            animationState.isPaused = !animationState.isPaused;
+            
+            var btnContent = document.getElementById('btn-pause-content');
+            if (btnContent) {
+                if (animationState.isPaused) {
+                    btnContent.innerHTML = '<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg> 继续';
+                } else {
+                    btnContent.innerHTML = '<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg> 暂停';
+                }
+            }
+        }
+
+        function resetAnimation() {
+            animationState.isPlaying = false;
+            animationState.isPaused = false;
+            animationState.currentTime = 0;
+            animationState.currentScene = 0;
+            
+            clearAllTimers();
+            
+            document.getElementById('progress').style.width = '0%';
+            document.getElementById('btn-start').disabled = false;
+            document.getElementById('btn-pause').disabled = true;
+            document.getElementById('formula-summary').style.opacity = '0';
+            
+            renderInitialStage();
+            updateNarration('点击"开始演示"按钮，开始分段内存管理原理动画展示。');
+            setSceneIndicator(0);
+        }
+
+        function animationComplete() {
+            animationState.isPlaying = false;
+            if (progressIntervalId) {
+                clearInterval(progressIntervalId);
+                progressIntervalId = null;
+            }
+            
+            document.getElementById('btn-start').disabled = false;
+            document.getElementById('btn-pause').disabled = true;
+            
+            var summaryOverlay = document.getElementById('summaryOverlay');
+            if (summaryOverlay) summaryOverlay.classList.add('visible');
+        }
+    </script>
+</body>
+</html>

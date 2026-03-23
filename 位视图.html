@@ -1,0 +1,1082 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>位示图——磁盘空间的"点名册"</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0f1a;
+            --bg-secondary: #111827;
+            --fg: #f8fafc;
+            --muted: #94a3b8;
+            --accent: #fbbf24;
+            --accent-glow: rgba(251, 191, 36, 0.4);
+            --free: #10b981;
+            --free-glow: rgba(16, 185, 129, 0.3);
+            --used: #f43f5e;
+            --used-glow: rgba(244, 63, 94, 0.3);
+            --card: #1e293b;
+            --border: #334155;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Noto Sans SC', sans-serif;
+            background: var(--bg);
+            color: var(--fg);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .bg-grid {
+            position: fixed;
+            inset: 0;
+            background-image: 
+                linear-gradient(rgba(251, 191, 36, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(251, 191, 36, 0.03) 1px, transparent 1px);
+            background-size: 50px 50px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .bg-glow {
+            position: fixed;
+            width: 600px;
+            height: 600px;
+            border-radius: 50%;
+            filter: blur(150px);
+            opacity: 0.15;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .bg-glow-1 {
+            top: -200px;
+            left: -200px;
+            background: var(--free);
+        }
+
+        .bg-glow-2 {
+            bottom: -200px;
+            right: -200px;
+            background: var(--used);
+        }
+
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            gap: 3px;
+            padding: 12px;
+            background: var(--card);
+            border-radius: 12px;
+            border: 2px solid var(--border);
+        }
+
+        .cell {
+            aspect-ratio: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 18px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            border: 2px solid transparent;
+        }
+
+        .cell.free {
+            background: linear-gradient(135deg, #064e3b, #065f46);
+            color: var(--free);
+            border-color: rgba(16, 185, 129, 0.3);
+        }
+
+        .cell.used {
+            background: linear-gradient(135deg, #4c0519, #881337);
+            color: var(--used);
+            border-color: rgba(244, 63, 94, 0.3);
+        }
+
+        .cell.highlight {
+            border-color: var(--accent);
+            box-shadow: 0 0 20px var(--accent-glow), inset 0 0 15px var(--accent-glow);
+            animation: pulse-glow 1s ease-in-out infinite;
+        }
+
+        .cell.scanning {
+            border-color: var(--accent);
+            box-shadow: 0 0 25px var(--accent-glow);
+        }
+
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 0 20px var(--accent-glow), inset 0 0 15px var(--accent-glow); }
+            50% { box-shadow: 0 0 35px var(--accent-glow), inset 0 0 25px var(--accent-glow); }
+        }
+
+        .cell.flip {
+            animation: flip-card 0.6s ease-in-out;
+        }
+
+        @keyframes flip-card {
+            0% { transform: rotateY(0deg) scale(1); }
+            50% { transform: rotateY(90deg) scale(1.1); }
+            100% { transform: rotateY(0deg) scale(1); }
+        }
+
+        .label {
+            font-size: 14px;
+            color: var(--muted);
+            text-align: center;
+            font-weight: 500;
+        }
+
+        .formula {
+            font-size: 28px;
+            font-weight: 600;
+            padding: 16px 24px;
+            background: var(--card);
+            border-radius: 10px;
+            border: 2px solid var(--border);
+            display: inline-block;
+        }
+
+        .formula .highlight {
+            color: var(--accent);
+            text-shadow: 0 0 10px var(--accent-glow);
+        }
+
+        .calc-step {
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.4s;
+        }
+
+        .calc-step.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .btn {
+            padding: 12px 28px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--free), #059669);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px var(--free-glow);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-secondary {
+            background: var(--card);
+            color: var(--fg);
+            border: 2px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            border-color: var(--accent);
+        }
+
+        .btn-secondary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .fade-in {
+            animation: fadeIn 0.6s ease-out forwards;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .stagger-1 { animation-delay: 0.1s; }
+        .stagger-2 { animation-delay: 0.2s; }
+        .stagger-3 { animation-delay: 0.3s; }
+
+        .title-char {
+            display: inline-block;
+            animation: titleReveal 0.8s ease-out forwards;
+            opacity: 0;
+        }
+
+        @keyframes titleReveal {
+            0% { opacity: 0; transform: translateY(20px) rotateX(-90deg); }
+            100% { opacity: 1; transform: translateY(0) rotateX(0); }
+        }
+
+        .progress-bar {
+            height: 4px;
+            background: var(--border);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--free), var(--accent));
+            width: 0%;
+            transition: width 0.1s linear;
+        }
+
+        .compare-popup {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.4s;
+            z-index: 100;
+        }
+
+        .compare-popup.show {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .compare-content {
+            display: flex;
+            gap: 40px;
+            transform: scale(0.9);
+            transition: transform 0.4s;
+        }
+
+        .compare-popup.show .compare-content {
+            transform: scale(1);
+        }
+
+        .compare-box {
+            padding: 30px 40px;
+            background: var(--card);
+            border-radius: 16px;
+            border: 2px solid var(--border);
+            text-align: center;
+            min-width: 280px;
+        }
+
+        .compare-box.winner {
+            border-color: var(--free);
+            box-shadow: 0 0 40px var(--free-glow);
+        }
+
+        @media (max-width: 768px) {
+            .cell { font-size: 12px; }
+            .formula { font-size: 18px; }
+            .compare-content { flex-direction: column; gap: 20px; }
+            .compare-box { min-width: auto; padding: 20px; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+    <div class="bg-grid"></div>
+    <div class="bg-glow bg-glow-1"></div>
+    <div class="bg-glow bg-glow-2"></div>
+
+    <div class="relative z-10 max-w-7xl mx-auto px-4 py-6">
+        <!-- 标题区 -->
+        <header id="header" class="text-center mb-6">
+            <h1 class="text-3xl md:text-4xl font-black mb-2 tracking-tight" id="main-title"></h1>
+            <p class="text-lg text-[var(--muted)]" id="sub-title">磁盘存储空间高效管理法</p>
+        </header>
+
+        <!-- 进度条 -->
+        <div class="progress-bar mb-4">
+            <div class="progress-fill" id="progress"></div>
+        </div>
+
+        <!-- 主内容区 -->
+        <div class="grid lg:grid-cols-[1fr_auto_1fr] gap-6 items-start">
+            <!-- 左侧：位示图 -->
+            <div class="fade-in stagger-1">
+                <div class="flex items-center gap-3 mb-3">
+                    <div class="w-3 h-3 rounded-full bg-[var(--accent)]"></div>
+                    <h2 class="text-xl font-bold">逻辑位示图 (8x8)</h2>
+                </div>
+                
+                <div id="bitmap-container" class="grid-container">
+                </div>
+
+                <div class="flex items-center gap-4 mt-4 text-sm">
+                    <div class="flex items-center gap-2">
+                        <div class="w-4 h-4 rounded bg-gradient-to-br from-[#064e3b] to-[#065f46] border border-[var(--free)]"></div>
+                        <span class="text-[var(--muted)]">0 = 空闲</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <div class="w-4 h-4 rounded bg-gradient-to-br from-[#4c0519] to-[#881337] border border-[var(--used)]"></div>
+                        <span class="text-[var(--muted)]">1 = 占用</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 中间：公式/信息区 -->
+            <div class="fade-in stagger-2 lg:min-w-[320px]">
+                <div class="bg-[var(--card)] rounded-xl p-5 border-2 border-[var(--border)]">
+                    <h3 class="text-lg font-bold mb-4 flex items-center gap-2">
+                        <svg class="w-5 h-5 text-[var(--accent)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+                        </svg>
+                        <span id="info-title">核心规则</span>
+                    </h3>
+                    
+                    <div id="info-content" class="space-y-3">
+                        <div class="formula text-center w-full mono">
+                            <span class="text-[var(--muted)]">1 bit</span>
+                            <span class="mx-2">→</span>
+                            <span class="highlight">1 磁盘块</span>
+                        </div>
+                        <p class="text-[var(--muted)] text-center text-sm">每一位对应监控一个磁盘块</p>
+                    </div>
+                </div>
+
+                <!-- 任务提示 -->
+                <div id="task-panel" class="mt-4 bg-[var(--bg-secondary)] rounded-xl p-4 border border-[var(--border)]" style="opacity: 0; transition: opacity 0.3s;">
+                    <div class="flex items-center gap-2 mb-2">
+                        <svg class="w-5 h-5 text-[var(--accent)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                        </svg>
+                        <span class="font-semibold" id="task-title">当前任务</span>
+                    </div>
+                    <p id="task-desc" class="text-[var(--muted)]"></p>
+                </div>
+            </div>
+
+            <!-- 右侧：磁盘块 -->
+            <div class="fade-in stagger-3">
+                <div class="flex items-center gap-3 mb-3">
+                    <div class="w-3 h-3 rounded-full bg-[var(--used)]"></div>
+                    <h2 class="text-xl font-bold">物理磁盘块 (0-63)</h2>
+                </div>
+                
+                <div id="disk-container" class="grid-container">
+                </div>
+
+                <div class="flex items-center gap-4 mt-4 text-sm">
+                    <div class="flex items-center gap-2">
+                        <div class="w-4 h-4 rounded bg-[var(--free)]"></div>
+                        <span class="text-[var(--muted)]">空闲可用</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <div class="w-4 h-4 rounded bg-[var(--used)]"></div>
+                        <span class="text-[var(--muted)]">已占用</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 旁白区 -->
+        <div class="mt-6 bg-[var(--card)] rounded-xl p-5 border-2 border-[var(--border)]">
+            <div class="flex items-start gap-3">
+                <div class="w-10 h-10 rounded-full bg-gradient-to-br from-[var(--accent)] to-orange-500 flex items-center justify-center flex-shrink-0">
+                    <svg class="w-5 h-5 text-black" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                    </svg>
+                </div>
+                <div>
+                    <h4 class="font-bold mb-1" id="narrator-name">讲解</h4>
+                    <p class="text-[var(--muted)] leading-relaxed text-lg transition-opacity duration-300" id="narration">点击"开始演示"按钮，开始位示图工作原理动画展示。</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 控制区 -->
+        <div class="mt-6 flex items-center justify-center gap-4 flex-wrap">
+            <button class="btn btn-primary" id="btn-start">
+                <span class="flex items-center gap-2">
+                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M8 5v14l11-7z"/>
+                    </svg>
+                    开始演示
+                </span>
+            </button>
+            <button class="btn btn-secondary" id="btn-pause" disabled>
+                <span class="flex items-center gap-2" id="btn-pause-content">
+                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+                    </svg>
+                    暂停
+                </span>
+            </button>
+            <button class="btn btn-secondary" id="btn-reset">
+                <span class="flex items-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                    重置
+                </span>
+            </button>
+            
+            <div class="flex items-center gap-2 ml-4">
+                <span class="text-sm text-[var(--muted)]">场景:</span>
+                <div class="flex gap-1" id="scene-indicators">
+                    <span class="w-8 h-2 rounded bg-[var(--border)]" data-scene="1"></span>
+                    <span class="w-8 h-2 rounded bg-[var(--border)]" data-scene="2"></span>
+                    <span class="w-8 h-2 rounded bg-[var(--border)]" data-scene="3"></span>
+                    <span class="w-8 h-2 rounded bg-[var(--border)]" data-scene="4"></span>
+                    <span class="w-8 h-2 rounded bg-[var(--border)]" data-scene="5"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 核心公式总结（底部） -->
+        <div id="formula-summary" class="mt-6 bg-[var(--card)] rounded-xl p-5 border-2 border-[var(--border)]" style="opacity: 0; transition: opacity 0.5s;">
+            <h3 class="text-lg font-bold mb-4 text-center">位示图分配与回收核心公式</h3>
+            <div class="grid md:grid-cols-2 gap-4">
+                <div class="bg-[var(--bg-secondary)] rounded-lg p-4">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="w-6 h-6 rounded-full bg-[var(--free)] flex items-center justify-center text-xs font-bold">A</span>
+                        <span class="font-semibold">空间分配</span>
+                    </div>
+                    <p class="text-sm text-[var(--muted)] mb-2">找0 - 计算块号 - 置1</p>
+                    <div class="formula mono text-lg w-full">b = i x n + j</div>
+                </div>
+                <div class="bg-[var(--bg-secondary)] rounded-lg p-4">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="w-6 h-6 rounded-full bg-[var(--used)] flex items-center justify-center text-xs font-bold">F</span>
+                        <span class="font-semibold">空间回收</span>
+                    </div>
+                    <p class="text-sm text-[var(--muted)] mb-2">已知块号 - 计算行列 - 置0</p>
+                    <div class="formula mono text-lg w-full">i = b // n, j = b % n</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 对比弹窗 -->
+    <div class="compare-popup" id="compare-popup">
+        <div class="compare-content">
+            <div class="compare-box">
+                <div class="text-3xl mb-3">链接</div>
+                <h4 class="text-xl font-bold mb-2 text-[var(--muted)]">空闲链表法</h4>
+                <ul class="text-left space-y-2 text-sm">
+                    <li class="flex items-center gap-2">
+                        <span class="text-[var(--used)]">X</span>
+                        磁头逐链查找
+                    </li>
+                    <li class="flex items-center gap-2">
+                        <span class="text-[var(--used)]">X</span>
+                        速度慢效率低
+                    </li>
+                    <li class="flex items-center gap-2">
+                        <span class="text-[var(--used)]">X</span>
+                        需额外存储空间
+                    </li>
+                </ul>
+            </div>
+            <div class="compare-box winner">
+                <div class="text-3xl mb-3">图表</div>
+                <h4 class="text-xl font-bold mb-2 text-[var(--free)]">位示图</h4>
+                <ul class="text-left space-y-2 text-sm">
+                    <li class="flex items-center gap-2">
+                        <span class="text-[var(--free)]">OK</span>
+                        全图载入内存
+                    </li>
+                    <li class="flex items-center gap-2">
+                        <span class="text-[var(--free)]">OK</span>
+                        随机扫描极速
+                    </li>
+                    <li class="flex items-center gap-2">
+                        <span class="text-[var(--free)]">OK</span>
+                        体积小更高效
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==================== 数据初始化 ====================
+        var GRID_SIZE = 8;
+        var TOTAL_CELLS = GRID_SIZE * GRID_SIZE;
+        
+        // 初始位示图数据
+        var initialBitmap = [
+            1,0,1,1,0,0,1,0,
+            0,1,0,0,1,1,0,1,
+            0,0,1,0,0,1,1,0,
+            1,1,0,0,0,0,1,0,
+            0,0,1,1,0,1,0,0,
+            1,0,0,0,1,0,1,1,
+            0,1,1,0,0,0,0,0,
+            1,0,0,1,0,1,0,1
+        ];
+
+        // 当前位图状态
+        var bitmap = initialBitmap.slice();
+        
+        // 动画状态
+        var animationState = {
+            isPlaying: false,
+            isPaused: false,
+            currentScene: 0,
+            currentTime: 0,
+            totalDuration: 90000
+        };
+
+        // 定时器ID
+        var progressIntervalId = null;
+        var sceneTimeouts = [];
+        var scanIntervalId = null;
+
+        // ==================== DOM 初始化 ====================
+        document.addEventListener('DOMContentLoaded', function() {
+            generateGrids();
+            animateTitle();
+            bindEvents();
+        });
+
+        function bindEvents() {
+            var btnStart = document.getElementById('btn-start');
+            var btnPause = document.getElementById('btn-pause');
+            var btnReset = document.getElementById('btn-reset');
+            
+            if (btnStart) {
+                btnStart.addEventListener('click', startAnimation);
+            }
+            if (btnPause) {
+                btnPause.addEventListener('click', togglePause);
+            }
+            if (btnReset) {
+                btnReset.addEventListener('click', resetAnimation);
+            }
+        }
+
+        // 生成网格
+        function generateGrids() {
+            var bitmapContainer = document.getElementById('bitmap-container');
+            var diskContainer = document.getElementById('disk-container');
+            
+            if (!bitmapContainer || !diskContainer) return;
+            
+            bitmapContainer.innerHTML = '';
+            diskContainer.innerHTML = '';
+
+            for (var i = 0; i < TOTAL_CELLS; i++) {
+                // 位示图单元格
+                var bitCell = document.createElement('div');
+                bitCell.className = 'cell ' + (bitmap[i] === 0 ? 'free' : 'used');
+                bitCell.textContent = bitmap[i];
+                bitCell.dataset.index = i;
+                bitCell.id = 'bit-' + i;
+                bitmapContainer.appendChild(bitCell);
+
+                // 磁盘块单元格
+                var diskCell = document.createElement('div');
+                diskCell.className = 'cell ' + (bitmap[i] === 0 ? 'free' : 'used');
+                diskCell.textContent = i;
+                diskCell.dataset.index = i;
+                diskCell.id = 'disk-' + i;
+                diskContainer.appendChild(diskCell);
+            }
+        }
+
+        // 标题动画
+        function animateTitle() {
+            var titleText = '位示图——磁盘空间的"点名册"';
+            var titleEl = document.getElementById('main-title');
+            if (!titleEl) return;
+            
+            titleEl.innerHTML = '';
+            
+            for (var i = 0; i < titleText.length; i++) {
+                var span = document.createElement('span');
+                span.className = 'title-char';
+                span.style.animationDelay = (i * 0.05) + 's';
+                span.textContent = titleText[i];
+                titleEl.appendChild(span);
+            }
+        }
+
+        // ==================== 辅助函数 ====================
+        function updateNarration(text) {
+            var el = document.getElementById('narration');
+            if (el) {
+                el.style.opacity = '0';
+                setTimeout(function() {
+                    el.textContent = text;
+                    el.style.opacity = '1';
+                }, 200);
+            }
+        }
+
+        function updateTask(title, desc) {
+            var panel = document.getElementById('task-panel');
+            var titleEl = document.getElementById('task-title');
+            var descEl = document.getElementById('task-desc');
+            
+            if (panel) panel.style.opacity = '1';
+            if (titleEl) titleEl.textContent = title;
+            if (descEl) descEl.textContent = desc;
+        }
+
+        function hideTask() {
+            var panel = document.getElementById('task-panel');
+            if (panel) panel.style.opacity = '0';
+        }
+
+        function updateInfo(title, content) {
+            var titleEl = document.getElementById('info-title');
+            var contentEl = document.getElementById('info-content');
+            if (titleEl) titleEl.textContent = title;
+            if (contentEl) contentEl.innerHTML = content;
+        }
+
+        function setSceneIndicator(sceneNum) {
+            var container = document.getElementById('scene-indicators');
+            if (!container) return;
+            var indicators = container.querySelectorAll('span');
+            for (var i = 0; i < indicators.length; i++) {
+                if (i + 1 <= sceneNum) {
+                    indicators[i].style.background = 'linear-gradient(90deg, var(--free), var(--accent))';
+                } else {
+                    indicators[i].style.background = 'var(--border)';
+                }
+            }
+        }
+
+        function highlightCell(index, type) {
+            type = type || 'bitmap';
+            var prefix = type === 'bitmap' ? 'bit' : 'disk';
+            var cell = document.getElementById(prefix + '-' + index);
+            if (cell) {
+                cell.classList.add('highlight');
+            }
+        }
+
+        function clearHighlight() {
+            var cells = document.querySelectorAll('.cell.highlight, .cell.scanning');
+            for (var i = 0; i < cells.length; i++) {
+                cells[i].classList.remove('highlight', 'scanning');
+            }
+        }
+
+        function flipCell(index, newValue) {
+            var bitCell = document.getElementById('bit-' + index);
+            var diskCell = document.getElementById('disk-' + index);
+            
+            if (bitCell && diskCell) {
+                bitCell.classList.add('flip');
+                diskCell.classList.add('flip');
+                
+                setTimeout(function() {
+                    bitmap[index] = newValue;
+                    bitCell.textContent = newValue;
+                    bitCell.className = 'cell ' + (newValue === 0 ? 'free' : 'used') + ' highlight';
+                    diskCell.className = 'cell ' + (newValue === 0 ? 'free' : 'used') + ' highlight';
+                }, 300);
+            }
+        }
+
+        // ==================== 场景函数 ====================
+        function scene1() {
+            setSceneIndicator(1);
+            updateNarration("管理磁盘空间，操作系统有个极简神器叫位示图，它就像磁盘的专属点名册。每一个微小的bit位，对应监控一个磁盘块，绿色0代表这块空间空闲待租，红色1代表已经被数据占用，一目了然。");
+            
+            updateInfo("核心规则", 
+                '<div class="formula text-center w-full mono">' +
+                    '<span class="text-[var(--muted)]">1 bit</span>' +
+                    '<span class="mx-2">-</span>' +
+                    '<span class="highlight">1 磁盘块</span>' +
+                '</div>' +
+                '<p class="text-[var(--muted)] text-center text-sm mt-3">每一位对应监控一个磁盘块</p>' +
+                '<div class="mt-4 grid grid-cols-2 gap-3 text-sm">' +
+                    '<div class="bg-[var(--bg-secondary)] p-3 rounded-lg text-center">' +
+                        '<div class="text-[var(--free)] font-bold text-2xl">0</div>' +
+                        '<div class="text-[var(--muted)]">空闲待分配</div>' +
+                    '</div>' +
+                    '<div class="bg-[var(--bg-secondary)] p-3 rounded-lg text-center">' +
+                        '<div class="text-[var(--used)] font-bold text-2xl">1</div>' +
+                        '<div class="text-[var(--muted)]">已占用</div>' +
+                    '</div>' +
+                '</div>'
+            );
+
+            sceneTimeouts.push(setTimeout(function() {
+                if (!animationState.isPlaying || animationState.isPaused) return;
+                clearHighlight();
+                highlightCell(2);
+                highlightCell(2, 'disk');
+            }, 5000));
+
+            sceneTimeouts.push(setTimeout(function() {
+                if (!animationState.isPlaying || animationState.isPaused) return;
+                clearHighlight();
+                highlightCell(4);
+                highlightCell(4, 'disk');
+            }, 10000));
+
+            sceneTimeouts.push(setTimeout(function() {
+                if (!animationState.isPlaying || animationState.isPaused) return;
+                clearHighlight();
+            }, 18000));
+        }
+
+        function scene2() {
+            setSceneIndicator(2);
+            updateNarration("分配空间时效率极高，系统只需扫描位示图找绿色0，找到后通过简单公式计算：行号乘每行位数再加列号，瞬间就能算出对应的物理磁盘块号，不用像其他方法一样逐个遍历，速度极快。");
+            
+            updateTask("系统任务", "分配空闲磁盘块，存储新文件");
+            
+            updateInfo("分配计算", 
+                '<div class="space-y-4">' +
+                    '<div class="calc-step" id="calc-step1">' +
+                        '<p class="text-sm text-[var(--muted)] mb-1">第一步：扫描位示图找空闲位(0)</p>' +
+                        '<div class="text-[var(--accent)] font-bold">定位: 第2行 第5列</div>' +
+                    '</div>' +
+                    '<div class="calc-step" id="calc-step2">' +
+                        '<p class="text-sm text-[var(--muted)] mb-1">第二步：应用公式计算块号</p>' +
+                        '<div class="formula mono text-lg w-full">b = i x n + j</div>' +
+                    '</div>' +
+                    '<div class="calc-step" id="calc-step3">' +
+                        '<p class="text-sm text-[var(--muted)] mb-1">第三步：代入数值计算</p>' +
+                        '<div class="formula mono text-lg w-full">b = <span class="highlight">2</span> x 8 + <span class="highlight">5</span> = <span class="highlight text-[var(--accent)]">21</span></div>' +
+                    '</div>' +
+                '</div>'
+            );
+
+            // 扫描动画
+            sceneTimeouts.push(setTimeout(function() {
+                if (!animationState.isPlaying || animationState.isPaused) return;
+                var currentIndex = 0;
+                var targetIndex = 21;
+                
+                scanIntervalId = setInterval(function() {
+                    if (!animationState.isPlaying || animationState.isPaused) return;
+                    
+                    clearHighlight();
+                    
+                    if (currentIndex < targetIndex) {
+                        var cell = document.getElementById('bit-' + currentIndex);
+                        if (cell) cell.classList.add('scanning');
+                        currentIndex++;
+                    } else {
+                        clearInterval(scanIntervalId);
+                        highlightCell(targetIndex);
+                        var step1 = document.getElementById('calc-step1');
+                        if (step1) step1.classList.add('show');
+                    }
+                }, 150);
+            }, 2000));
+
+            sceneTimeouts.push(setTimeout(function() {
+                if (!animationState.isPlaying || animationState.isPaused) return;
+                var step2 = document.getElementById('calc-step2');
+                if (step2) step2.classList.add('show');
+            }, 8000));
+
+            sceneTimeouts.push(setTimeout(function() {
+                if (!animationState.isPlaying || animationState.isPaused) return;
+                var step3 = document.getElementById('calc-step3');
+                if (step3) step3.classList.add('show');
+                highlightCell(21, 'disk');
+            }, 12000));
+
+            sceneTimeouts.push(setTimeout(function() {
+                if (!animationState.isPlaying || animationState.isPaused) return;
+                hideTask();
+            }, 28000));
+        }
+
+        function scene3() {
+            setSceneIndicator(3);
+            updateNarration("找到空闲块后，只需要做一个简单操作：把位示图里对应的0翻转为1，颜色从绿变红。这就完成了空间分配，相当于在点名册上标记已占用，其他文件就不会再争抢这个磁盘块了。");
+            
+            updateTask("分配操作", "将21号磁盘块分配给新文件");
+            
+            updateInfo("状态翻转", 
+                '<div class="text-center space-y-4">' +
+                    '<div class="flex items-center justify-center gap-4 text-3xl">' +
+                        '<div class="bg-gradient-to-br from-[#064e3b] to-[#065f46] w-16 h-16 rounded-lg flex items-center justify-center border-2 border-[var(--free)] text-[var(--free)] font-bold">0</div>' +
+                        '<svg class="w-8 h-8 text-[var(--accent)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>' +
+                        '<div class="bg-gradient-to-br from-[#4c0519] to-[#881337] w-16 h-16 rounded-lg flex items-center justify-center border-2 border-[var(--used)] text-[var(--used)] font-bold">1</div>' +
+                    '</div>' +
+                    '<p class="text-sm text-[var(--muted)]">0 到 1：空闲 到 已占用</p>' +
+                    '<div class="bg-[var(--bg-secondary)] p-4 rounded-lg mt-4">' +
+                        '<p class="text-sm">位示图(2,5)位置</p>' +
+                        '<p class="text-[var(--accent)] font-bold mt-1">状态翻转完成</p>' +
+                    '</div>' +
+                '</div>'
+            );
+
+            sceneTimeouts.push(setTimeout(function() {
+                if (!animationState.isPlaying || animationState.isPaused) return;
+                flipCell(21, 1);
+            }, 3000));
+
+            sceneTimeouts.push(setTimeout(function() {
+                if (!animationState.isPlaying || animationState.isPaused) return;
+                clearHighlight();
+                hideTask();
+            }, 18000));
+        }
+
+        function scene4() {
+            setSceneIndicator(4);
+            updateNarration("删除文件释放空间时，操作系统不用去磁盘里擦除数据，只需要反向计算出对应的位示图行列，把1改回0就行。相当于在点名册上划掉标记，这块磁盘空间就重新变回空闲，等待下次分配。");
+            
+            updateTask("释放操作", "删除文件，释放30号磁盘块");
+            
+            updateInfo("回收计算", 
+                '<div class="space-y-4">' +
+                    '<div class="calc-step show">' +
+                        '<p class="text-sm text-[var(--muted)] mb-1">已知磁盘块号</p>' +
+                        '<div class="text-[var(--accent)] font-bold text-2xl">b = 30</div>' +
+                    '</div>' +
+                    '<div class="calc-step show">' +
+                        '<p class="text-sm text-[var(--muted)] mb-1">反向计算行列</p>' +
+                        '<div class="formula mono text-base w-full">i = b // n = 30 // 8 = <span class="highlight">3</span></div>' +
+                        '<div class="formula mono text-base w-full mt-2">j = b % n = 30 % 8 = <span class="highlight">6</span></div>' +
+                    '</div>' +
+                    '<div class="calc-step" id="release-result">' +
+                        '<p class="text-sm text-[var(--muted)] mb-1">定位结果</p>' +
+                        '<div class="text-[var(--accent)] font-bold">位示图位置: 第3行 第6列</div>' +
+                    '</div>' +
+                '</div>'
+            );
+
+            sceneTimeouts.push(setTimeout(function() {
+                if (!animationState.isPlaying || animationState.isPaused) return;
+                var result = document.getElementById('release-result');
+                if (result) result.classList.add('show');
+                highlightCell(30);
+                highlightCell(30, 'disk');
+            }, 3000));
+
+            sceneTimeouts.push(setTimeout(function() {
+                if (!animationState.isPlaying || animationState.isPaused) return;
+                flipCell(30, 0);
+            }, 7000));
+
+            sceneTimeouts.push(setTimeout(function() {
+                if (!animationState.isPlaying || animationState.isPaused) return;
+                clearHighlight();
+                hideTask();
+            }, 14000));
+        }
+
+        function scene5() {
+            setSceneIndicator(5);
+            updateNarration("位示图最大的优势就是轻量高效，哪怕管理大容量磁盘，也只占用极小内存，能直接载入内存快速扫描，比空闲链表法快得多，是操作系统磁盘空间管理的效率神器。");
+            
+            updateInfo("核心优势", 
+                '<div class="space-y-3">' +
+                    '<div class="flex items-center gap-3 bg-[var(--bg-secondary)] p-3 rounded-lg">' +
+                        '<span class="w-8 h-8 rounded-full bg-[var(--free)] flex items-center justify-center text-black font-bold text-sm">1</span>' +
+                        '<span>体积小，占用内存极少</span>' +
+                    '</div>' +
+                    '<div class="flex items-center gap-3 bg-[var(--bg-secondary)] p-3 rounded-lg">' +
+                        '<span class="w-8 h-8 rounded-full bg-[var(--free)] flex items-center justify-center text-black font-bold text-sm">2</span>' +
+                        '<span>速度快，可全图载入内存</span>' +
+                    '</div>' +
+                    '<div class="flex items-center gap-3 bg-[var(--bg-secondary)] p-3 rounded-lg">' +
+                        '<span class="w-8 h-8 rounded-full bg-[var(--free)] flex items-center justify-center text-black font-bold text-sm">3</span>' +
+                        '<span>支持随机检索，无需遍历</span>' +
+                    '</div>' +
+                '</div>'
+            );
+
+            sceneTimeouts.push(setTimeout(function() {
+                if (!animationState.isPlaying || animationState.isPaused) return;
+                var popup = document.getElementById('compare-popup');
+                if (popup) popup.classList.add('show');
+            }, 1500));
+
+            sceneTimeouts.push(setTimeout(function() {
+                if (!animationState.isPlaying || animationState.isPaused) return;
+                var popup = document.getElementById('compare-popup');
+                if (popup) popup.classList.remove('show');
+            }, 3500));
+
+            sceneTimeouts.push(setTimeout(function() {
+                if (!animationState.isPlaying || animationState.isPaused) return;
+                var summary = document.getElementById('formula-summary');
+                if (summary) summary.style.opacity = '1';
+            }, 4000));
+        }
+
+        // ==================== 动画控制 ====================
+        function startAnimation() {
+            if (animationState.isPlaying) return;
+            
+            animationState.isPlaying = true;
+            animationState.isPaused = false;
+            animationState.currentTime = 0;
+            
+            var btnStart = document.getElementById('btn-start');
+            var btnPause = document.getElementById('btn-pause');
+            
+            if (btnStart) btnStart.disabled = true;
+            if (btnPause) btnPause.disabled = false;
+            
+            // 重置数据
+            bitmap = initialBitmap.slice();
+            generateGrids();
+            
+            // 清除之前的定时器
+            clearAllTimers();
+            
+            // 启动进度更新
+            progressIntervalId = setInterval(updateProgress, 100);
+            
+            // 场景调度
+            sceneTimeouts.push(setTimeout(function() {
+                if (animationState.isPlaying && !animationState.isPaused) scene1();
+            }, 0));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                if (animationState.isPlaying && !animationState.isPaused) scene2();
+            }, 20000));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                if (animationState.isPlaying && !animationState.isPaused) scene3();
+            }, 50000));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                if (animationState.isPlaying && !animationState.isPaused) scene4();
+            }, 70000));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                if (animationState.isPlaying && !animationState.isPaused) scene5();
+            }, 85000));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                animationComplete();
+            }, 90000));
+        }
+
+        function updateProgress() {
+            if (!animationState.isPlaying) return;
+            
+            if (!animationState.isPaused) {
+                animationState.currentTime += 100;
+                var progress = Math.min((animationState.currentTime / animationState.totalDuration) * 100, 100);
+                var progressEl = document.getElementById('progress');
+                if (progressEl) {
+                    progressEl.style.width = progress + '%';
+                }
+            }
+        }
+
+        function togglePause() {
+            animationState.isPaused = !animationState.isPaused;
+            
+            var btnContent = document.getElementById('btn-pause-content');
+            if (btnContent) {
+                if (animationState.isPaused) {
+                    btnContent.innerHTML = '<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg> 继续';
+                } else {
+                    btnContent.innerHTML = '<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg> 暂停';
+                }
+            }
+        }
+
+        function clearAllTimers() {
+            if (progressIntervalId) {
+                clearInterval(progressIntervalId);
+                progressIntervalId = null;
+            }
+            if (scanIntervalId) {
+                clearInterval(scanIntervalId);
+                scanIntervalId = null;
+            }
+            for (var i = 0; i < sceneTimeouts.length; i++) {
+                clearTimeout(sceneTimeouts[i]);
+            }
+            sceneTimeouts = [];
+        }
+
+        function resetAnimation() {
+            animationState.isPlaying = false;
+            animationState.isPaused = false;
+            animationState.currentTime = 0;
+            animationState.currentScene = 0;
+            
+            clearAllTimers();
+            
+            var progressEl = document.getElementById('progress');
+            var btnStart = document.getElementById('btn-start');
+            var btnPause = document.getElementById('btn-pause');
+            var comparePopup = document.getElementById('compare-popup');
+            var formulaSummary = document.getElementById('formula-summary');
+            
+            if (progressEl) progressEl.style.width = '0%';
+            if (btnStart) btnStart.disabled = false;
+            if (btnPause) btnPause.disabled = true;
+            if (comparePopup) comparePopup.classList.remove('show');
+            if (formulaSummary) formulaSummary.style.opacity = '0';
+            
+            bitmap = initialBitmap.slice();
+            generateGrids();
+            clearHighlight();
+            
+            updateNarration('点击"开始演示"按钮，开始位示图工作原理动画展示。');
+            
+            updateInfo("核心规则", 
+                '<div class="formula text-center w-full mono">' +
+                    '<span class="text-[var(--muted)]">1 bit</span>' +
+                    '<span class="mx-2">-</span>' +
+                    '<span class="highlight">1 磁盘块</span>' +
+                '</div>' +
+                '<p class="text-[var(--muted)] text-center text-sm mt-3">每一位对应监控一个磁盘块</p>'
+            );
+            
+            hideTask();
+            setSceneIndicator(0);
+        }
+
+        function animationComplete() {
+            animationState.isPlaying = false;
+            if (progressIntervalId) {
+                clearInterval(progressIntervalId);
+                progressIntervalId = null;
+            }
+            
+            var btnStart = document.getElementById('btn-start');
+            var btnPause = document.getElementById('btn-pause');
+            
+            if (btnStart) btnStart.disabled = false;
+            if (btnPause) btnPause.disabled = true;
+        }
+    </script>
+</body>
+</html>

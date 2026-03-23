@@ -1,0 +1,1068 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>内存连续分配算法——停车场的智能停车调度</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0f1419;
+            --bg-secondary: #1a2332;
+            --fg: #e7edf4;
+            --muted: #7d8a9a;
+            --accent: #4dabf7;
+            --free: #40c057;
+            --free-light: rgba(64, 192, 87, 0.2);
+            --allocated: #fa5252;
+            --allocated-light: rgba(250, 82, 82, 0.2);
+            --fragment: #fd7e14;
+            --scan: #ffd43b;
+            --card: rgba(26, 35, 50, 0.95);
+            --border: rgba(77, 171, 247, 0.3);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Noto Sans SC', sans-serif;
+            background: var(--bg);
+            color: var(--fg);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* 背景网格 */
+        .bg-grid {
+            position: fixed;
+            inset: 0;
+            background-image: 
+                linear-gradient(rgba(77, 171, 247, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(77, 171, 247, 0.03) 1px, transparent 1px);
+            background-size: 30px 30px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* 内存条 */
+        .memory-bar {
+            height: 80px;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            display: flex;
+            position: relative;
+            overflow: hidden;
+            border: 2px solid var(--border);
+        }
+
+        .memory-block {
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 14px;
+            position: relative;
+            transition: all 0.4s ease;
+            border-right: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .memory-block.free {
+            background: linear-gradient(180deg, var(--free), rgba(64, 192, 87, 0.7));
+            color: white;
+        }
+
+        .memory-block.allocated {
+            background: linear-gradient(180deg, var(--allocated), rgba(250, 82, 82, 0.7));
+            color: white;
+        }
+
+        .memory-block.fragment {
+            background: linear-gradient(180deg, var(--fragment), rgba(253, 126, 20, 0.7));
+            color: white;
+            animation: fragment-pulse 1s ease-in-out infinite;
+        }
+
+        @keyframes fragment-pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        /* 扫描线 */
+        .scan-line {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 3px;
+            height: 100%;
+            background: var(--scan);
+            box-shadow: 0 0 20px var(--scan), 0 0 40px var(--scan);
+            opacity: 0;
+            transition: left 0.3s ease;
+            z-index: 10;
+        }
+
+        .scan-line.active {
+            opacity: 1;
+        }
+
+        /* 进程小车 */
+        .process-car {
+            position: absolute;
+            top: -70px;
+            width: 80px;
+            height: 50px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(180deg, #339af0, #1c7ed6);
+            border-radius: 8px 8px 4px 4px;
+            font-weight: 700;
+            font-size: 12px;
+            color: white;
+            box-shadow: 0 4px 15px rgba(51, 154, 240, 0.4);
+            transition: all 0.5s ease;
+            z-index: 20;
+        }
+
+        .process-car::after {
+            content: '';
+            position: absolute;
+            bottom: -8px;
+            width: 60%;
+            height: 8px;
+            background: #1c7ed6;
+            border-radius: 0 0 4px 4px;
+        }
+
+        /* 管理员 */
+        .admin {
+            position: absolute;
+            bottom: -60px;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            background: linear-gradient(145deg, #ffd43b, #fab005);
+            box-shadow: 0 4px 15px rgba(255, 212, 59, 0.4);
+            transition: left 0.5s ease;
+            z-index: 15;
+        }
+
+        /* 地址标记 */
+        .address-mark {
+            position: absolute;
+            bottom: -30px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--muted);
+            transform: translateX(-50%);
+        }
+
+        /* 算法标签 */
+        .algorithm-badge {
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-weight: 700;
+            font-size: 14px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .algorithm-badge.first-fit {
+            background: rgba(64, 192, 87, 0.2);
+            color: var(--free);
+            border: 2px solid var(--free);
+        }
+
+        .algorithm-badge.best-fit {
+            background: rgba(77, 171, 247, 0.2);
+            color: var(--accent);
+            border: 2px solid var(--accent);
+        }
+
+        .algorithm-badge.worst-fit {
+            background: rgba(250, 82, 82, 0.2);
+            color: var(--allocated);
+            border: 2px solid var(--allocated);
+        }
+
+        /* 对比卡片 */
+        .compare-card {
+            background: var(--card);
+            border-radius: 12px;
+            padding: 16px;
+            border: 2px solid var(--border);
+        }
+
+        .compare-card.first-fit {
+            border-color: var(--free);
+        }
+
+        .compare-card.best-fit {
+            border-color: var(--accent);
+        }
+
+        .compare-card.worst-fit {
+            border-color: var(--allocated);
+        }
+
+        /* 进度条 */
+        .progress-bar {
+            height: 4px;
+            background: var(--bg-secondary);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--free), var(--accent), var(--allocated));
+            width: 0%;
+            transition: width 0.1s linear;
+        }
+
+        /* 按钮 */
+        .btn {
+            padding: 10px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent), #339af0);
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(77, 171, 247, 0.4);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: var(--card);
+            color: var(--fg);
+            border: 2px solid var(--border);
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            border-color: var(--accent);
+        }
+
+        .btn-secondary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* 动画 */
+        .fade-in {
+            animation: fadeIn 0.5s ease-out forwards;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(15px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .slide-down {
+            animation: slideDown 0.4s ease-out forwards;
+        }
+
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* 场景指示器 */
+        .scene-indicator {
+            width: 28px;
+            height: 4px;
+            border-radius: 2px;
+            background: var(--bg-secondary);
+            transition: background 0.3s;
+        }
+
+        .scene-indicator.active {
+            background: linear-gradient(90deg, var(--free), var(--accent));
+        }
+
+        /* 状态提示 */
+        .status-tip {
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .status-tip.success {
+            background: rgba(64, 192, 87, 0.2);
+            color: var(--free);
+        }
+
+        .status-tip.warning {
+            background: rgba(253, 126, 20, 0.2);
+            color: var(--fragment);
+        }
+
+        .status-tip.info {
+            background: rgba(77, 171, 247, 0.2);
+            color: var(--accent);
+        }
+
+        @media (max-width: 768px) {
+            .memory-bar { height: 60px; }
+            .memory-block { font-size: 10px; }
+            .process-car { width: 60px; height: 40px; font-size: 10px; }
+            .admin { width: 40px; height: 40px; font-size: 18px; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+    <div class="bg-grid"></div>
+
+    <div class="relative z-10 max-w-6xl mx-auto px-4 py-6">
+        <!-- 标题 -->
+        <header class="text-center mb-6">
+            <h1 class="text-2xl md:text-3xl font-black mb-2 tracking-tight" id="main-title"></h1>
+            <p class="text-sm text-[var(--muted)]" id="sub-title">操作系统早期内存基础管理</p>
+        </header>
+
+        <!-- 进度条 -->
+        <div class="progress-bar mb-4">
+            <div class="progress-fill" id="progress"></div>
+        </div>
+
+        <!-- 当前算法标识 -->
+        <div class="text-center mb-4" id="algorithm-display">
+            <span class="algorithm-badge first-fit">
+                <span>FF</span>
+                <span>首次适应算法</span>
+            </span>
+        </div>
+
+        <!-- 内存可视化区域 -->
+        <div class="bg-[var(--card)] rounded-xl p-6 border border-[var(--border)] mb-4">
+            <!-- 图例 -->
+            <div class="flex justify-center gap-4 mb-4 text-xs flex-wrap">
+                <div class="flex items-center gap-2">
+                    <div class="w-4 h-4 rounded" style="background: var(--free)"></div>
+                    <span class="text-[var(--muted)]">空闲分区</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <div class="w-4 h-4 rounded" style="background: var(--allocated)"></div>
+                    <span class="text-[var(--muted)]">已分配</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <div class="w-4 h-4 rounded" style="background: var(--fragment)"></div>
+                    <span class="text-[var(--muted)]">内存碎片</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <div class="w-4 h-4 rounded" style="background: var(--scan)"></div>
+                    <span class="text-[var(--muted)]">扫描位置</span>
+                </div>
+            </div>
+
+            <!-- 内存条容器 -->
+            <div class="relative pt-16 pb-12">
+                <div class="process-car" id="process-car" style="opacity: 0;">
+                    <span id="car-size">30KB</span>
+                    <span style="font-size: 10px; opacity: 0.8;">进程</span>
+                </div>
+                
+                <div class="memory-bar" id="memory-bar">
+                    <div class="scan-line" id="scan-line"></div>
+                </div>
+                
+                <div class="admin" id="admin" style="opacity: 0;"></div>
+                
+                <!-- 地址标记 -->
+                <div class="address-mark" style="left: 0;">0</div>
+                <div class="address-mark" style="left: 100%;">MAX</div>
+            </div>
+
+            <!-- 状态提示 -->
+            <div class="text-center mt-4" id="status-display">
+                <span class="text-[var(--muted)]">点击"开始演示"观看算法演示</span>
+            </div>
+        </div>
+
+        <!-- 算法说明面板 -->
+        <div class="bg-[var(--card)] rounded-xl p-4 border border-[var(--border)] mb-4">
+            <div class="flex items-start gap-3">
+                <div class="w-10 h-10 rounded-full bg-gradient-to-br from-[var(--accent)] to-blue-500 flex items-center justify-center flex-shrink-0">
+                    <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                    </svg>
+                </div>
+                <div>
+                    <h4 class="font-bold text-sm mb-1">讲解</h4>
+                    <p class="text-[var(--muted)] leading-relaxed text-sm transition-opacity duration-300" id="narration">点击"开始演示"按钮，观看内存连续分配算法的完整演示。</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 控制区 -->
+        <div class="flex items-center justify-center gap-3 flex-wrap mb-4">
+            <button class="btn btn-primary" id="btn-start">
+                <span class="flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M8 5v14l11-7z"/>
+                    </svg>
+                    开始演示
+                </span>
+            </button>
+            <button class="btn btn-secondary" id="btn-pause" disabled>
+                <span class="flex items-center gap-2" id="btn-pause-content">
+                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+                    </svg>
+                    暂停
+                </span>
+            </button>
+            <button class="btn btn-secondary" id="btn-reset">
+                <span class="flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                    重置
+                </span>
+            </button>
+            
+            <div class="flex items-center gap-2 ml-3">
+                <span class="text-xs text-[var(--muted)]">场景:</span>
+                <div class="flex gap-1" id="scene-indicators">
+                    <span class="scene-indicator" data-scene="1"></span>
+                    <span class="scene-indicator" data-scene="2"></span>
+                    <span class="scene-indicator" data-scene="3"></span>
+                    <span class="scene-indicator" data-scene="4"></span>
+                    <span class="scene-indicator" data-scene="5"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 对比面板 -->
+        <div id="compare-panel" class="hidden">
+            <h3 class="text-lg font-bold mb-4 text-center">三种算法全景对比</h3>
+            <div class="grid md:grid-cols-3 gap-4">
+                <div class="compare-card first-fit">
+                    <h4 class="font-bold mb-2 text-[var(--free)]">首次适应</h4>
+                    <div class="space-y-2 text-xs">
+                        <p><span class="text-[var(--muted)]">规则:</span> 第一个满足即分配</p>
+                        <p><span class="text-[var(--muted)]">优点:</span> 速度最快</p>
+                        <p><span class="text-[var(--muted)]">缺点:</span> 低地址堆积碎片</p>
+                    </div>
+                    <div class="mt-3 h-6 rounded bg-[var(--bg-secondary)] overflow-hidden flex" id="compare-memory-1"></div>
+                </div>
+                <div class="compare-card best-fit">
+                    <h4 class="font-bold mb-2 text-[var(--accent)]">最佳适应</h4>
+                    <div class="space-y-2 text-xs">
+                        <p><span class="text-[var(--muted)]">规则:</span> 最接近进程大小</p>
+                        <p><span class="text-[var(--muted)]">优点:</span> 初期利用率高</p>
+                        <p><span class="text-[var(--muted)]">缺点:</span> 大量微小碎片</p>
+                    </div>
+                    <div class="mt-3 h-6 rounded bg-[var(--bg-secondary)] overflow-hidden flex" id="compare-memory-2"></div>
+                </div>
+                <div class="compare-card worst-fit">
+                    <h4 class="font-bold mb-2 text-[var(--allocated)]">最坏适应</h4>
+                    <div class="space-y-2 text-xs">
+                        <p><span class="text-[var(--muted)]">规则:</span> 选择最大分区</p>
+                        <p><span class="text-[var(--muted)]">优点:</span> 无微小碎片</p>
+                        <p><span class="text-[var(--muted)]">缺点:</span> 大块耗尽效率降</p>
+                    </div>
+                    <div class="mt-3 h-6 rounded bg-[var(--bg-secondary)] overflow-hidden flex" id="compare-memory-3"></div>
+                </div>
+            </div>
+            <div class="mt-4 text-center">
+                <p class="text-sm text-[var(--muted)]">结论: 连续分配无法彻底解决碎片问题，引出后续 <span class="text-[var(--accent)]">分页内存管理</span></p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==================== 状态管理 ====================
+        var animationState = {
+            isPlaying: false,
+            isPaused: false,
+            currentTime: 0,
+            totalDuration: 230000,
+            currentScene: 0
+        };
+
+        var progressIntervalId = null;
+        var sceneTimeouts = [];
+
+        // 初始内存布局（单位KB，百分比用于显示）
+        // 格式: { size: 大小, status: 'free'|'allocated', id: 标识 }
+        var initialMemory = [
+            { size: 20, status: 'allocated', label: 'P1' },
+            { size: 20, status: 'free', label: '' },
+            { size: 30, status: 'allocated', label: 'P2' },
+            { size: 50, status: 'free', label: '' },
+            { size: 20, status: 'allocated', label: 'P3' },
+            { size: 30, status: 'free', label: '' },
+            { size: 30, status: 'allocated', label: 'P4' }
+        ];
+
+        var currentMemory = [];
+        var totalSize = 0;
+
+        // ==================== 初始化 ====================
+        document.addEventListener('DOMContentLoaded', function() {
+            initTitle();
+            bindEvents();
+            initMemory();
+        });
+
+        function initTitle() {
+            var titleText = '内存连续分配算法——停车场的智能停车调度';
+            var titleEl = document.getElementById('main-title');
+            if (!titleEl) return;
+            
+            titleEl.innerHTML = '';
+            for (var i = 0; i < titleText.length; i++) {
+                var span = document.createElement('span');
+                span.style.opacity = '0';
+                span.style.animation = 'fadeIn 0.3s ease-out forwards';
+                span.style.animationDelay = (i * 0.02) + 's';
+                span.textContent = titleText[i];
+                titleEl.appendChild(span);
+            }
+        }
+
+        function bindEvents() {
+            document.getElementById('btn-start').addEventListener('click', startAnimation);
+            document.getElementById('btn-pause').addEventListener('click', togglePause);
+            document.getElementById('btn-reset').addEventListener('click', resetAnimation);
+        }
+
+        function initMemory() {
+            currentMemory = JSON.parse(JSON.stringify(initialMemory));
+            totalSize = 0;
+            for (var i = 0; i < currentMemory.length; i++) {
+                totalSize += currentMemory[i].size;
+            }
+            renderMemory();
+        }
+
+        function renderMemory() {
+            var bar = document.getElementById('memory-bar');
+            if (!bar) return;
+            
+            var html = '<div class="scan-line" id="scan-line"></div>';
+            
+            for (var i = 0; i < currentMemory.length; i++) {
+                var block = currentMemory[i];
+                var widthPercent = (block.size / totalSize) * 100;
+                var statusClass = block.status;
+                if (block.isFragment) {
+                    statusClass = 'fragment';
+                }
+                
+                html += '<div class="memory-block ' + statusClass + '" style="width: ' + widthPercent + '%;" data-index="' + i + '">';
+                html += '<div class="text-center">';
+                if (block.status === 'free' || block.isFragment) {
+                    html += '<div class="mono">' + block.size + 'KB</div>';
+                    if (block.isFragment) {
+                        html += '<div style="font-size: 10px;">碎片</div>';
+                    } else {
+                        html += '<div style="font-size: 10px;">空闲</div>';
+                    }
+                } else {
+                    html += '<div class="mono">' + block.size + 'KB</div>';
+                    html += '<div style="font-size: 10px;">' + block.label + '</div>';
+                }
+                html += '</div></div>';
+            }
+            
+            bar.innerHTML = html;
+        }
+
+        // ==================== 辅助函数 ====================
+        function updateNarration(text) {
+            var el = document.getElementById('narration');
+            if (el) {
+                el.style.opacity = '0';
+                setTimeout(function() {
+                    el.textContent = text;
+                    el.style.opacity = '1';
+                }, 150);
+            }
+        }
+
+        function updateAlgorithm(type) {
+            var display = document.getElementById('algorithm-display');
+            if (!display) return;
+            
+            var badges = {
+                'first': '<span class="algorithm-badge first-fit"><span>FF</span><span>首次适应算法</span></span>',
+                'best': '<span class="algorithm-badge best-fit"><span>BF</span><span>最佳适应算法</span></span>',
+                'worst': '<span class="algorithm-badge worst-fit"><span>WF</span><span>最坏适应算法</span></span>',
+                'intro': '<span class="algorithm-badge" style="background: rgba(125, 138, 154, 0.2); color: var(--muted); border-color: var(--muted);"><span>简介</span><span>内存停车场</span></span>'
+            };
+            
+            display.innerHTML = badges[type] || badges['intro'];
+        }
+
+        function updateStatus(text, type) {
+            var display = document.getElementById('status-display');
+            if (!display) return;
+            
+            type = type || 'info';
+            display.innerHTML = '<span class="status-tip ' + type + '">' + text + '</span>';
+        }
+
+        function setSceneIndicator(sceneNum) {
+            animationState.currentScene = sceneNum;
+            var container = document.getElementById('scene-indicators');
+            if (!container) return;
+            var indicators = container.querySelectorAll('.scene-indicator');
+            for (var i = 0; i < indicators.length; i++) {
+                if (i + 1 <= sceneNum) {
+                    indicators[i].classList.add('active');
+                } else {
+                    indicators[i].classList.remove('active');
+                }
+            }
+        }
+
+        function showProcessCar(size, position) {
+            var car = document.getElementById('process-car');
+            var carSize = document.getElementById('car-size');
+            if (!car) return;
+            
+            if (carSize) carSize.textContent = size + 'KB';
+            car.style.opacity = '1';
+            car.style.left = position + 'px';
+        }
+
+        function hideProcessCar() {
+            var car = document.getElementById('process-car');
+            if (car) car.style.opacity = '0';
+        }
+
+        function moveProcessCar(left) {
+            var car = document.getElementById('process-car');
+            if (car) car.style.left = left + 'px';
+        }
+
+        function showAdmin(position) {
+            var admin = document.getElementById('admin');
+            if (admin) {
+                admin.style.opacity = '1';
+                admin.style.left = position + 'px';
+            }
+        }
+
+        function moveAdmin(left) {
+            var admin = document.getElementById('admin');
+            if (admin) admin.style.left = left + 'px';
+        }
+
+        function hideAdmin() {
+            var admin = document.getElementById('admin');
+            if (admin) admin.style.opacity = '0';
+        }
+
+        // 扫描动画
+        function startScan(fromIndex, toIndex, callback) {
+            var scanLine = document.getElementById('scan-line');
+            if (!scanLine) return;
+            
+            scanLine.classList.add('active');
+            
+            var blocks = document.querySelectorAll('.memory-block');
+            var currentPos = fromIndex;
+            
+            function moveScan() {
+                if (currentPos > toIndex) {
+                    scanLine.classList.remove('active');
+                    if (callback) callback();
+                    return;
+                }
+                
+                if (!animationState.isPlaying || animationState.isPaused) {
+                    return;
+                }
+                
+                var block = blocks[currentPos];
+                if (block) {
+                    var left = block.offsetLeft;
+                    scanLine.style.left = left + 'px';
+                }
+                
+                currentPos++;
+                sceneTimeouts.push(setTimeout(moveScan, 400));
+            }
+            
+            moveScan();
+        }
+
+        function stopScan() {
+            var scanLine = document.getElementById('scan-line');
+            if (scanLine) scanLine.classList.remove('active');
+        }
+
+        // 分配内存
+        function allocateMemory(blockIndex, processSize, processName) {
+            var block = currentMemory[blockIndex];
+            if (!block || block.status !== 'free') return false;
+            
+            if (block.size === processSize) {
+                // 完美匹配
+                block.status = 'allocated';
+                block.label = processName;
+            } else if (block.size > processSize) {
+                // 分裂分区
+                var remaining = block.size - processSize;
+                block.size = processSize;
+                block.status = 'allocated';
+                block.label = processName;
+                
+                // 插入剩余分区
+                var newBlock = {
+                    size: remaining,
+                    status: 'free',
+                    label: '',
+                    isFragment: remaining < 10 // 小于10KB算碎片
+                };
+                currentMemory.splice(blockIndex + 1, 0, newBlock);
+            }
+            
+            renderMemory();
+            return true;
+        }
+
+        // ==================== 场景函数 ====================
+        // 场景一：开场引入
+        function scene1() {
+            setSceneIndicator(1);
+            updateAlgorithm('intro');
+            updateNarration("早期操作系统采用连续内存分配，简单来说就是给进程找一块连续的内存空间，就像给小汽车找连续的空车位。今天我们学习三种最经典的分配算法，区别全在停车管理员的调度方式。");
+            updateStatus("内存停车场初始状态", "info");
+            
+            initMemory();
+            hideProcessCar();
+            hideAdmin();
+            
+            // 显示进程小车
+            sceneTimeouts.push(setTimeout(function() {
+                showProcessCar(30, 100);
+                showAdmin(50);
+                updateStatus("30KB进程需要分配内存空间", "warning");
+            }, 3000));
+        }
+
+        // 场景二：首次适应算法
+        function scene2() {
+            setSceneIndicator(2);
+            updateAlgorithm('first');
+            updateNarration("第一种是首次适应算法，管理员最随性，从内存最开头开始找，遇到第一个能放下进程的连续空闲分区就直接分配，不挑不选。优点是速度极快，不用遍历全部分区；缺点是会在低地址区域留下大量小碎片。");
+            
+            initMemory();
+            showProcessCar(30, 100);
+            showAdmin(50);
+            
+            // 开始扫描
+            sceneTimeouts.push(setTimeout(function() {
+                updateStatus("从地址0开始扫描...", "info");
+                startScan(1, 5, function() {
+                    // 找到第一个足够大的空闲分区（50KB）
+                    sceneTimeouts.push(setTimeout(function() {
+                        updateStatus("找到50KB空闲分区，满足需求!", "success");
+                        
+                        // 分配
+                        sceneTimeouts.push(setTimeout(function() {
+                            allocateMemory(3, 30, 'P5');
+                            updateStatus("分配完成，剩余20KB成为碎片", "warning");
+                        }, 1500));
+                    }, 500));
+                });
+            }, 2000));
+        }
+
+        // 场景三：最佳适应算法
+        function scene3() {
+            setSceneIndicator(3);
+            updateAlgorithm('best');
+            updateNarration("第二种是最佳适应算法，管理员精打细算，会遍历所有空闲分区，找到和进程大小最接近的完美匹配分区，看似空间利用率最高，初期几乎不产生碎片。但长期运行后，会产生大量微小碎片。");
+            
+            initMemory();
+            showProcessCar(30, 100);
+            showAdmin(50);
+            
+            // 全程扫描
+            sceneTimeouts.push(setTimeout(function() {
+                updateStatus("遍历所有空闲分区寻找最佳匹配...", "info");
+                startScan(1, 5, function() {
+                    sceneTimeouts.push(setTimeout(function() {
+                        updateStatus("找到30KB完美匹配!", "success");
+                        
+                        // 分配到30KB分区
+                        sceneTimeouts.push(setTimeout(function() {
+                            // 找到30KB空闲分区（索引5）
+                            allocateMemory(5, 30, 'P5');
+                            updateStatus("完美匹配，0碎片!", "success");
+                        }, 1000));
+                    }, 500));
+                });
+            }, 2000));
+            
+            // 演示微小碎片
+            sceneTimeouts.push(setTimeout(function() {
+                updateNarration("但后续分配会产生大量微小碎片...");
+                showProcessCar(18, 100);
+            }, 12000));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                allocateMemory(1, 18, 'P6');
+                updateStatus("剩余2KB微小碎片，几乎无法利用", "warning");
+            }, 14000));
+        }
+
+        // 场景四：最坏适应算法
+        function scene4() {
+            setSceneIndicator(4);
+            updateAlgorithm('worst');
+            updateNarration("第三种是最坏适应算法，管理员专挑最大的空闲分区分配，看似浪费，实则剩下的分区依旧是大块空间，还能继续分配给其他进程，避免了微小碎片。但大块耗尽后效率会骤降。");
+            
+            initMemory();
+            showProcessCar(30, 100);
+            showAdmin(50);
+            
+            // 快速扫描找最大
+            sceneTimeouts.push(setTimeout(function() {
+                updateStatus("扫描寻找最大空闲分区...", "info");
+                startScan(1, 5, function() {
+                    sceneTimeouts.push(setTimeout(function() {
+                        updateStatus("找到最大50KB分区!", "success");
+                        
+                        // 分配到最大分区
+                        sceneTimeouts.push(setTimeout(function() {
+                            allocateMemory(3, 30, 'P5');
+                            updateStatus("剩余20KB仍可用于后续分配", "success");
+                        }, 1000));
+                    }, 500));
+                });
+            }, 2000));
+            
+            // 继续分配演示
+            sceneTimeouts.push(setTimeout(function() {
+                showProcessCar(15, 100);
+                updateStatus("新进程15KB可以继续分配到剩余空间", "info");
+            }, 10000));
+        }
+
+        // 场景五：全景对比
+        function scene5() {
+            setSceneIndicator(5);
+            updateAlgorithm('intro');
+            updateNarration("我们对比三种算法就能发现，连续内存分配各有优劣，但都无法彻底解决内存碎片的问题，这也是后期操作系统采用分页、分段等离散内存管理方式的核心原因。");
+            
+            hideProcessCar();
+            hideAdmin();
+            stopScan();
+            
+            // 显示对比面板
+            var comparePanel = document.getElementById('compare-panel');
+            if (comparePanel) {
+                comparePanel.classList.remove('hidden');
+                comparePanel.classList.add('fade-in');
+            }
+            
+            // 渲染对比内存
+            renderCompareMemory();
+            updateStatus("三种算法对比完成", "info");
+        }
+
+        function renderCompareMemory() {
+            // 首次适应结果
+            var m1 = document.getElementById('compare-memory-1');
+            if (m1) {
+                m1.innerHTML = 
+                    '<div style="width: 30%; background: var(--allocated);"></div>' +
+                    '<div style="width: 15%; background: var(--free);"></div>' +
+                    '<div style="width: 20%; background: var(--allocated);"></div>' +
+                    '<div style="width: 10%; background: var(--fragment);"></div>' +
+                    '<div style="width: 25%; background: var(--fragment);"></div>';
+            }
+            
+            // 最佳适应结果
+            var m2 = document.getElementById('compare-memory-2');
+            if (m2) {
+                m2.innerHTML = 
+                    '<div style="width: 30%; background: var(--allocated);"></div>' +
+                    '<div style="width: 8%; background: var(--fragment);"></div>' +
+                    '<div style="width: 20%; background: var(--allocated);"></div>' +
+                    '<div style="width: 15%; background: var(--allocated);"></div>' +
+                    '<div style="width: 5%; background: var(--fragment);"></div>' +
+                    '<div style="width: 22%; background: var(--fragment);"></div>';
+            }
+            
+            // 最坏适应结果
+            var m3 = document.getElementById('compare-memory-3');
+            if (m3) {
+                m3.innerHTML = 
+                    '<div style="width: 30%; background: var(--allocated);"></div>' +
+                    '<div style="width: 15%; background: var(--free);"></div>' +
+                    '<div style="width: 20%; background: var(--allocated);"></div>' +
+                    '<div style="width: 20%; background: var(--free);"></div>' +
+                    '<div style="width: 15%; background: var(--allocated);"></div>';
+            }
+        }
+
+        // ==================== 动画控制 ====================
+        function clearAllTimers() {
+            if (progressIntervalId) {
+                clearInterval(progressIntervalId);
+                progressIntervalId = null;
+            }
+            for (var i = 0; i < sceneTimeouts.length; i++) {
+                clearTimeout(sceneTimeouts[i]);
+            }
+            sceneTimeouts = [];
+        }
+
+        function updateProgress() {
+            if (!animationState.isPlaying) return;
+            
+            if (!animationState.isPaused) {
+                animationState.currentTime += 100;
+                var progress = Math.min((animationState.currentTime / animationState.totalDuration) * 100, 100);
+                var progressEl = document.getElementById('progress');
+                if (progressEl) {
+                    progressEl.style.width = progress + '%';
+                }
+            }
+        }
+
+        function startAnimation() {
+            if (animationState.isPlaying) return;
+            
+            animationState.isPlaying = true;
+            animationState.isPaused = false;
+            animationState.currentTime = 0;
+            
+            document.getElementById('btn-start').disabled = true;
+            document.getElementById('btn-pause').disabled = false;
+            
+            var comparePanel = document.getElementById('compare-panel');
+            if (comparePanel) comparePanel.classList.add('hidden');
+            
+            clearAllTimers();
+            initMemory();
+            
+            progressIntervalId = setInterval(updateProgress, 100);
+            
+            // 场景调度（总时长230秒）
+            sceneTimeouts.push(setTimeout(function() {
+                if (animationState.isPlaying && !animationState.isPaused) scene1();
+            }, 0));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                if (animationState.isPlaying && !animationState.isPaused) scene2();
+            }, 20000));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                if (animationState.isPlaying && !animationState.isPaused) scene3();
+            }, 85000));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                if (animationState.isPlaying && !animationState.isPaused) scene4();
+            }, 160000));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                if (animationState.isPlaying && !animationState.isPaused) scene5();
+            }, 210000));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                animationComplete();
+            }, 230000));
+        }
+
+        function togglePause() {
+            animationState.isPaused = !animationState.isPaused;
+            
+            var btnContent = document.getElementById('btn-pause-content');
+            if (btnContent) {
+                if (animationState.isPaused) {
+                    btnContent.innerHTML = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg> 继续';
+                } else {
+                    btnContent.innerHTML = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg> 暂停';
+                }
+            }
+        }
+
+        function resetAnimation() {
+            animationState.isPlaying = false;
+            animationState.isPaused = false;
+            animationState.currentTime = 0;
+            animationState.currentScene = 0;
+            
+            clearAllTimers();
+            stopScan();
+            
+            document.getElementById('progress').style.width = '0%';
+            document.getElementById('btn-start').disabled = false;
+            document.getElementById('btn-pause').disabled = true;
+            
+            var comparePanel = document.getElementById('compare-panel');
+            if (comparePanel) comparePanel.classList.add('hidden');
+            
+            initMemory();
+            hideProcessCar();
+            hideAdmin();
+            
+            updateNarration('点击"开始演示"按钮，观看内存连续分配算法的完整演示。');
+            updateAlgorithm('intro');
+            updateStatus("点击\"开始演示\"观看算法演示", "info");
+            setSceneIndicator(0);
+        }
+
+        function animationComplete() {
+            animationState.isPlaying = false;
+            if (progressIntervalId) {
+                clearInterval(progressIntervalId);
+                progressIntervalId = null;
+            }
+            
+            document.getElementById('btn-start').disabled = false;
+            document.getElementById('btn-pause').disabled = true;
+        }
+    </script>
+</body>
+</html>

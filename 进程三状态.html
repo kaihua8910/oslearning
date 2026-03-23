@@ -874,6 +874,80 @@
             .layout-5 .state-box.ready { left: 10px; }
             .layout-5 .state-box.blocked { right: 10px; }
         }
+
+        /* 返回主页按钮 */
+        .home-btn {
+            position: fixed;
+            top: 16px;
+            left: 16px;
+            z-index: 400;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 50px;
+            color: var(--fg);
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            font-family: inherit;
+        }
+        
+        .home-btn:hover {
+            background: var(--accent);
+            border-color: var(--accent);
+            transform: translateY(-2px);
+        }
+
+        /* 改进总结面板 */
+        .summary-close {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            border: none;
+            background: var(--border);
+            color: var(--fg);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+        
+        .summary-close:hover {
+            background: #f87171;
+            transform: scale(1.1);
+        }
+        
+        .summary-actions {
+            margin-top: 20px;
+            text-align: center;
+        }
+        
+        .summary-btn {
+            padding: 10px 24px;
+            border-radius: 25px;
+            border: none;
+            font-weight: 600;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-family: inherit;
+            background: var(--accent);
+            color: white;
+        }
+        
+        .summary-btn:hover {
+            filter: brightness(1.2);
+            transform: scale(1.05);
+        }
     </style>
 </head>
 <body>
@@ -881,6 +955,14 @@
         <div class="bg-gradient"></div>
         <div class="bg-grid"></div>
     </div>
+
+    <a href="index.html" class="home-btn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+            <polyline points="9 22 9 12 15 12 15 22"/>
+        </svg>
+        返回主页
+    </a>
     
     <div class="main-container">
         <header class="header" id="header">
@@ -997,6 +1079,12 @@
                 
                 <div class="summary-overlay" id="summaryOverlay3">
                     <div class="summary-card">
+                        <button class="summary-close" id="summaryClose3">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="18" y1="6" x2="6" y2="18"/>
+                                <line x1="6" y1="6" x2="18" y2="18"/>
+                            </svg>
+                        </button>
                         <h2 class="summary-title">总结</h2>
                         <p class="summary-text">
                             进程在 Ready, Running, Blocked 三种状态间循环转换，<br>
@@ -1004,6 +1092,9 @@
                             通过这种状态转换机制，操作系统能够高效地管理 CPU，<br>
                             让多个程序看起来像是在同时运行。
                         </p>
+                        <div class="summary-actions">
+                            <button class="summary-btn" id="replayBtn3">重新播放</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1161,6 +1252,12 @@
                 
                 <div class="summary-overlay" id="summaryOverlay5">
                     <div class="summary-card">
+                        <button class="summary-close" id="summaryClose5">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="18" y1="6" x2="6" y2="18"/>
+                                <line x1="6" y1="6" x2="18" y2="18"/>
+                            </svg>
+                        </button>
                         <h2 class="summary-title">总结</h2>
                         <p class="summary-text">
                             进程在五种状态间流转：<br>
@@ -1168,6 +1265,9 @@
                             或在运行中因等待事件进入 Blocked（阻塞）状态。<br><br>
                             五状态模型更完整地描述了进程的整个生命周期。
                         </p>
+                        <div class="summary-actions">
+                            <button class="summary-btn" id="replayBtn5">重新播放</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1411,6 +1511,12 @@
                 
                 <div class="summary-overlay" id="summaryOverlay7">
                     <div class="summary-card">
+                        <button class="summary-close" id="summaryClose7">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="18" y1="6" x2="6" y2="18"/>
+                                <line x1="6" y1="6" x2="18" y2="18"/>
+                            </svg>
+                        </button>
                         <h2 class="summary-title">七状态模型总结</h2>
                         <p class="summary-text">
                             <strong style="color: var(--long-sched-color);">长程调度</strong>：New → Ready，决定哪些作业进入内存。<br><br>
@@ -1422,6 +1528,9 @@
                             <strong style="color: #818cf8;">特殊转换</strong>：Blocked-Suspend → Ready-Suspend<br>
                             I/O完成时，进程仍在外存，变为就绪挂起。
                         </p>
+                        <div class="summary-actions">
+                            <button class="summary-btn" id="replayBtn7">重新播放</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1985,6 +2094,50 @@
             dom.btnModel5.addEventListener('click', () => switchModel(5));
             dom.btnModel7.addEventListener('click', () => switchModel(7));
             document.addEventListener('keydown', handleKeydown);
+            
+            var summaryClose3 = document.getElementById('summaryClose3');
+            var summaryClose5 = document.getElementById('summaryClose5');
+            var summaryClose7 = document.getElementById('summaryClose7');
+            var replayBtn3 = document.getElementById('replayBtn3');
+            var replayBtn5 = document.getElementById('replayBtn5');
+            var replayBtn7 = document.getElementById('replayBtn7');
+            
+            if (summaryClose3) {
+                summaryClose3.addEventListener('click', function() {
+                    if (dom.summaryOverlay3) dom.summaryOverlay3.classList.remove('visible');
+                });
+            }
+            if (summaryClose5) {
+                summaryClose5.addEventListener('click', function() {
+                    if (dom.summaryOverlay5) dom.summaryOverlay5.classList.remove('visible');
+                });
+            }
+            if (summaryClose7) {
+                summaryClose7.addEventListener('click', function() {
+                    if (dom.summaryOverlay7) dom.summaryOverlay7.classList.remove('visible');
+                });
+            }
+            if (replayBtn3) {
+                replayBtn3.addEventListener('click', function() {
+                    if (dom.summaryOverlay3) dom.summaryOverlay3.classList.remove('visible');
+                    resetAnimation();
+                    setTimeout(togglePlayback, 300);
+                });
+            }
+            if (replayBtn5) {
+                replayBtn5.addEventListener('click', function() {
+                    if (dom.summaryOverlay5) dom.summaryOverlay5.classList.remove('visible');
+                    resetAnimation();
+                    setTimeout(togglePlayback, 300);
+                });
+            }
+            if (replayBtn7) {
+                replayBtn7.addEventListener('click', function() {
+                    if (dom.summaryOverlay7) dom.summaryOverlay7.classList.remove('visible');
+                    resetAnimation();
+                    setTimeout(togglePlayback, 300);
+                });
+            }
             
             updateSceneLabel();
         }

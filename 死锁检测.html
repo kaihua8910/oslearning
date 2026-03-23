@@ -1,0 +1,1123 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>死锁检测算法 - 资源路网的迷宫侦探</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0e14;
+            --fg: #ffffff;
+            --muted: #9ca3af;
+            --accent: #22d3ee;
+            --card: #1a1f2e;
+            --border: #3b4252;
+            
+            --safe-color: #4ade80;
+            --deadlock-color: #f87171;
+            --warning-color: #fbbf24;
+            
+            --p1-color: #60a5fa;
+            --p2-color: #a78bfa;
+            --p3-color: #34d399;
+            --r1-color: #fbbf24;
+            --r2-color: #fb923c;
+        }
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Noto Sans SC', sans-serif;
+            background: var(--bg);
+            color: var(--fg);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        
+        .bg-layer {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+        }
+        
+        .bg-gradient {
+            position: absolute;
+            inset: 0;
+            background: 
+                radial-gradient(ellipse 60% 40% at 50% 0%, rgba(34, 211, 238, 0.1) 0%, transparent 60%),
+                radial-gradient(ellipse 50% 30% at 10% 90%, rgba(96, 165, 250, 0.08) 0%, transparent 50%),
+                radial-gradient(ellipse 50% 30% at 90% 90%, rgba(248, 113, 113, 0.08) 0%, transparent 50%);
+        }
+        
+        .bg-grid {
+            position: absolute;
+            inset: 0;
+            background-image: 
+                linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+        
+        .main-container {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding: 16px 24px;
+        }
+        
+        .header {
+            text-align: center;
+            opacity: 0;
+            transform: translateY(-30px);
+            transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .header.visible { opacity: 1; transform: translateY(0); }
+        
+        .main-title {
+            font-size: clamp(1.6rem, 4vw, 2.4rem);
+            font-weight: 900;
+            color: var(--fg);
+        }
+        
+        .sub-title {
+            font-size: 0.9rem;
+            color: var(--muted);
+            margin-top: 4px;
+        }
+        
+        .hint-container { text-align: center; margin-top: 10px; min-height: 44px; }
+        
+        .hint-box {
+            display: inline-block;
+            background: var(--card);
+            border: 2px solid var(--border);
+            padding: 10px 24px;
+            border-radius: 12px;
+            font-size: 0.95rem;
+            max-width: min(850px, 94vw);
+            opacity: 0;
+            transform: translateY(-15px);
+            transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+        }
+        
+        .hint-box.visible { opacity: 1; transform: translateY(0); }
+        .hint-box .warning { color: var(--warning-color); font-weight: 700; }
+        .hint-box .safe { color: var(--safe-color); font-weight: 700; }
+        .hint-box .deadlock { color: var(--deadlock-color); font-weight: 700; }
+        
+        /* 控制栏 */
+        .top-controls {
+            position: fixed;
+            top: 16px;
+            right: 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: var(--card);
+            border: 2px solid var(--border);
+            padding: 8px 16px;
+            border-radius: 50px;
+            z-index: 300;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+        }
+        
+        .ctrl-btn {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border: none;
+            background: var(--accent);
+            color: var(--bg);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+        
+        .ctrl-btn:hover { transform: scale(1.1); filter: brightness(1.2); }
+        .ctrl-btn.secondary { background: var(--border); color: var(--fg); }
+        .ctrl-btn svg { width: 18px; height: 18px; }
+        
+        .progress-track { width: 120px; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+        .progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--safe-color)); width: 0%; transition: width 0.1s linear; }
+        .scene-label { font-size: 0.8rem; color: var(--muted); min-width: 70px; text-align: center; font-family: 'JetBrains Mono', monospace; }
+        
+        /* 主布局 */
+        .main-layout {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            margin-top: 12px;
+            flex: 1;
+            opacity: 0;
+            transition: opacity 0.8s ease;
+        }
+        
+        .main-layout.visible { opacity: 1; }
+        
+        /* 信息栏 */
+        .info-bar {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .info-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 25px;
+            font-size: 0.85rem;
+            opacity: 0;
+            transform: translateY(-10px);
+            transition: all 0.5s ease;
+        }
+        
+        .info-item.visible { opacity: 1; transform: translateY(0); }
+        
+        .info-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+        
+        .info-dot.p1 { background: var(--p1-color); }
+        .info-dot.p2 { background: var(--p2-color); }
+        .info-dot.p3 { background: var(--p3-color); }
+        .info-dot.r1 { background: var(--r1-color); border-radius: 3px; }
+        .info-dot.r2 { background: var(--r2-color); border-radius: 3px; }
+        
+        /* 图例 */
+        .legend-bar {
+            display: flex;
+            justify-content: center;
+            gap: 24px;
+            flex-wrap: wrap;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.8rem;
+            color: var(--muted);
+            opacity: 0;
+            transition: all 0.5s ease;
+        }
+        
+        .legend-item.visible { opacity: 1; }
+        
+        .legend-line {
+            width: 30px;
+            height: 3px;
+        }
+        
+        .legend-line.alloc { background: #fff; }
+        .legend-line.req { background: repeating-linear-gradient(90deg, var(--accent) 0px, var(--accent) 5px, transparent 5px, transparent 10px); }
+        
+        /* 画布区域 */
+        .canvas-container {
+            flex: 1;
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 16px;
+            position: relative;
+            min-height: 400px;
+            overflow: hidden;
+        }
+        
+        .rag-svg {
+            width: 100%;
+            height: 100%;
+            min-height: 400px;
+        }
+        
+        /* 进程状态栏 */
+        .status-bar {
+            display: flex;
+            justify-content: center;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+        
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 18px;
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            opacity: 0;
+            transform: translateY(10px);
+            transition: all 0.5s ease;
+        }
+        
+        .status-item.visible { opacity: 1; transform: translateY(0); }
+        .status-item.eliminated { opacity: 0.5; border-style: dashed; }
+        .status-item.deadlocked { border-color: var(--deadlock-color); box-shadow: 0 0 15px rgba(248, 113, 113, 0.3); }
+        .status-item.running { border-color: var(--safe-color); }
+        
+        .status-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 0.8rem;
+            color: var(--bg);
+        }
+        
+        .status-icon.p1 { background: var(--p1-color); }
+        .status-icon.p2 { background: var(--p2-color); }
+        .status-icon.p3 { background: var(--p3-color); }
+        
+        .status-info { text-align: left; }
+        .status-name { font-weight: 600; font-size: 0.85rem; }
+        .status-text { font-size: 0.7rem; color: var(--muted); }
+        
+        /* 结果面板 */
+        .result-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(10, 14, 20, 0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.5s ease;
+            z-index: 100;
+        }
+        
+        .result-overlay.visible { opacity: 1; pointer-events: auto; }
+        
+        .result-card {
+            background: var(--card);
+            border: 3px solid var(--border);
+            border-radius: 20px;
+            padding: 30px 50px;
+            text-align: center;
+            transform: scale(0.9);
+            transition: transform 0.5s ease;
+        }
+        
+        .result-overlay.visible .result-card { transform: scale(1); }
+        .result-overlay.deadlock .result-card { border-color: var(--deadlock-color); }
+        .result-overlay.safe .result-card { border-color: var(--safe-color); }
+        
+        .result-icon {
+            width: 60px;
+            height: 60px;
+            margin: 0 auto 16px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .result-overlay.deadlock .result-icon { background: rgba(248, 113, 113, 0.2); }
+        .result-overlay.safe .result-icon { background: rgba(74, 222, 128, 0.2); }
+        .result-icon svg { width: 32px; height: 32px; }
+        .result-overlay.deadlock .result-icon svg { color: var(--deadlock-color); }
+        .result-overlay.safe .result-icon svg { color: var(--safe-color); }
+        
+        .result-title { font-size: 1.3rem; font-weight: 700; margin-bottom: 8px; }
+        .result-overlay.deadlock .result-title { color: var(--deadlock-color); }
+        .result-overlay.safe .result-title { color: var(--safe-color); }
+        
+        .result-detail { font-size: 0.9rem; color: var(--muted); }
+        
+        /* 总结面板 */
+        .summary-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(10, 14, 20, 0.95);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.6s ease;
+            z-index: 400;
+        }
+        
+        .summary-overlay.visible { opacity: 1; pointer-events: auto; }
+        
+        .summary-card {
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 20px;
+            padding: 28px 40px;
+            max-width: 580px;
+            max-height: 80vh;
+            overflow-y: auto;
+            position: relative;
+        }
+        
+        .summary-close {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            border: none;
+            background: var(--border);
+            color: var(--fg);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+        
+        .summary-close:hover { background: var(--deadlock-color); transform: scale(1.1); }
+        .summary-close svg { width: 16px; height: 16px; }
+        
+        .summary-title { font-size: 1.3rem; font-weight: 700; margin-bottom: 16px; padding-right: 30px; }
+        
+        .step-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            margin-bottom: 10px;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 10px;
+        }
+        
+        .step-num {
+            width: 24px;
+            height: 24px;
+            background: var(--accent);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 0.75rem;
+            color: var(--bg);
+            flex-shrink: 0;
+        }
+        
+        .step-text { font-size: 0.85rem; line-height: 1.5; }
+        .step-text strong { color: var(--accent); }
+        
+        .summary-actions { margin-top: 20px; text-align: center; }
+        
+        .summary-btn {
+            padding: 10px 28px;
+            border-radius: 25px;
+            border: none;
+            font-weight: 600;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-family: inherit;
+            background: var(--accent);
+            color: var(--bg);
+        }
+        
+        .summary-btn:hover { filter: brightness(1.2); transform: scale(1.05); }
+        
+        @media (max-width: 768px) {
+            .main-container { padding: 12px; }
+            .top-controls { padding: 6px 12px; gap: 8px; }
+            .progress-track { width: 80px; }
+            .info-bar { gap: 10px; }
+            .info-item { padding: 6px 12px; font-size: 0.75rem; }
+            .status-bar { gap: 10px; }
+            .status-item { padding: 8px 12px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-layer">
+        <div class="bg-gradient"></div>
+        <div class="bg-grid"></div>
+    </div>
+    
+    <div class="top-controls">
+        <button class="ctrl-btn" id="playBtn" aria-label="播放或暂停">
+            <svg id="playIcon" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+        </button>
+        <button class="ctrl-btn secondary" id="resetBtn" aria-label="重置">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+        </button>
+        <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+        <div class="scene-label" id="sceneLabel">场景 1/5</div>
+    </div>
+    
+    <div class="main-container">
+        <header class="header" id="header">
+            <h1 class="main-title">死锁检测算法</h1>
+            <p class="sub-title">资源路网的迷宫侦探 - 死锁管理事后排查环节</p>
+            <div class="hint-container">
+                <div class="hint-box" id="hintBox"></div>
+            </div>
+        </header>
+        
+        <div class="main-layout" id="mainLayout">
+            <!-- 信息栏 -->
+            <div class="info-bar">
+                <div class="info-item" id="infoP1"><div class="info-dot p1"></div><span>P1 进程</span></div>
+                <div class="info-item" id="infoP2"><div class="info-dot p2"></div><span>P2 进程</span></div>
+                <div class="info-item" id="infoP3"><div class="info-dot p3"></div><span>P3 进程</span></div>
+                <div class="info-item" id="infoR1"><div class="info-dot r1"></div><span>R1 资源(2实例)</span></div>
+                <div class="info-item" id="infoR2"><div class="info-dot r2"></div><span>R2 资源(1实例)</span></div>
+            </div>
+            
+            <!-- 图例 -->
+            <div class="legend-bar">
+                <div class="legend-item" id="legendAlloc">
+                    <div class="legend-line alloc"></div>
+                    <span>分配边 (资源→进程)</span>
+                </div>
+                <div class="legend-item" id="legendReq">
+                    <div class="legend-line req"></div>
+                    <span>请求边 (进程→资源)</span>
+                </div>
+            </div>
+            
+            <!-- SVG 画布 -->
+            <div class="canvas-container">
+                <svg class="rag-svg" id="ragSvg" viewBox="0 0 700 380" preserveAspectRatio="xMidYMid meet">
+                    <defs>
+                        <!-- 进程渐变 -->
+                        <linearGradient id="gradP1" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#60a5fa"/>
+                            <stop offset="100%" stop-color="#3b82f6"/>
+                        </linearGradient>
+                        <linearGradient id="gradP2" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#a78bfa"/>
+                            <stop offset="100%" stop-color="#8b5cf6"/>
+                        </linearGradient>
+                        <linearGradient id="gradP3" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#34d399"/>
+                            <stop offset="100%" stop-color="#10b981"/>
+                        </linearGradient>
+                        <!-- 资源渐变 -->
+                        <linearGradient id="gradR1" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#fbbf24"/>
+                            <stop offset="100%" stop-color="#f59e0b"/>
+                        </linearGradient>
+                        <linearGradient id="gradR2" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#fb923c"/>
+                            <stop offset="100%" stop-color="#f97316"/>
+                        </linearGradient>
+                        <!-- 箭头 -->
+                        <marker id="arrowWhite" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                            <polygon points="0,0 8,3 0,6" fill="#fff"/>
+                        </marker>
+                        <marker id="arrowCyan" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                            <polygon points="0,0 8,3 0,6" fill="#22d3ee"/>
+                        </marker>
+                        <marker id="arrowRed" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                            <polygon points="0,0 8,3 0,6" fill="#f87171"/>
+                        </marker>
+                        <marker id="arrowGreen" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                            <polygon points="0,0 8,3 0,6" fill="#4ade80"/>
+                        </marker>
+                    </defs>
+                    
+                    <!-- 边层 -->
+                    <g id="edgesLayer"></g>
+                    
+                    <!-- 标签层 -->
+                    <g id="labelsLayer"></g>
+                    
+                    <!-- 节点层 -->
+                    <g id="nodesLayer">
+                        <!-- P1 - 左上 -->
+                        <g id="nodeP1" class="process-node" style="opacity:0; transition: opacity 0.5s">
+                            <circle cx="150" cy="80" r="32" fill="url(#gradP1)" stroke="#fff" stroke-width="2" opacity="0.3"/>
+                            <circle cx="150" cy="80" r="28" fill="url(#gradP1)"/>
+                            <text x="150" y="75" text-anchor="middle" fill="#0a0e14" font-weight="700" font-size="14">P1</text>
+                            <text x="150" y="90" text-anchor="middle" fill="#0a0e14" font-size="9" opacity="0.8">进程</text>
+                        </g>
+                        
+                        <!-- P2 - 右上 -->
+                        <g id="nodeP2" class="process-node" style="opacity:0; transition: opacity 0.5s">
+                            <circle cx="550" cy="80" r="32" fill="url(#gradP2)" stroke="#fff" stroke-width="2" opacity="0.3"/>
+                            <circle cx="550" cy="80" r="28" fill="url(#gradP2)"/>
+                            <text x="550" y="75" text-anchor="middle" fill="#0a0e14" font-weight="700" font-size="14">P2</text>
+                            <text x="550" y="90" text-anchor="middle" fill="#0a0e14" font-size="9" opacity="0.8">进程</text>
+                        </g>
+                        
+                        <!-- P3 - 下方中间 -->
+                        <g id="nodeP3" class="process-node" style="opacity:0; transition: opacity 0.5s">
+                            <circle cx="350" cy="300" r="32" fill="url(#gradP3)" stroke="#fff" stroke-width="2" opacity="0.3"/>
+                            <circle cx="350" cy="300" r="28" fill="url(#gradP3)"/>
+                            <text x="350" y="295" text-anchor="middle" fill="#0a0e14" font-weight="700" font-size="14">P3</text>
+                            <text x="350" y="310" text-anchor="middle" fill="#0a0e14" font-size="9" opacity="0.8">进程</text>
+                        </g>
+                        
+                        <!-- R1 - 左下 -->
+                        <g id="nodeR1" class="resource-node" style="opacity:0; transition: opacity 0.5s">
+                            <rect x="100" y="220" width="70" height="50" rx="8" fill="url(#gradR1)" stroke="#fff" stroke-width="2" opacity="0.3"/>
+                            <rect x="105" y="225" width="60" height="40" rx="6" fill="url(#gradR1)"/>
+                            <text x="135" y="243" text-anchor="middle" fill="#0a0e14" font-weight="700" font-size="14">R1</text>
+                            <g transform="translate(115, 250)">
+                                <rect width="10" height="10" rx="2" fill="#0a0e14"/>
+                                <rect x="14" width="10" height="10" rx="2" fill="#0a0e14"/>
+                            </g>
+                        </g>
+                        
+                        <!-- R2 - 右下 -->
+                        <g id="nodeR2" class="resource-node" style="opacity:0; transition: opacity 0.5s">
+                            <rect x="530" y="220" width="70" height="50" rx="8" fill="url(#gradR2)" stroke="#fff" stroke-width="2" opacity="0.3"/>
+                            <rect x="535" y="225" width="60" height="40" rx="6" fill="url(#gradR2)"/>
+                            <text x="565" y="243" text-anchor="middle" fill="#0a0e14" font-weight="700" font-size="14">R2</text>
+                            <g transform="translate(560, 250)">
+                                <rect width="10" height="10" rx="2" fill="#0a0e14"/>
+                            </g>
+                        </g>
+                    </g>
+                </svg>
+                
+                <!-- 结果面板 -->
+                <div class="result-overlay" id="resultOverlay">
+                    <div class="result-card">
+                        <div class="result-icon" id="resultIcon"></div>
+                        <div class="result-title" id="resultTitle"></div>
+                        <div class="result-detail" id="resultDetail"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 状态栏 -->
+            <div class="status-bar">
+                <div class="status-item" id="statusP1">
+                    <div class="status-icon p1">P1</div>
+                    <div class="status-info">
+                        <div class="status-name">进程 P1</div>
+                        <div class="status-text" id="statusP1Text">等待资源 R2</div>
+                    </div>
+                </div>
+                <div class="status-item" id="statusP2">
+                    <div class="status-icon p2">P2</div>
+                    <div class="status-info">
+                        <div class="status-name">进程 P2</div>
+                        <div class="status-text" id="statusP2Text">等待资源 R1</div>
+                    </div>
+                </div>
+                <div class="status-item" id="statusP3">
+                    <div class="status-icon p3">P3</div>
+                    <div class="status-info">
+                        <div class="status-name">进程 P3</div>
+                        <div class="status-text" id="statusP3Text">等待资源 R1</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 总结面板 -->
+    <div class="summary-overlay" id="summaryOverlay">
+        <div class="summary-card">
+            <button class="summary-close" id="summaryClose">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+            <h2 class="summary-title">死锁检测算法总结</h2>
+            <div class="summary-steps">
+                <div class="step-item">
+                    <div class="step-num">1</div>
+                    <div class="step-text">构建<strong>资源分配图</strong>：进程为圆，资源为方</div>
+                </div>
+                <div class="step-item">
+                    <div class="step-num">2</div>
+                    <div class="step-text">实线箭头=已分配(资源→进程)，虚线=请求(进程→资源)</div>
+                </div>
+                <div class="step-item">
+                    <div class="step-num">3</div>
+                    <div class="step-text">检测图中是否存在<strong>环路</strong>（环路是死锁必要条件）</div>
+                </div>
+                <div class="step-item">
+                    <div class="step-num">4</div>
+                    <div class="step-text">执行<strong>消去简化法</strong>：寻找非阻塞进程并释放其资源</div>
+                </div>
+                <div class="step-item">
+                    <div class="step-num">5</div>
+                    <div class="step-text">无法完全简化则<strong>判定死锁</strong>，需终止进程解除</div>
+                </div>
+            </div>
+            <div class="summary-actions">
+                <button class="summary-btn" id="replayBtn">重新播放</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // ========== 节点坐标 ==========
+        const coords = {
+            p1: { x: 150, y: 80 },
+            p2: { x: 550, y: 80 },
+            p3: { x: 350, y: 300 },
+            r1: { x: 135, y: 245 },
+            r2: { x: 565, y: 245 }
+        };
+        
+        // ========== 全局状态 ==========
+        const appState = {
+            isPlaying: false,
+            currentScene: 0,
+            sceneTime: 0,
+            animationFrame: null,
+            lastTimestamp: 0,
+            edges: [],
+            labels: [],
+            eliminated: new Set(),
+            deadlocked: new Set()
+        };
+        
+        const executedActions = new Set();
+        const dom = {};
+        
+        // ========== 场景配置 ==========
+        const scenes = [
+            {
+                name: '构建资源分配图',
+                duration: 9000,
+                actions: [
+                    { time: 0, type: 'showHeader' },
+                    { time: 300, type: 'showHint', text: '银行家算法事前预防，本算法事后检测。核心工具是资源分配图。' },
+                    { time: 1500, type: 'showLayout' },
+                    { time: 2000, type: 'showInfo' },
+                    { time: 2500, type: 'showLegend' },
+                    { time: 3000, type: 'showNodes' },
+                    { time: 4000, type: 'showHint', text: '圆形节点=进程，方形节点=资源（内含实例小格）。' },
+                    { time: 5500, type: 'drawEdge', from: 'r1', to: 'p1', kind: 'alloc' },
+                    { time: 6500, type: 'drawEdge', from: 'r2', to: 'p2', kind: 'alloc' },
+                    { time: 7500, type: 'showHint', text: '实线箭头从资源指向进程，表示已分配。' }
+                ]
+            },
+            {
+                name: '绘制请求边',
+                duration: 8000,
+                actions: [
+                    { time: 0, type: 'drawEdge', from: 'p1', to: 'r2', kind: 'req' },
+                    { time: 1000, type: 'drawEdge', from: 'p2', to: 'r1', kind: 'req' },
+                    { time: 2000, type: 'drawEdge', from: 'p3', to: 'r1', kind: 'req' },
+                    { time: 3000, type: 'showHint', text: '虚线箭头从进程指向资源，表示正在请求。' },
+                    { time: 4500, type: 'showHint', text: 'P1占有R1，请求R2；P2占有R2，请求R1。' },
+                    { time: 6000, type: 'showHint', text: '现在让我们检测是否存在环路...' }
+                ]
+            },
+            {
+                name: '环路检测与消去',
+                duration: 14000,
+                actions: [
+                    { time: 0, type: 'showHint', text: '检测环路：P1→R2→P2→R1→P1 形成闭合回路！' },
+                    { time: 1500, type: 'highlightCycle', nodes: ['p1', 'r2', 'p2', 'r1'] },
+                    { time: 3500, type: 'unhighlightCycle' },
+                    { time: 4500, type: 'showHint', text: '<span class="warning">注意：有环不一定死锁！</span>需要消去简化验证。' },
+                    { time: 6500, type: 'showHint', text: '寻找非阻塞进程：P3 请求 R1，R1 有1个空闲，可满足！' },
+                    { time: 8500, type: 'eliminateNode', node: 'p3' },
+                    { time: 9500, type: 'showHint', text: 'P3 运行完毕释放资源，消去所有关联边。' },
+                    { time: 11000, type: 'showHint', text: '剩余 P1、P2 互相等待，无法继续消去。' }
+                ]
+            },
+            {
+                name: '死锁判定',
+                duration: 9000,
+                actions: [
+                    { time: 0, type: 'showHint', text: '消去简化完成，判定系统状态...' },
+                    { time: 1000, type: 'markDeadlocked', nodes: ['p1', 'p2'] },
+                    { time: 2000, type: 'showResult', deadlock: true },
+                    { time: 3500, type: 'showHint', text: '<span class="deadlock">检测到死锁！</span>P1 和 P2 互相等待对方资源。' },
+                    { time: 5500, type: 'hideResult' },
+                    { time: 6500, type: 'showHint', text: '需要采取死锁解除措施...' }
+                ]
+            },
+            {
+                name: '死锁解除',
+                duration: 10000,
+                actions: [
+                    { time: 0, type: 'showHint', text: '系统决定强制终止 P1 进程。' },
+                    { time: 1000, type: 'terminateNode', node: 'p1' },
+                    { time: 2000, type: 'unmarkDeadlocked', node: 'p2' },
+                    { time: 2500, type: 'showHint', text: 'P1 被终止，释放其占用的 R1 资源。' },
+                    { time: 4000, type: 'eliminateNode', node: 'p2' },
+                    { time: 5000, type: 'showResult', deadlock: false },
+                    { time: 6500, type: 'showHint', text: 'P2 获得所需资源，继续执行。死锁解除！' },
+                    { time: 8000, type: 'showSummary' }
+                ]
+            }
+        ];
+        
+        // ========== 初始化 ==========
+        function initialize() {
+            dom.header = document.getElementById('header');
+            dom.hintBox = document.getElementById('hintBox');
+            dom.mainLayout = document.getElementById('mainLayout');
+            dom.ragSvg = document.getElementById('ragSvg');
+            dom.edgesLayer = document.getElementById('edgesLayer');
+            dom.labelsLayer = document.getElementById('labelsLayer');
+            dom.resultOverlay = document.getElementById('resultOverlay');
+            dom.resultIcon = document.getElementById('resultIcon');
+            dom.resultTitle = document.getElementById('resultTitle');
+            dom.resultDetail = document.getElementById('resultDetail');
+            dom.summaryOverlay = document.getElementById('summaryOverlay');
+            
+            dom.playBtn = document.getElementById('playBtn');
+            dom.playIcon = document.getElementById('playIcon');
+            dom.resetBtn = document.getElementById('resetBtn');
+            dom.progressFill = document.getElementById('progressFill');
+            dom.sceneLabel = document.getElementById('sceneLabel');
+            dom.summaryClose = document.getElementById('summaryClose');
+            dom.replayBtn = document.getElementById('replayBtn');
+            
+            ['p1', 'p2', 'p3'].forEach(p => {
+                dom[`node${p.toUpperCase()}`] = document.getElementById(`node${p.toUpperCase()}`);
+                dom[`status${p.toUpperCase()}`] = document.getElementById(`status${p.toUpperCase()}`);
+                dom[`status${p.toUpperCase()}Text`] = document.getElementById(`status${p.toUpperCase()}Text`);
+            });
+            
+            ['r1', 'r2'].forEach(r => {
+                dom[`node${r.toUpperCase()}`] = document.getElementById(`node${r.toUpperCase()}`);
+            });
+            
+            ['P1', 'P2', 'P3'].forEach(p => {
+                dom[`info${p}`] = document.getElementById(`info${p}`);
+            });
+            dom.infoR1 = document.getElementById('infoR1');
+            dom.infoR2 = document.getElementById('infoR2');
+            dom.legendAlloc = document.getElementById('legendAlloc');
+            dom.legendReq = document.getElementById('legendReq');
+            
+            dom.playBtn.addEventListener('click', togglePlayback);
+            dom.resetBtn.addEventListener('click', resetAnimation);
+            dom.summaryClose.addEventListener('click', () => dom.summaryOverlay.classList.remove('visible'));
+            dom.replayBtn.addEventListener('click', () => {
+                dom.summaryOverlay.classList.remove('visible');
+                resetAnimation();
+                setTimeout(togglePlayback, 300);
+            });
+            document.addEventListener('keydown', e => {
+                if (e.code === 'Space') { e.preventDefault(); togglePlayback(); }
+                else if (e.code === 'KeyR') resetAnimation();
+            });
+            
+            updateSceneLabel();
+        }
+        
+        // ========== 播放控制 ==========
+        function togglePlayback() {
+            appState.isPlaying = !appState.isPlaying;
+            dom.playIcon.innerHTML = appState.isPlaying 
+                ? '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>'
+                : '<polygon points="5,3 19,12 5,21"/>';
+            if (appState.isPlaying) { appState.lastTimestamp = performance.now(); runAnimation(); }
+            else cancelAnimationFrame(appState.animationFrame);
+        }
+        
+        function resetAnimation() {
+            cancelAnimationFrame(appState.animationFrame);
+            appState.isPlaying = false;
+            appState.currentScene = 0;
+            appState.sceneTime = 0;
+            appState.edges = [];
+            appState.labels = [];
+            appState.eliminated = new Set();
+            appState.deadlocked = new Set();
+            executedActions.clear();
+            
+            dom.playIcon.innerHTML = '<polygon points="5,3 19,12 5,21"/>';
+            dom.progressFill.style.width = '0%';
+            
+            dom.header.classList.remove('visible');
+            dom.hintBox.classList.remove('visible');
+            dom.mainLayout.classList.remove('visible');
+            dom.resultOverlay.classList.remove('visible', 'deadlock', 'safe');
+            dom.edgesLayer.innerHTML = '';
+            dom.labelsLayer.innerHTML = '';
+            
+            ['p1', 'p2', 'p3', 'r1', 'r2'].forEach(n => {
+                const el = dom[`node${n.toUpperCase()}`];
+                if (el) {
+                    el.style.opacity = '0';
+                    el.classList.remove('eliminated', 'deadlocked', 'highlighted');
+                }
+            });
+            
+            ['p1', 'p2', 'p3'].forEach(p => {
+                dom[`status${p.toUpperCase()}`].classList.remove('eliminated', 'deadlocked', 'running');
+                dom[`status${p.toUpperCase()}Text`].textContent = p === 'p3' ? '等待资源 R1' : `等待资源 R${p === 'p1' ? '2' : '1'}`;
+            });
+            
+            ['P1', 'P2', 'P3'].forEach(p => dom[`info${p}`].classList.remove('visible'));
+            dom.infoR1.classList.remove('visible');
+            dom.infoR2.classList.remove('visible');
+            dom.legendAlloc.classList.remove('visible');
+            dom.legendReq.classList.remove('visible');
+            
+            updateSceneLabel();
+        }
+        
+        // ========== 动画循环 ==========
+        function runAnimation() {
+            if (!appState.isPlaying) return;
+            
+            const now = performance.now();
+            appState.sceneTime += now - appState.lastTimestamp;
+            appState.lastTimestamp = now;
+            
+            const scene = scenes[appState.currentScene];
+            if (!scene) { appState.isPlaying = false; dom.playIcon.innerHTML = '<polygon points="5,3 19,12 5,21"/>'; return; }
+            
+            dom.progressFill.style.width = `${((appState.currentScene + appState.sceneTime / scene.duration) / scenes.length) * 100}%`;
+            
+            scene.actions.forEach((a, i) => {
+                const key = `${appState.currentScene}-${i}`;
+                if (appState.sceneTime >= a.time && !executedActions.has(key)) {
+                    executedActions.add(key);
+                    executeAction(a);
+                }
+            });
+            
+            if (appState.sceneTime >= scene.duration) {
+                appState.currentScene++;
+                appState.sceneTime = 0;
+                executedActions.clear();
+                updateSceneLabel();
+                if (appState.currentScene >= scenes.length) {
+                    appState.isPlaying = false;
+                    dom.playIcon.innerHTML = '<polygon points="5,3 19,12 5,21"/>';
+                }
+            }
+            
+            appState.animationFrame = requestAnimationFrame(runAnimation);
+        }
+        
+        // ========== 动作执行 ==========
+        function executeAction(a) {
+            switch (a.type) {
+                case 'showHeader':
+                    dom.header.classList.add('visible');
+                    break;
+                    
+                case 'showHint':
+                    dom.hintBox.innerHTML = a.text;
+                    dom.hintBox.classList.add('visible');
+                    break;
+                    
+                case 'showLayout':
+                    dom.mainLayout.classList.add('visible');
+                    break;
+                    
+                case 'showInfo':
+                    ['P1', 'P2', 'P3'].forEach((p, i) => setTimeout(() => dom[`info${p}`].classList.add('visible'), i * 150));
+                    setTimeout(() => dom.infoR1.classList.add('visible'), 500);
+                    setTimeout(() => dom.infoR2.classList.add('visible'), 650);
+                    break;
+                    
+                case 'showLegend':
+                    setTimeout(() => dom.legendAlloc.classList.add('visible'), 0);
+                    setTimeout(() => dom.legendReq.classList.add('visible'), 200);
+                    break;
+                    
+                case 'showNodes':
+                    ['p1', 'p2', 'p3', 'r1', 'r2'].forEach((n, i) => {
+                        setTimeout(() => {
+                            dom[`node${n.toUpperCase()}`].style.opacity = '1';
+                        }, i * 200);
+                    });
+                    break;
+                    
+                case 'drawEdge':
+                    drawEdge(a.from, a.to, a.kind);
+                    break;
+                    
+                case 'highlightCycle':
+                    a.nodes.forEach(n => {
+                        const el = dom[`node${n.toUpperCase()}`];
+                        if (el) el.classList.add('highlighted');
+                    });
+                    appState.edges.forEach(e => {
+                        e.style.stroke = '#f87171';
+                        e.setAttribute('marker-end', 'url(#arrowRed)');
+                    });
+                    break;
+                    
+                case 'unhighlightCycle':
+                    ['p1', 'p2', 'p3', 'r1', 'r2'].forEach(n => {
+                        const el = dom[`node${n.toUpperCase()}`];
+                        if (el) el.classList.remove('highlighted');
+                    });
+                    appState.edges.forEach(e => {
+                        const isAlloc = e.dataset.kind === 'alloc';
+                        e.style.stroke = isAlloc ? '#fff' : '#22d3ee';
+                        e.setAttribute('marker-end', isAlloc ? 'url(#arrowWhite)' : 'url(#arrowCyan)');
+                    });
+                    break;
+                    
+                case 'eliminateNode':
+                    const nodeEl = dom[`node${a.node.toUpperCase()}`];
+                    if (nodeEl) {
+                        nodeEl.style.opacity = '0.2';
+                        nodeEl.classList.add('eliminated');
+                    }
+                    dom[`status${a.node.toUpperCase()}`].classList.add('eliminated');
+                    dom[`status${a.node.toUpperCase()}Text`].textContent = '已释放';
+                    appState.eliminated.add(a.node);
+                    removeEdgesFor(a.node);
+                    break;
+                    
+                case 'markDeadlocked':
+                    a.nodes.forEach(n => {
+                        const el = dom[`node${n.toUpperCase()}`];
+                        if (el) el.classList.add('deadlocked');
+                        dom[`status${n.toUpperCase()}`].classList.add('deadlocked');
+                        dom[`status${n.toUpperCase()}Text`].textContent = '死锁';
+                        appState.deadlocked.add(n);
+                    });
+                    break;
+                    
+                case 'unmarkDeadlocked':
+                    const deadEl = dom[`node${a.node.toUpperCase()}`];
+                    if (deadEl) deadEl.classList.remove('deadlocked');
+                    dom[`status${a.node.toUpperCase()}`].classList.remove('deadlocked');
+                    dom[`status${a.node.toUpperCase()}Text`].textContent = '运行中';
+                    dom[`status${a.node.toUpperCase()}`].classList.add('running');
+                    appState.deadlocked.delete(a.node);
+                    break;
+                    
+                case 'terminateNode':
+                    const termEl = dom[`node${a.node.toUpperCase()}`];
+                    if (termEl) {
+                        termEl.style.opacity = '0.15';
+                        termEl.classList.add('eliminated');
+                    }
+                    dom[`status${a.node.toUpperCase()}`].classList.add('eliminated');
+                    dom[`status${a.node.toUpperCase()}Text`].textContent = '已终止';
+                    removeEdgesFor(a.node);
+                    break;
+                    
+                case 'showResult':
+                    if (a.deadlock) {
+                        dom.resultOverlay.classList.add('visible', 'deadlock');
+                        dom.resultOverlay.classList.remove('safe');
+                        dom.resultIcon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>';
+                        dom.resultTitle.textContent = 'DEADLOCK DETECTED';
+                        dom.resultDetail.textContent = '检测到死锁：P1 和 P2 互相等待';
+                    } else {
+                        dom.resultOverlay.classList.add('visible', 'safe');
+                        dom.resultOverlay.classList.remove('deadlock');
+                        dom.resultIcon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="16,10 11,15 8,12"/></svg>';
+                        dom.resultTitle.textContent = 'SYSTEM SAFE';
+                        dom.resultDetail.textContent = '系统安全，死锁已解除';
+                    }
+                    break;
+                    
+                case 'hideResult':
+                    dom.resultOverlay.classList.remove('visible', 'deadlock', 'safe');
+                    break;
+                    
+                case 'showSummary':
+                    dom.summaryOverlay.classList.add('visible');
+                    break;
+            }
+        }
+        
+        // ========== 绘图函数 ==========
+        function drawEdge(from, to, kind) {
+            const c1 = coords[from];
+            const c2 = coords[to];
+            if (!c1 || !c2) return;
+            
+            const isProcess1 = from.startsWith('p');
+            const isProcess2 = to.startsWith('p');
+            
+            // 计算方向和偏移
+            const dx = c2.x - c1.x;
+            const dy = c2.y - c1.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            
+            // 节点半径
+            const r1 = isProcess1 ? 28 : 25;
+            const r2 = isProcess2 ? 28 : 25;
+            
+            const x1 = c1.x + (dx / dist) * r1;
+            const y1 = c1.y + (dy / dist) * r1;
+            const x2 = c2.x - (dx / dist) * r2;
+            const y2 = c2.y - (dy / dist) * r2;
+            
+            // 创建路径
+            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path.setAttribute('d', `M ${x1} ${y1} L ${x2} ${y2}`);
+            path.setAttribute('stroke', kind === 'alloc' ? '#ffffff' : '#22d3ee');
+            path.setAttribute('stroke-width', '2.5');
+            path.setAttribute('fill', 'none');
+            path.setAttribute('marker-end', kind === 'alloc' ? 'url(#arrowWhite)' : 'url(#arrowCyan)');
+            if (kind === 'req') path.setAttribute('stroke-dasharray', '8 4');
+            path.dataset.kind = kind;
+            path.style.opacity = '0';
+            path.style.transition = 'opacity 0.5s ease';
+            
+            dom.edgesLayer.appendChild(path);
+            appState.edges.push(path);
+            requestAnimationFrame(() => path.style.opacity = '1');
+            
+            // 标签
+            const mx = (c1.x + c2.x) / 2;
+            const my = (c1.y + c2.y) / 2;
+            
+            const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            label.setAttribute('x', mx);
+            label.setAttribute('y', my - 8);
+            label.setAttribute('text-anchor', 'middle');
+            label.setAttribute('fill', '#9ca3af');
+            label.setAttribute('font-size', '11');
+            label.textContent = kind === 'alloc' ? '已分配' : '请求';
+            label.style.opacity = '0';
+            label.style.transition = 'opacity 0.5s ease';
+            
+            dom.labelsLayer.appendChild(label);
+            appState.labels.push(label);
+            requestAnimationFrame(() => label.style.opacity = '1');
+        }
+        
+        function removeEdgesFor(node) {
+            const toRemove = [];
+            appState.edges.forEach((e, i) => {
+                const d = e.getAttribute('d') || '';
+                const c = coords[node];
+                if (c && d.includes(`${c.x}`) && d.includes(`${c.y}`)) {
+                    e.style.opacity = '0';
+                    setTimeout(() => e.remove(), 500);
+                    toRemove.push(i);
+                    if (appState.labels[i]) {
+                        appState.labels[i].style.opacity = '0';
+                        setTimeout(() => appState.labels[i].remove(), 500);
+                    }
+                }
+            });
+            toRemove.reverse().forEach(i => {
+                appState.edges.splice(i, 1);
+                appState.labels.splice(i, 1);
+            });
+        }
+        
+        function updateSceneLabel() {
+            dom.sceneLabel.textContent = `场景 ${appState.currentScene + 1}/${scenes.length}`;
+        }
+        
+        document.addEventListener('DOMContentLoaded', initialize);
+    </script>
+</body>
+</html>

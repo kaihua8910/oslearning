@@ -1,0 +1,1192 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>虚拟内存——请求调页的"时空传送"</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0e14;
+            --bg-secondary: #12181f;
+            --bg-tertiary: #1a222c;
+            --fg: #e6edf3;
+            --muted: #7d8a9a;
+            --accent: #3b82f6;
+            --accent-glow: rgba(59, 130, 246, 0.4);
+            --valid: #22c55e;
+            --valid-light: rgba(34, 197, 94, 0.2);
+            --invalid: #ef4444;
+            --invalid-light: rgba(239, 68, 68, 0.2);
+            --warning: #f59e0b;
+            --warning-light: rgba(245, 158, 11, 0.2);
+            --swap: #06b6d4;
+            --swap-light: rgba(6, 182, 212, 0.2);
+            --lru: #f97316;
+            --memory-idle: #374151;
+            --memory-used: #059669;
+            --memory-full: #dc2626;
+            --card: rgba(18, 24, 31, 0.95);
+            --border: rgba(59, 130, 246, 0.25);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Noto Sans SC', sans-serif;
+            background: var(--bg);
+            color: var(--fg);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* 背景 */
+        .bg-pattern {
+            position: fixed;
+            inset: 0;
+            background: 
+                radial-gradient(circle at 20% 30%, rgba(59, 130, 246, 0.08) 0%, transparent 40%),
+                radial-gradient(circle at 80% 70%, rgba(6, 182, 212, 0.08) 0%, transparent 40%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .bg-grid {
+            position: fixed;
+            inset: 0;
+            background-image: 
+                linear-gradient(rgba(59, 130, 246, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(59, 130, 246, 0.03) 1px, transparent 1px);
+            background-size: 25px 25px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* 三屏分屏 */
+        .screen-panel {
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .screen-header {
+            padding: 10px 16px;
+            background: linear-gradient(180deg, var(--bg-tertiary), var(--bg-secondary));
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .screen-icon {
+            width: 28px;
+            height: 28px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+        }
+
+        /* CPU区域 */
+        .cpu-icon {
+            width: 60px;
+            height: 60px;
+            background: linear-gradient(145deg, #1e3a5f, #0f2744);
+            border: 2px solid var(--accent);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            transition: all 0.3s;
+        }
+
+        .cpu-icon.kernel-mode {
+            border-color: var(--warning);
+            box-shadow: 0 0 20px rgba(245, 158, 11, 0.4);
+        }
+
+        .cpu-instruction {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-top: 12px;
+        }
+
+        /* 物理内存块 */
+        .memory-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 6px;
+            padding: 12px;
+        }
+
+        .memory-block {
+            aspect-ratio: 1;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 12px;
+            transition: all 0.3s;
+            position: relative;
+        }
+
+        .memory-block.idle {
+            background: var(--memory-idle);
+            border: 1px solid #4b5563;
+        }
+
+        .memory-block.used {
+            background: var(--memory-used);
+            border: 1px solid #10b981;
+        }
+
+        .memory-block.full {
+            background: var(--memory-full);
+            border: 1px solid #ef4444;
+        }
+
+        .memory-block.target {
+            box-shadow: 0 0 15px var(--swap);
+            animation: block-pulse 0.8s ease-in-out infinite;
+        }
+
+        .memory-block.lru-target {
+            box-shadow: 0 0 15px var(--lru);
+            animation: block-pulse 0.8s ease-in-out infinite;
+        }
+
+        @keyframes block-pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+
+        /* 磁盘区域 */
+        .disk-grid {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 4px;
+            padding: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .disk-block {
+            height: 28px;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: 600;
+            background: #1f2937;
+            border: 1px solid #374151;
+            transition: all 0.3s;
+        }
+
+        .disk-block.highlight {
+            background: var(--swap);
+            border-color: #22d3ee;
+            box-shadow: 0 0 10px rgba(6, 182, 212, 0.5);
+        }
+
+        /* 页表 */
+        .page-table {
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .page-table-header {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .page-table-header div {
+            padding: 10px 12px;
+            font-weight: 700;
+            font-size: 13px;
+            text-align: center;
+        }
+
+        .page-table-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            border-bottom: 1px solid rgba(59, 130, 246, 0.1);
+            transition: all 0.3s;
+        }
+
+        .page-table-row:last-child {
+            border-bottom: none;
+        }
+
+        .page-table-row.highlight {
+            background: rgba(245, 158, 11, 0.15);
+        }
+
+        .page-table-row div {
+            padding: 8px 12px;
+            font-size: 13px;
+            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .status-bit {
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-weight: 700;
+            font-size: 12px;
+        }
+
+        .status-bit.valid {
+            background: var(--valid-light);
+            color: var(--valid);
+            border: 1px solid var(--valid);
+        }
+
+        .status-bit.invalid {
+            background: var(--invalid-light);
+            color: var(--invalid);
+            border: 1px solid var(--invalid);
+        }
+
+        /* 缺页警报 */
+        .page-fault-alert {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s;
+            z-index: 100;
+        }
+
+        .page-fault-alert.show {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .page-fault-content {
+            background: linear-gradient(145deg, #1f2937, #111827);
+            border: 3px solid var(--warning);
+            border-radius: 16px;
+            padding: 30px 50px;
+            text-align: center;
+            animation: alert-shake 0.5s ease;
+            box-shadow: 0 0 50px rgba(245, 158, 11, 0.4);
+        }
+
+        @keyframes alert-shake {
+            0%, 100% { transform: translateX(0); }
+            20% { transform: translateX(-10px); }
+            40% { transform: translateX(10px); }
+            60% { transform: translateX(-5px); }
+            80% { transform: translateX(5px); }
+        }
+
+        /* 传送动画 */
+        .transfer-pipe {
+            position: absolute;
+            height: 4px;
+            background: linear-gradient(90deg, transparent, var(--swap), transparent);
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .transfer-pipe.active {
+            opacity: 1;
+        }
+
+        .transfer-page {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            background: var(--swap);
+            border: 2px solid #22d3ee;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 12px;
+            box-shadow: 0 0 20px rgba(6, 182, 212, 0.6);
+            opacity: 0;
+            transition: all 0.8s ease;
+            z-index: 50;
+        }
+
+        .transfer-page.moving {
+            opacity: 1;
+        }
+
+        /* LRU扫帚 */
+        .lru-sweeper {
+            position: absolute;
+            width: 50px;
+            height: 50px;
+            background: var(--lru);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            box-shadow: 0 0 20px rgba(249, 115, 22, 0.5);
+            opacity: 0;
+            transition: all 0.5s;
+            z-index: 40;
+        }
+
+        .lru-sweeper.show {
+            opacity: 1;
+        }
+
+        /* 进度条 */
+        .progress-bar {
+            height: 4px;
+            background: var(--bg-secondary);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent), var(--swap), var(--valid));
+            width: 0%;
+            transition: width 0.1s linear;
+        }
+
+        /* 按钮 */
+        .btn {
+            padding: 10px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent), #2563eb);
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: var(--card);
+            color: var(--fg);
+            border: 2px solid var(--border);
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            border-color: var(--accent);
+        }
+
+        .btn-secondary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* 步骤总结 */
+        .step-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 12px;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            border-left: 3px solid var(--accent);
+            transition: all 0.3s;
+        }
+
+        .step-item.highlight {
+            border-left-color: var(--valid);
+            background: rgba(34, 197, 94, 0.1);
+        }
+
+        .step-number {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: var(--accent);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 12px;
+            flex-shrink: 0;
+        }
+
+        /* 场景指示器 */
+        .scene-indicator {
+            width: 24px;
+            height: 4px;
+            border-radius: 2px;
+            background: var(--bg-secondary);
+            transition: background 0.3s;
+        }
+
+        .scene-indicator.active {
+            background: linear-gradient(90deg, var(--accent), var(--swap));
+        }
+
+        /* 动画 */
+        .fade-in {
+            animation: fadeIn 0.5s ease-out forwards;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(15px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @media (max-width: 768px) {
+            .memory-grid { grid-template-columns: repeat(3, 1fr); }
+            .disk-grid { grid-template-columns: repeat(4, 1fr); }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+    <div class="bg-pattern"></div>
+    <div class="bg-grid"></div>
+
+    <!-- 缺页警报 -->
+    <div class="page-fault-alert" id="page-fault-alert">
+        <div class="page-fault-content">
+            <div class="text-4xl font-black text-[var(--warning)] mb-3 mono">PAGE FAULT</div>
+            <div class="text-xl text-[var(--fg)]">缺页中断异常</div>
+            <div class="text-sm text-[var(--muted)] mt-2">CPU切换至内核态处理</div>
+        </div>
+    </div>
+
+    <div class="relative z-10 max-w-7xl mx-auto px-4 py-5">
+        <!-- 标题 -->
+        <header class="text-center mb-5">
+            <h1 class="text-2xl md:text-3xl font-black mb-1 tracking-tight" id="main-title"></h1>
+            <p class="text-sm text-[var(--muted)]" id="sub-title">操作系统的内存空间魔术</p>
+        </header>
+
+        <!-- 进度条 -->
+        <div class="progress-bar mb-4">
+            <div class="progress-fill" id="progress"></div>
+        </div>
+
+        <!-- 三屏分屏布局 -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+            <!-- 左侧：CPU工作区 -->
+            <div class="screen-panel">
+                <div class="screen-header">
+                    <div class="screen-icon" style="background: var(--accent);">
+                        <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M9 3V1h6v2h2V1h2v2h1a2 2 0 012 2v1h2v2h-2v2h2v2h-2v2h2v2h-2v1a2 2 0 01-2 2h-1v2h-2v-2h-2v2H9v-2H7v2H5v-2H4a2 2 0 01-2-2v-1H0v-2h2v-2H0v-2h2V9H0V7h2V6a2 2 0 012-2h1V2h2v2h2zm0 4H4v10h16V7z"/>
+                        </svg>
+                    </div>
+                    <span class="font-bold">CPU 工作区</span>
+                </div>
+                <div class="p-4 text-center" id="cpu-area">
+                    <div class="cpu-icon mx-auto" id="cpu-icon">
+                        <svg class="w-8 h-8 text-[var(--accent)]" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                        </svg>
+                    </div>
+                    <div class="text-xs text-[var(--muted)] mt-2" id="cpu-status">用户态运行中</div>
+                    <div class="cpu-instruction" id="cpu-instruction">
+                        <div class="text-xs text-[var(--muted)] mb-1">当前指令</div>
+                        <div class="mono font-bold text-sm" id="instruction-text">等待执行...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 中间：物理内存区 -->
+            <div class="screen-panel">
+                <div class="screen-header">
+                    <div class="screen-icon" style="background: var(--memory-used);">
+                        <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M2 7h20v10H2V7zm2 2v6h16V9H4z"/>
+                        </svg>
+                    </div>
+                    <span class="font-bold">物理内存</span>
+                    <span class="ml-auto text-xs text-[var(--muted)]" id="memory-status">有限空间</span>
+                </div>
+                <div class="memory-grid" id="memory-area">
+                    <!-- 由JS生成 -->
+                </div>
+            </div>
+
+            <!-- 右侧：磁盘仓库区 -->
+            <div class="screen-panel">
+                <div class="screen-header">
+                    <div class="screen-icon" style="background: #374151;">
+                        <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M2 20h20v-4H2v4zm2-3h2v2H4v-2zM2 4v4h20V4H2zm4 3H4V5h2v2zm-4 7h20v-4H2v4zm2-3h2v2H4v-2z"/>
+                        </svg>
+                    </div>
+                    <span class="font-bold">磁盘仓库</span>
+                    <span class="ml-auto text-xs text-[var(--muted)]">海量存储</span>
+                </div>
+                <div class="disk-grid" id="disk-area">
+                    <!-- 由JS生成 -->
+                </div>
+            </div>
+        </div>
+
+        <!-- 页表区域 -->
+        <div class="bg-[var(--card)] rounded-xl p-4 border border-[var(--border)] mb-4">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="font-bold text-sm">页表 (带状态位)</h3>
+                <span class="text-xs text-[var(--muted)]">状态位: 1=在内存, 0=在磁盘</span>
+            </div>
+            <div class="page-table" id="page-table">
+                <!-- 由JS生成 -->
+            </div>
+        </div>
+
+        <!-- 旁白区 -->
+        <div class="bg-[var(--card)] rounded-xl p-4 border border-[var(--border)] mb-4">
+            <div class="flex items-start gap-3">
+                <div class="w-8 h-8 rounded-full bg-gradient-to-br from-[var(--accent)] to-blue-500 flex items-center justify-center flex-shrink-0">
+                    <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                    </svg>
+                </div>
+                <div>
+                    <h4 class="font-bold text-sm mb-1">讲解</h4>
+                    <p class="text-[var(--muted)] leading-relaxed text-sm transition-opacity duration-300" id="narration">点击"开始演示"按钮，观看虚拟内存请求调页的完整演示。</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 控制区 -->
+        <div class="flex items-center justify-center gap-3 flex-wrap mb-4">
+            <button class="btn btn-primary" id="btn-start">
+                <span class="flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M8 5v14l11-7z"/>
+                    </svg>
+                    开始演示
+                </span>
+            </button>
+            <button class="btn btn-secondary" id="btn-pause" disabled>
+                <span class="flex items-center gap-2" id="btn-pause-content">
+                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+                    </svg>
+                    暂停
+                </span>
+            </button>
+            <button class="btn btn-secondary" id="btn-reset">
+                <span class="flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                    重置
+                </span>
+            </button>
+            
+            <div class="flex items-center gap-2 ml-3">
+                <span class="text-xs text-[var(--muted)]">场景:</span>
+                <div class="flex gap-1" id="scene-indicators">
+                    <span class="scene-indicator" data-scene="1"></span>
+                    <span class="scene-indicator" data-scene="2"></span>
+                    <span class="scene-indicator" data-scene="3"></span>
+                    <span class="scene-indicator" data-scene="4"></span>
+                    <span class="scene-indicator" data-scene="5"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 步骤总结 -->
+        <div id="steps-summary" class="hidden">
+            <h3 class="text-lg font-bold mb-4 text-center">请求调页6步走</h3>
+            <div class="grid md:grid-cols-2 gap-3" id="steps-container">
+                <!-- 由JS生成 -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==================== 状态管理 ====================
+        var animationState = {
+            isPlaying: false,
+            isPaused: false,
+            currentTime: 0,
+            totalDuration: 140000,
+            currentScene: 0
+        };
+
+        var progressIntervalId = null;
+        var sceneTimeouts = [];
+
+        // 页表数据
+        var pageTable = [
+            { pageNo: 0, frameNo: 5, valid: true, diskBlock: null },
+            { pageNo: 1, frameNo: null, valid: false, diskBlock: 'A' },
+            { pageNo: 2, frameNo: 3, valid: true, diskBlock: null },
+            { pageNo: 3, frameNo: null, valid: false, diskBlock: 'B' },
+            { pageNo: 4, frameNo: 7, valid: true, diskBlock: null },
+            { pageNo: 5, frameNo: null, valid: false, diskBlock: 'C' }
+        ];
+
+        // 物理内存状态 (false=空闲, true=占用)
+        var memoryBlocks = [];
+        var MEMORY_SIZE = 8;
+
+        // 磁盘块
+        var diskBlocks = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'];
+
+        // ==================== 初始化 ====================
+        document.addEventListener('DOMContentLoaded', function() {
+            initTitle();
+            bindEvents();
+            initMemory();
+            initDisk();
+            renderPageTable();
+        });
+
+        function initTitle() {
+            var titleText = '虚拟内存——请求调页的"时空传送"';
+            var titleEl = document.getElementById('main-title');
+            if (!titleEl) return;
+            
+            titleEl.innerHTML = '';
+            for (var i = 0; i < titleText.length; i++) {
+                var span = document.createElement('span');
+                span.style.opacity = '0';
+                span.style.animation = 'fadeIn 0.3s ease-out forwards';
+                span.style.animationDelay = (i * 0.02) + 's';
+                span.textContent = titleText[i];
+                titleEl.appendChild(span);
+            }
+        }
+
+        function bindEvents() {
+            document.getElementById('btn-start').addEventListener('click', startAnimation);
+            document.getElementById('btn-pause').addEventListener('click', togglePause);
+            document.getElementById('btn-reset').addEventListener('click', resetAnimation);
+        }
+
+        function initMemory() {
+            memoryBlocks = [true, false, true, true, false, true, false, true];
+            renderMemory();
+        }
+
+        function renderMemory() {
+            var container = document.getElementById('memory-area');
+            if (!container) return;
+            
+            var html = '';
+            for (var i = 0; i < MEMORY_SIZE; i++) {
+                var isUsed = memoryBlocks[i];
+                var stateClass = isUsed ? 'used' : 'idle';
+                html += '<div class="memory-block ' + stateClass + '" id="mem-' + i + '" data-index="' + i + '">';
+                html += '<span class="mono">' + i + '</span>';
+                html += '</div>';
+            }
+            container.innerHTML = html;
+        }
+
+        function initDisk() {
+            var container = document.getElementById('disk-area');
+            if (!container) return;
+            
+            var html = '';
+            for (var i = 0; i < diskBlocks.length; i++) {
+                html += '<div class="disk-block" id="disk-' + i + '" data-block="' + diskBlocks[i] + '">';
+                html += diskBlocks[i];
+                html += '</div>';
+            }
+            container.innerHTML = html;
+        }
+
+        function renderPageTable() {
+            var container = document.getElementById('page-table');
+            if (!container) return;
+            
+            var html = '<div class="page-table-header">';
+            html += '<div>页号</div><div>物理块号</div><div>状态位</div>';
+            html += '</div>';
+            
+            for (var i = 0; i < pageTable.length; i++) {
+                var entry = pageTable[i];
+                var validClass = entry.valid ? 'valid' : 'invalid';
+                var validText = entry.valid ? '1' : '0';
+                var frameText = entry.frameNo !== null ? entry.frameNo : '-';
+                
+                html += '<div class="page-table-row" id="pt-row-' + i + '">';
+                html += '<div class="mono">' + entry.pageNo + '</div>';
+                html += '<div class="mono">' + frameText + '</div>';
+                html += '<div><span class="status-bit ' + validClass + '" id="status-' + i + '">' + validText + '</span></div>';
+                html += '</div>';
+            }
+            
+            container.innerHTML = html;
+        }
+
+        // ==================== 辅助函数 ====================
+        function updateNarration(text) {
+            var el = document.getElementById('narration');
+            if (el) {
+                el.style.opacity = '0';
+                setTimeout(function() {
+                    el.textContent = text;
+                    el.style.opacity = '1';
+                }, 150);
+            }
+        }
+
+        function setSceneIndicator(sceneNum) {
+            animationState.currentScene = sceneNum;
+            var container = document.getElementById('scene-indicators');
+            if (!container) return;
+            var indicators = container.querySelectorAll('.scene-indicator');
+            for (var i = 0; i < indicators.length; i++) {
+                if (i + 1 <= sceneNum) {
+                    indicators[i].classList.add('active');
+                } else {
+                    indicators[i].classList.remove('active');
+                }
+            }
+        }
+
+        function showPageFault() {
+            var alert = document.getElementById('page-fault-alert');
+            if (alert) alert.classList.add('show');
+        }
+
+        function hidePageFault() {
+            var alert = document.getElementById('page-fault-alert');
+            if (alert) alert.classList.remove('show');
+        }
+
+        function setCPUKernelMode(isKernel) {
+            var cpuIcon = document.getElementById('cpu-icon');
+            var cpuStatus = document.getElementById('cpu-status');
+            if (cpuIcon) {
+                if (isKernel) {
+                    cpuIcon.classList.add('kernel-mode');
+                } else {
+                    cpuIcon.classList.remove('kernel-mode');
+                }
+            }
+            if (cpuStatus) {
+                cpuStatus.textContent = isKernel ? '内核态执行中' : '用户态运行中';
+            }
+        }
+
+        function setInstruction(text) {
+            var el = document.getElementById('instruction-text');
+            if (el) el.textContent = text;
+        }
+
+        function highlightPageTableRow(index) {
+            var rows = document.querySelectorAll('.page-table-row');
+            for (var i = 0; i < rows.length; i++) {
+                rows[i].classList.remove('highlight');
+            }
+            var row = document.getElementById('pt-row-' + index);
+            if (row) row.classList.add('highlight');
+        }
+
+        function updatePageTableEntry(index, frameNo, valid) {
+            pageTable[index].frameNo = frameNo;
+            pageTable[index].valid = valid;
+            
+            var status = document.getElementById('status-' + index);
+            if (status) {
+                status.className = 'status-bit ' + (valid ? 'valid' : 'invalid');
+                status.textContent = valid ? '1' : '0';
+            }
+            
+            renderPageTable();
+            highlightPageTableRow(index);
+        }
+
+        function highlightDiskBlock(blockName) {
+            var blocks = document.querySelectorAll('.disk-block');
+            for (var i = 0; i < blocks.length; i++) {
+                blocks[i].classList.remove('highlight');
+            }
+            
+            for (var i = 0; i < blocks.length; i++) {
+                if (blocks[i].dataset.block === blockName) {
+                    blocks[i].classList.add('highlight');
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        function highlightMemoryBlock(index, className) {
+            className = className || 'target';
+            var block = document.getElementById('mem-' + index);
+            if (block) block.classList.add(className);
+        }
+
+        function clearMemoryHighlights() {
+            var blocks = document.querySelectorAll('.memory-block');
+            for (var i = 0; i < blocks.length; i++) {
+                blocks[i].classList.remove('target', 'lru-target');
+            }
+        }
+
+        function setMemoryBlockUsed(index, used) {
+            memoryBlocks[index] = used;
+            var block = document.getElementById('mem-' + index);
+            if (block) {
+                block.className = 'memory-block ' + (used ? 'used' : 'idle');
+            }
+        }
+
+        function findFreeMemoryBlock() {
+            for (var i = 0; i < memoryBlocks.length; i++) {
+                if (!memoryBlocks[i]) return i;
+            }
+            return -1;
+        }
+
+        function setAllMemoryFull() {
+            for (var i = 0; i < memoryBlocks.length; i++) {
+                memoryBlocks[i] = true;
+                var block = document.getElementById('mem-' + i);
+                if (block) {
+                    block.className = 'memory-block full';
+                }
+            }
+            var status = document.getElementById('memory-status');
+            if (status) status.textContent = '内存已满!';
+        }
+
+        function setMemoryNormal() {
+            memoryBlocks = [true, false, true, true, false, true, false, true];
+            renderMemory();
+            var status = document.getElementById('memory-status');
+            if (status) status.textContent = '有限空间';
+        }
+
+        // ==================== 场景函数 ====================
+        // 场景一：带状态位的页表
+        function scene1() {
+            setSceneIndicator(1);
+            updateNarration("学完基础分页，我们来解锁操作系统最神奇的空间魔术——虚拟内存。它的核心是升级后的页表，多了一个状态位，不仅记录页面位置，更标记页面在不在内存，1代表在岗，0代表还在磁盘仓库待命。");
+            setInstruction("等待执行...");
+            setCPUKernelMode(false);
+            setMemoryNormal();
+            renderPageTable();
+            
+            // 高亮展示状态位差异
+            sceneTimeouts.push(setTimeout(function() {
+                highlightPageTableRow(0);
+            }, 3000));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                highlightPageTableRow(1);
+            }, 6000));
+        }
+
+        // 场景二：触发缺页异常
+        function scene2() {
+            setSceneIndicator(2);
+            updateNarration("CPU正常发起访问请求，一查页表发现，要找的页号1根本不在内存里！这就会触发关键的缺页异常。此时CPU会立刻暂停当前工作，切换为操作系统内核模式，接管整个调度流程。");
+            
+            // CPU发出请求
+            sceneTimeouts.push(setTimeout(function() {
+                setInstruction("请求访问页号 1");
+            }, 2000));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                highlightPageTableRow(1);
+            }, 4000));
+            
+            // 触发缺页异常
+            sceneTimeouts.push(setTimeout(function() {
+                showPageFault();
+                setCPUKernelMode(true);
+            }, 6000));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                hidePageFault();
+            }, 9000));
+        }
+
+        // 场景三：从磁盘搬运数据
+        function scene3() {
+            setSceneIndicator(3);
+            updateNarration("操作系统先去巨型磁盘仓库找到目标页面，再扫描有限的物理内存，找到空闲工位。随后通过I/O传送，把磁盘里的页面时空传送到内存空闲块。");
+            setCPUKernelMode(true);
+            
+            // 查找磁盘
+            sceneTimeouts.push(setTimeout(function() {
+                highlightDiskBlock('A');
+                setInstruction("定位磁盘块 A");
+            }, 2000));
+            
+            // 查找空闲内存
+            sceneTimeouts.push(setTimeout(function() {
+                var freeBlock = findFreeMemoryBlock();
+                highlightMemoryBlock(freeBlock);
+                setInstruction("找到空闲块 " + freeBlock);
+            }, 5000));
+            
+            // 传送页面
+            sceneTimeouts.push(setTimeout(function() {
+                var freeBlock = findFreeMemoryBlock();
+                setMemoryBlockUsed(freeBlock, true);
+                clearMemoryHighlights();
+                setInstruction("页面传送完成");
+            }, 8000));
+        }
+
+        // 场景四：更新页表与重试
+        function scene4() {
+            setSceneIndicator(4);
+            updateNarration("数据成功传送到内存后，第一步就是更新页表，把状态位改为1，填入对应的物理块号。随后CPU重新执行刚才失败的指令，这一次页表显示数据在岗，直接从内存读取，访问顺利完成。");
+            
+            // 更新页表
+            sceneTimeouts.push(setTimeout(function() {
+                updatePageTableEntry(1, 1, true);
+                setInstruction("更新页表");
+            }, 2000));
+            
+            // CPU恢复正常模式
+            sceneTimeouts.push(setTimeout(function() {
+                setCPUKernelMode(false);
+                setInstruction("重新执行指令");
+            }, 5000));
+            
+            // 访问成功
+            sceneTimeouts.push(setTimeout(function() {
+                setInstruction("访问成功!");
+                highlightPageTableRow(1);
+            }, 7000));
+        }
+
+        // 场景五：内存满员——页面置换
+        function scene5() {
+            setSceneIndicator(5);
+            updateNarration("如果物理内存工位全满了，新页面没法直接调入，就需要页面置换。系统会用LRU最近最久未使用算法，踢走一个长期不用的闲置页面，腾退工位给新页面。这就是虚拟内存的奥秘：用小内存，也能运行远超内存大小的巨型程序。");
+            
+            // 设置内存满员
+            sceneTimeouts.push(setTimeout(function() {
+                setAllMemoryFull();
+                setCPUKernelMode(true);
+                setInstruction("内存已满!");
+            }, 2000));
+            
+            // LRU选择置换页面
+            sceneTimeouts.push(setTimeout(function() {
+                highlightMemoryBlock(2, 'lru-target');
+                setInstruction("LRU选择置换页");
+            }, 5000));
+            
+            // 置换完成
+            sceneTimeouts.push(setTimeout(function() {
+                setMemoryBlockUsed(2, false);
+                var block = document.getElementById('mem-2');
+                if (block) block.className = 'memory-block used';
+                setMemoryBlockUsed(2, true);
+                setInstruction("置换完成，新页已调入");
+            }, 8000));
+            
+            // 显示步骤总结
+            sceneTimeouts.push(setTimeout(function() {
+                showStepsSummary();
+            }, 11000));
+        }
+
+        function showStepsSummary() {
+            var container = document.getElementById('steps-summary');
+            if (container) {
+                container.classList.remove('hidden');
+                container.classList.add('fade-in');
+            }
+            
+            var stepsContainer = document.getElementById('steps-container');
+            if (stepsContainer) {
+                var steps = [
+                    { title: '查页表', desc: 'CPU访问虚拟页，查询页表发现状态位=0，判定缺页' },
+                    { title: '发中断', desc: '触发Page Fault缺页异常，CPU切换至内核态' },
+                    { title: '找位置', desc: '操作系统在磁盘仓库中，精准定位目标虚拟页' },
+                    { title: '分空间', desc: '扫描物理内存找空闲块，无空闲则执行页面置换' },
+                    { title: '传数据', desc: '启动磁盘I/O，将目标页从磁盘Swap-in至内存' },
+                    { title: '重执行', desc: '更新页表状态位+物理块号，CPU重试指令，访问成功' }
+                ];
+                
+                var html = '';
+                for (var i = 0; i < steps.length; i++) {
+                    html += '<div class="step-item" id="step-' + (i + 1) + '">';
+                    html += '<div class="step-number">' + (i + 1) + '</div>';
+                    html += '<div><div class="font-bold text-sm">' + steps[i].title + '</div>';
+                    html += '<div class="text-xs text-[var(--muted)]">' + steps[i].desc + '</div></div>';
+                    html += '</div>';
+                }
+                stepsContainer.innerHTML = html;
+            }
+        }
+
+        // ==================== 动画控制 ====================
+        function clearAllTimers() {
+            if (progressIntervalId) {
+                clearInterval(progressIntervalId);
+                progressIntervalId = null;
+            }
+            for (var i = 0; i < sceneTimeouts.length; i++) {
+                clearTimeout(sceneTimeouts[i]);
+            }
+            sceneTimeouts = [];
+        }
+
+        function updateProgress() {
+            if (!animationState.isPlaying) return;
+            
+            if (!animationState.isPaused) {
+                animationState.currentTime += 100;
+                var progress = Math.min((animationState.currentTime / animationState.totalDuration) * 100, 100);
+                var progressEl = document.getElementById('progress');
+                if (progressEl) {
+                    progressEl.style.width = progress + '%';
+                }
+            }
+        }
+
+        function startAnimation() {
+            if (animationState.isPlaying) return;
+            
+            animationState.isPlaying = true;
+            animationState.isPaused = false;
+            animationState.currentTime = 0;
+            
+            document.getElementById('btn-start').disabled = true;
+            document.getElementById('btn-pause').disabled = false;
+            
+            var summary = document.getElementById('steps-summary');
+            if (summary) summary.classList.add('hidden');
+            
+            clearAllTimers();
+            initMemory();
+            initDisk();
+            renderPageTable();
+            setCPUKernelMode(false);
+            hidePageFault();
+            
+            progressIntervalId = setInterval(updateProgress, 100);
+            
+            // 场景调度（总时长140秒）
+            sceneTimeouts.push(setTimeout(function() {
+                if (animationState.isPlaying && !animationState.isPaused) scene1();
+            }, 0));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                if (animationState.isPlaying && !animationState.isPaused) scene2();
+            }, 25000));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                if (animationState.isPlaying && !animationState.isPaused) scene3();
+            }, 50000));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                if (animationState.isPlaying && !animationState.isPaused) scene4();
+            }, 75000));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                if (animationState.isPlaying && !animationState.isPaused) scene5();
+            }, 95000));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                animationComplete();
+            }, 140000));
+        }
+
+        function togglePause() {
+            animationState.isPaused = !animationState.isPaused;
+            
+            var btnContent = document.getElementById('btn-pause-content');
+            if (btnContent) {
+                if (animationState.isPaused) {
+                    btnContent.innerHTML = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg> 继续';
+                } else {
+                    btnContent.innerHTML = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg> 暂停';
+                }
+            }
+        }
+
+        function resetAnimation() {
+            animationState.isPlaying = false;
+            animationState.isPaused = false;
+            animationState.currentTime = 0;
+            animationState.currentScene = 0;
+            
+            clearAllTimers();
+            hidePageFault();
+            
+            document.getElementById('progress').style.width = '0%';
+            document.getElementById('btn-start').disabled = false;
+            document.getElementById('btn-pause').disabled = true;
+            
+            var summary = document.getElementById('steps-summary');
+            if (summary) summary.classList.add('hidden');
+            
+            initMemory();
+            initDisk();
+            renderPageTable();
+            setCPUKernelMode(false);
+            setInstruction("等待执行...");
+            
+            updateNarration('点击"开始演示"按钮，观看虚拟内存请求调页的完整演示。');
+            setSceneIndicator(0);
+        }
+
+        function animationComplete() {
+            animationState.isPlaying = false;
+            if (progressIntervalId) {
+                clearInterval(progressIntervalId);
+                progressIntervalId = null;
+            }
+            
+            document.getElementById('btn-start').disabled = false;
+            document.getElementById('btn-pause').disabled = true;
+        }
+    </script>
+</body>
+</html>

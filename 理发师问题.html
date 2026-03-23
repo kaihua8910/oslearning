@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>打盹的理发师 - 进程同步经典模型</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0e14;
+            --fg: #ffffff;
+            --muted: #9ca3af;
+            --accent: #22d3ee;
+            --card: #1a1f2e;
+            --border: #3b4252;
+            --green: #4ade80;
+            --orange: #f97316;
+            --red: #f87171;
+            --blue: #60a5fa;
+            --yellow: #fbbf24;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Noto Sans SC', sans-serif;
+            background: var(--bg);
+            color: var(--fg);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        .bg-layer { position: fixed; inset: 0; z-index: 0; }
+        .bg-gradient {
+            position: absolute; inset: 0;
+            background:
+                radial-gradient(ellipse 60% 40% at 30% 20%, rgba(34,211,238,0.07) 0%, transparent 60%),
+                radial-gradient(ellipse 50% 30% at 70% 80%, rgba(249,115,22,0.07) 0%, transparent 50%);
+        }
+        .bg-grid {
+            position: absolute; inset: 0;
+            background-image:
+                linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+        .main-container {
+            position: relative; z-index: 1;
+            width: 100%; min-height: 100vh;
+            display: flex; flex-direction: column;
+            padding: 16px 24px;
+        }
+        .header {
+            text-align: center;
+            opacity: 0; transform: translateY(-30px);
+            transition: all 0.8s ease;
+        }
+        .header.visible { opacity: 1; transform: translateY(0); }
+        .main-title { font-size: clamp(1.4rem, 3.5vw, 2rem); font-weight: 900; }
+        .sub-title { font-size: 0.85rem; color: var(--muted); margin-top: 4px; }
+        .hint-container { text-align: center; margin-top: 10px; min-height: 44px; }
+        .hint-box {
+            display: inline-block;
+            background: var(--card); border: 2px solid var(--border);
+            padding: 10px 24px; border-radius: 12px;
+            font-size: 0.9rem; max-width: min(860px, 92vw);
+            opacity: 0; transform: translateY(-15px);
+            transition: all 0.5s ease;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+        .hint-box.visible { opacity: 1; transform: translateY(0); }
+        .hint-box .hl { color: var(--accent); font-weight: 700; }
+        .hint-box .ok { color: var(--green); font-weight: 700; }
+        .hint-box .warn { color: var(--red); font-weight: 700; }
+        /* 控制栏 */
+        .top-controls {
+            position: fixed; top: 16px; right: 16px;
+            display: flex; align-items: center; gap: 12px;
+            background: var(--card); border: 2px solid var(--border);
+            padding: 8px 16px; border-radius: 50px;
+            z-index: 300; box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+        }
+        .ctrl-btn {
+            width: 40px; height: 40px; border-radius: 50%;
+            border: none; background: var(--accent); color: var(--bg);
+            cursor: pointer; display: flex; align-items: center; justify-content: center;
+            transition: all 0.2s ease;
+        }
+        .ctrl-btn:hover { transform: scale(1.1); filter: brightness(1.2); }
+        .ctrl-btn.secondary { background: var(--border); color: var(--fg); }
+        .ctrl-btn svg { width: 18px; height: 18px; }
+        .progress-track { width: 100px; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+        .progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--green)); width: 0%; transition: width 0.1s linear; }
+        .scene-label { font-size: 0.8rem; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+        /* 主布局 */
+        .main-layout {
+            flex: 1; display: grid;
+            grid-template-columns: 1fr 280px;
+            gap: 20px; margin-top: 12px;
+            opacity: 0; transition: opacity 0.6s ease;
+        }
+        .main-layout.visible { opacity: 1; }
+        /* 信号量面板 */
+        .sem-panel {
+            background: var(--card); border: 2px solid var(--border);
+            border-radius: 16px; padding: 14px 18px;
+            margin-bottom: 14px;
+        }
+        .sem-panel-title { font-size: 0.8rem; font-weight: 700; color: var(--muted); margin-bottom: 10px; text-align: center; }
+        .sem-row {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+        .sem-row:last-child { border-bottom: none; }
+        .sem-name { font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; font-weight: 700; }
+        .sem-desc { font-size: 0.72rem; color: var(--muted); margin-left: 6px; }
+        .sem-value {
+            font-family: 'JetBrains Mono', monospace; font-size: 1.3rem; font-weight: 700;
+            min-width: 36px; text-align: right;
+            transition: all 0.3s ease;
+        }
+        .sem-value.anim { transform: scale(1.4); }
+        /* 理发店 SVG 区域 */
+        .shop-container {
+            background: var(--card); border: 2px solid var(--border);
+            border-radius: 16px; overflow: hidden;
+            flex: 1; position: relative;
+        }
+        .shop-svg { width: 100%; height: 100%; }
+        /* 右侧面板 */
+        .side-panel { display: flex; flex-direction: column; gap: 12px; }
+        .info-card {
+            background: var(--card); border: 2px solid var(--border);
+            border-radius: 16px; padding: 14px;
+            opacity: 0; transform: translateX(20px);
+            transition: all 0.5s ease;
+        }
+        .info-card.visible { opacity: 1; transform: translateX(0); }
+        .info-title {
+            font-size: 0.85rem; font-weight: 700;
+            margin-bottom: 10px; padding-bottom: 8px;
+            border-bottom: 1px solid var(--border);
+        }
+        .info-row {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,0.07);
+            font-size: 0.8rem;
+        }
+        .info-row:last-child { border-bottom: none; }
+        .info-label { color: var(--muted); }
+        .info-value { font-family: 'JetBrains Mono', monospace; font-weight: 700; }
+        .log-card {
+            background: var(--card); border: 2px solid var(--border);
+            border-radius: 16px; padding: 14px;
+            flex: 1;
+        }
+        .log-list { font-size: 0.72rem; color: var(--muted); line-height: 1.8; max-height: 220px; overflow-y: auto; }
+        .log-list .log-item { padding: 2px 0; }
+        .log-list .log-item.new { color: var(--accent); }
+        /* 总结 */
+        .summary-overlay {
+            position: fixed; inset: 0;
+            background: rgba(10,14,20,0.95);
+            display: flex; align-items: center; justify-content: center;
+            opacity: 0; pointer-events: none;
+            transition: opacity 0.6s ease; z-index: 400;
+        }
+        .summary-overlay.visible { opacity: 1; pointer-events: auto; }
+        .summary-card {
+            background: var(--card); border: 2px solid var(--border);
+            border-radius: 20px; padding: 28px 36px; max-width: 560px;
+            position: relative;
+        }
+        .summary-close {
+            position: absolute; top: 12px; right: 12px;
+            width: 32px; height: 32px; border-radius: 50%;
+            border: none; background: var(--border); color: var(--fg);
+            cursor: pointer; display: flex; align-items: center; justify-content: center;
+        }
+        .summary-close:hover { background: var(--red); }
+        .summary-close svg { width: 16px; height: 16px; }
+        .summary-title { font-size: 1.2rem; font-weight: 700; margin-bottom: 14px; padding-right: 30px; }
+        .summary-item {
+            display: flex; align-items: flex-start; gap: 10px;
+            margin-bottom: 8px; padding: 8px 10px;
+            background: rgba(0,0,0,0.2); border-radius: 8px;
+        }
+        .summary-num {
+            width: 22px; height: 22px; background: var(--accent);
+            border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            font-weight: 700; font-size: 0.7rem; color: var(--bg); flex-shrink: 0;
+        }
+        .summary-text { font-size: 0.8rem; line-height: 1.5; }
+        .summary-text strong { color: var(--accent); }
+        .summary-actions { margin-top: 16px; text-align: center; }
+        .summary-btn {
+            padding: 10px 24px; border-radius: 25px; border: none;
+            font-weight: 600; font-size: 0.9rem; cursor: pointer;
+            background: var(--accent); color: var(--bg);
+            font-family: inherit; transition: all 0.2s ease;
+        }
+        .summary-btn:hover { filter: brightness(1.2); transform: scale(1.05); }
+        @media (max-width: 900px) { .main-layout { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="bg-layer"><div class="bg-gradient"></div><div class="bg-grid"></div></div>
+    <div class="top-controls">
+        <button class="ctrl-btn" id="playBtn">
+            <svg id="playIcon" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+        </button>
+        <button class="ctrl-btn secondary" id="resetBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+        </button>
+        <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+        <div class="scene-label" id="sceneLabel">场景 1/5</div>
+    </div>
+
+    <div class="main-container">
+        <header class="header" id="header">
+            <h1 class="main-title">打盹的理发师 — 进程同步经典模型</h1>
+            <p class="sub-title">生产者-消费者模型 · 信号量 · PV操作 · 阻塞唤醒机制</p>
+            <div class="hint-container">
+                <div class="hint-box" id="hintBox"></div>
+            </div>
+        </header>
+
+        <div class="main-layout" id="mainLayout">
+            <div style="display:flex;flex-direction:column;gap:14px;">
+                <!-- 信号量面板 -->
+                <div class="sem-panel" id="semPanel">
+                    <div class="sem-panel-title">信号量实时状态</div>
+                    <div class="sem-row">
+                        <span><span class="sem-name" style="color:var(--green)">customers</span><span class="sem-desc">等待顾客数</span></span>
+                        <span class="sem-value" id="semCustomers" style="color:var(--green)">0</span>
+                    </div>
+                    <div class="sem-row">
+                        <span><span class="sem-name" style="color:var(--orange)">barber</span><span class="sem-desc">理发师就绪</span></span>
+                        <span class="sem-value" id="semBarber" style="color:var(--orange)">0</span>
+                    </div>
+                    <div class="sem-row">
+                        <span><span class="sem-name" style="color:var(--accent)">mutex</span><span class="sem-desc">互斥锁</span></span>
+                        <span class="sem-value" id="semMutex" style="color:var(--accent)">1</span>
+                    </div>
+                    <div class="sem-row">
+                        <span><span class="sem-name" style="color:var(--muted)">等候区</span><span class="sem-desc">0/3</span></span>
+                        <span class="sem-value" id="semWaiting" style="color:var(--yellow)">0/3</span>
+                    </div>
+                </div>
+                <!-- 理发店主画面 -->
+                <div class="shop-container" style="min-height:380px;">
+                    <svg class="shop-svg" id="shopSvg" viewBox="0 0 700 400" preserveAspectRatio="xMidYMid meet">
+                        <defs>
+                            <radialGradient id="shopBg" cx="50%" cy="50%">
+                                <stop offset="0%" stop-color="#1a2035"/>
+                                <stop offset="100%" stop-color="#0d1220"/>
+                            </radialGradient>
+                            <filter id="glow">
+                                <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+                                <feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge>
+                            </filter>
+                        </defs>
+                        <!-- 背景 -->
+                        <rect width="700" height="400" fill="url(#shopBg)"/>
+                        <!-- 地板 -->
+                        <rect x="0" y="310" width="700" height="90" fill="#161c2b" rx="0"/>
+                        <!-- 区域分隔 -->
+                        <line x1="160" y1="50" x2="160" y2="360" stroke="#3b4252" stroke-width="2" stroke-dasharray="6 4"/>
+                        <line x1="460" y1="50" x2="460" y2="360" stroke="#3b4252" stroke-width="2" stroke-dasharray="6 4"/>
+                        <!-- 区域标签 -->
+                        <text x="80" y="45" text-anchor="middle" fill="#6b7280" font-size="12" font-family="Noto Sans SC">门口入口区</text>
+                        <text x="310" y="45" text-anchor="middle" fill="#6b7280" font-size="12" font-family="Noto Sans SC">等候缓冲区（3个座椅）</text>
+                        <text x="580" y="45" text-anchor="middle" fill="#6b7280" font-size="12" font-family="Noto Sans SC">理发工作区</text>
+
+                        <!-- 店招 -->
+                        <rect x="10" y="55" width="140" height="34" rx="6" fill="#1e3a5f" stroke="#22d3ee" stroke-width="1.5"/>
+                        <text x="80" y="77" text-anchor="middle" fill="#22d3ee" font-size="13" font-weight="700" font-family="Noto Sans SC">✂ 营业中</text>
+
+                        <!-- 等候椅 (3把) -->
+                        <!-- 椅1 -->
+                        <g id="chair0">
+                            <rect x="178" y="230" width="68" height="50" rx="8" id="chairBg0" fill="#1e4d2e" stroke="#4ade80" stroke-width="2"/>
+                            <text x="212" y="260" text-anchor="middle" fill="#6b7280" font-size="11" id="chairLabel0">空</text>
+                        </g>
+                        <!-- 椅2 -->
+                        <g id="chair1">
+                            <rect x="266" y="230" width="68" height="50" rx="8" id="chairBg1" fill="#1e4d2e" stroke="#4ade80" stroke-width="2"/>
+                            <text x="300" y="260" text-anchor="middle" fill="#6b7280" font-size="11" id="chairLabel1">空</text>
+                        </g>
+                        <!-- 椅3 -->
+                        <g id="chair2">
+                            <rect x="354" y="230" width="68" height="50" rx="8" id="chairBg2" fill="#1e4d2e" stroke="#4ade80" stroke-width="2"/>
+                            <text x="388" y="260" text-anchor="middle" fill="#6b7280" font-size="11" id="chairLabel2">空</text>
+                        </g>
+
+                        <!-- 理发椅 -->
+                        <rect x="490" y="200" width="90" height="80" rx="10" fill="#2d1a0a" stroke="#f97316" stroke-width="2.5"/>
+                        <text x="535" y="248" text-anchor="middle" fill="#f97316" font-size="11" font-family="Noto Sans SC">理发椅</text>
+                        <text x="535" y="264" text-anchor="middle" fill="#6b7280" font-size="9">[临界资源]</text>
+
+                        <!-- 理发师 -->
+                        <g id="barberGroup">
+                            <!-- 身体 -->
+                            <ellipse cx="575" cy="155" rx="22" ry="28" fill="#1e40af" stroke="#3b82f6" stroke-width="2"/>
+                            <!-- 头 -->
+                            <circle cx="575" cy="120" r="20" fill="#fcd34d" stroke="#f59e0b" stroke-width="2"/>
+                            <!-- 眼睛 -->
+                            <g id="barberEyes">
+                                <ellipse cx="569" cy="118" rx="3" ry="2.5" fill="#1f2937" id="barberEyeL"/>
+                                <ellipse cx="581" cy="118" rx="3" ry="2.5" fill="#1f2937" id="barberEyeR"/>
+                            </g>
+                            <!-- 嘴 -->
+                            <path id="barberMouth" d="M 569 126 Q 575 130 581 126" stroke="#92400e" stroke-width="1.5" fill="none"/>
+                            <!-- 帽子 -->
+                            <rect x="558" y="100" width="34" height="8" rx="2" fill="#1e3a5f"/>
+                            <rect x="563" y="88" width="24" height="14" rx="3" fill="#1e3a5f" stroke="#22d3ee" stroke-width="1"/>
+                            <!-- 睡眠气泡 -->
+                            <g id="sleepBubble">
+                                <circle cx="600" cy="95" r="14" fill="rgba(96,165,250,0.2)" stroke="#60a5fa" stroke-width="1.5"/>
+                                <text x="600" y="100" text-anchor="middle" fill="#60a5fa" font-size="14" font-weight="700">Z</text>
+                                <circle cx="617" cy="82" r="9" fill="rgba(96,165,250,0.15)" stroke="#60a5fa" stroke-width="1"/>
+                                <text x="617" y="87" text-anchor="middle" fill="#60a5fa" font-size="10">Z</text>
+                                <circle cx="629" cy="72" r="6" fill="rgba(96,165,250,0.1)" stroke="#60a5fa" stroke-width="1"/>
+                                <text x="629" y="76" text-anchor="middle" fill="#60a5fa" font-size="8">Z</text>
+                            </g>
+                            <!-- 剪刀 (工作态) -->
+                            <g id="scissorsGroup" style="opacity:0">
+                                <text x="598" y="145" font-size="22" text-anchor="middle">✂</text>
+                            </g>
+                        </g>
+                        <!-- 理发师状态标签 -->
+                        <rect x="545" y="166" width="60" height="20" rx="4" id="barberStateBg" fill="#1e3a5f"/>
+                        <text x="575" y="180" text-anchor="middle" fill="#60a5fa" font-size="10" id="barberStateText">休眠中</text>
+
+                        <!-- 互斥锁图标 -->
+                        <g id="mutexIcon" transform="translate(295,130)">
+                            <circle r="18" fill="#1a1f2e" stroke="#22d3ee" stroke-width="2"/>
+                            <text y="6" text-anchor="middle" font-size="16" id="mutexEmoji">🔓</text>
+                        </g>
+                        <text x="295" y="165" text-anchor="middle" fill="#9ca3af" font-size="10" id="mutexLabel">mutex=1</text>
+
+                        <!-- 顾客区域（动态渲染） -->
+                        <g id="customersGroup"></g>
+
+                        <!-- 离开区域提示 -->
+                        <text x="80" y="340" text-anchor="middle" fill="#6b7280" font-size="10" font-family="Noto Sans SC" id="doorSign">进门/离开</text>
+                    </svg>
+                </div>
+            </div>
+
+            <!-- 右侧面板 -->
+            <div class="side-panel">
+                <div class="info-card" id="ruleCard">
+                    <div class="info-title">核心映射关系</div>
+                    <div class="info-row"><span class="info-label">理发师</span><span class="info-value" style="color:var(--orange)">工作线程/CPU</span></div>
+                    <div class="info-row"><span class="info-label">顾客</span><span class="info-value" style="color:var(--green)">请求进程/任务</span></div>
+                    <div class="info-row"><span class="info-label">等候椅</span><span class="info-value" style="color:var(--accent)">有限缓冲区</span></div>
+                    <div class="info-row"><span class="info-label">理发椅</span><span class="info-value" style="color:var(--yellow)">临界资源</span></div>
+                    <div class="info-row"><span class="info-label">信号量</span><span class="info-value" style="color:var(--muted)">调度规则</span></div>
+                </div>
+
+                <div class="info-card" id="statsCard">
+                    <div class="info-title">运行统计</div>
+                    <div class="info-row"><span class="info-label">已服务顾客</span><span class="info-value" style="color:var(--green)" id="statServed">0</span></div>
+                    <div class="info-row"><span class="info-label">被拒绝（满员）</span><span class="info-value" style="color:var(--red)" id="statRejected">0</span></div>
+                    <div class="info-row"><span class="info-label">理发师状态</span><span class="info-value" style="color:var(--orange)" id="statBarber">休眠</span></div>
+                    <div class="info-row"><span class="info-label">当前等候</span><span class="info-value" style="color:var(--yellow)" id="statWaiting">0</span></div>
+                </div>
+
+                <div class="log-card">
+                    <div class="info-title">操作日志</div>
+                    <div class="log-list" id="logList"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 总结 -->
+    <div class="summary-overlay" id="summaryOverlay">
+        <div class="summary-card">
+            <button class="summary-close" id="summaryClose">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+            <h2 class="summary-title">打盹的理发师 — 核心总结</h2>
+            <div class="summary-item">
+                <div class="summary-num">1</div>
+                <div class="summary-text"><strong>生产者-消费者模型</strong>：顾客=生产任务，理发师=消费任务，等候椅=有限缓冲区</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-num">2</div>
+                <div class="summary-text"><strong>三大信号量</strong>：customers（顾客数）、barber（理发师状态）、mutex（互斥锁）</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-num">3</div>
+                <div class="summary-text"><strong>阻塞唤醒</strong>：无顾客→理发师休眠；有顾客→V(customers)唤醒理发师</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-num">4</div>
+                <div class="summary-text"><strong>缓冲区溢出</strong>：等候区满员时，新顾客直接离开，对应请求丢弃机制</div>
+            </div>
+            <div class="summary-actions">
+                <button class="summary-btn" id="replayBtn">重新播放</button>
+            </div>
+        </div>
+    </div>
+
+<script>
+// ===== 状态 =====
+const state = {
+    isPlaying: false,
+    currentScene: 0,
+    sceneTime: 0,
+    lastTimestamp: 0,
+    animFrame: null,
+    semCustomers: 0,
+    semBarber: 0,
+    semMutex: 1,
+    waitingCount: 0,
+    servedCount: 0,
+    rejectedCount: 0,
+    barberState: 'sleep', // sleep / working
+    chairOccupied: [false, false, false],
+    chairCustomerIds: [null, null, null],
+    customers: [], // {id, x, y, state, el}
+    nextCustomerId: 1,
+};
+const executed = new Set();
+
+// ===== DOM =====
+const dom = {};
+function initDom() {
+    ['header','hintBox','mainLayout','ruleCard','statsCard',
+     'semCustomers','semBarber','semMutex','semWaiting',
+     'barberStateText','barberStateBg',
+     'sleepBubble','scissorsGroup','barberEyes','barberMouth',
+     'customersGroup',
+     'statServed','statRejected','statBarber','statWaiting',
+     'logList','summaryOverlay','summaryClose','replayBtn',
+     'playBtn','playIcon','resetBtn','progressFill','sceneLabel',
+     'mutexEmoji','mutexLabel',
+     'chair0','chair1','chair2',
+     'chairBg0','chairBg1','chairBg2',
+     'chairLabel0','chairLabel1','chairLabel2',
+    ].forEach(id => dom[id] = document.getElementById(id));
+}
+
+// ===== 场景 =====
+const scenes = [
+    {
+        name: '初始状态', duration: 5000,
+        actions: [
+            {t:0, fn:'showHeader'},
+            {t:300, fn:'hint', text:'理发店空无一人，理发师没有任务时进入<span class="hl">休眠阻塞状态</span>，节省系统资源——这就是线程的被动调度机制。'},
+            {t:1000, fn:'showLayout'},
+            {t:1800, fn:'showCards'},
+        ]
+    },
+    {
+        name: '首位顾客唤醒', duration: 9000,
+        actions: [
+            {t:0, fn:'hint', text:'顾客1到达！先申请 <span class="hl">mutex互斥锁</span> 保护等候区，入座后执行 <span class="ok">V(customers)</span> 唤醒休眠的理发师。'},
+            {t:600, fn:'customerArrive', id:1},
+            {t:1800, fn:'acquireMutex'},
+            {t:2800, fn:'customerSit', id:1, seat:0},
+            {t:3200, fn:'releaseMutex'},
+            {t:3400, fn:'vCustomers'},
+            {t:4200, fn:'wakeBarber'},
+            {t:5500, fn:'barberServe', customerId:1, seat:0},
+            {t:7000, fn:'customerLeave', id:1},
+            {t:8000, fn:'barberSleep'},
+        ]
+    },
+    {
+        name: '客流高峰', duration: 14000,
+        actions: [
+            {t:0, fn:'hint', text:'多位顾客陆续到达，等候区逐渐填满。等候区满员后，新顾客直接离开——这是<span class="warn">缓冲区溢出</span>，对应请求丢弃机制。'},
+            {t:500, fn:'barberBusy'},
+            {t:600, fn:'customerArrive', id:2},
+            {t:1400, fn:'acquireMutex'},
+            {t:1900, fn:'customerSit', id:2, seat:0},
+            {t:2200, fn:'releaseMutex'},
+            {t:2300, fn:'vCustomers'},
+            {t:2700, fn:'customerArrive', id:3},
+            {t:3400, fn:'acquireMutex'},
+            {t:3800, fn:'customerSit', id:3, seat:1},
+            {t:4100, fn:'releaseMutex'},
+            {t:4200, fn:'vCustomers'},
+            {t:4600, fn:'customerArrive', id:4},
+            {t:5300, fn:'acquireMutex'},
+            {t:5700, fn:'customerSit', id:4, seat:2},
+            {t:6000, fn:'releaseMutex'},
+            {t:6100, fn:'vCustomers'},
+            {t:6100, fn:'chairFull'},
+            {t:7000, fn:'customerArrive', id:5},
+            {t:8000, fn:'acquireMutex'},
+            {t:8800, fn:'rejectCustomer', id:5},
+            {t:9100, fn:'releaseMutex'},
+            {t:10000, fn:'barberServe', customerId:2, seat:0},
+            {t:12000, fn:'customerLeave', id:2},
+        ]
+    },
+    {
+        name: '循环调度', duration: 12000,
+        actions: [
+            {t:0, fn:'hint', text:'理发师完成服务后，通过信号量通知等候队列，形成完整的<span class="hl">同步循环</span>。互斥锁保证缓冲区并发安全。'},
+            {t:500, fn:'barberServe', customerId:3, seat:1},
+            {t:2500, fn:'customerLeave', id:3},
+            {t:3500, fn:'barberServe', customerId:4, seat:2},
+            {t:5500, fn:'customerLeave', id:4},
+            {t:7000, fn:'pvSummary'},
+        ]
+    },
+    {
+        name: '空店复眠', duration: 7000,
+        actions: [
+            {t:0, fn:'hint', text:'所有顾客服务完毕，customers=0，理发师重新<span class="hl">进入休眠</span>。信号量回归初始值，线程阻塞等待下一次唤醒。'},
+            {t:800, fn:'barberSleep'},
+            {t:2000, fn:'resetSemaphores'},
+            {t:4000, fn:'showSummary'},
+        ]
+    }
+];
+
+// ===== SVG 辅助 =====
+function svgEl(tag, attrs) {
+    const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    Object.entries(attrs).forEach(([k, v]) => el.setAttribute(k, v));
+    return el;
+}
+
+// ===== 顾客管理 =====
+function getCustomerColor(id) {
+    const colors = ['#22d3ee','#4ade80','#f97316','#a78bfa','#fb923c'];
+    return colors[(id - 1) % colors.length];
+}
+
+function spawnCustomer(id, x, y) {
+    const g = svgEl('g', {id:`cust-${id}`, style:`opacity:0`});
+    const color = getCustomerColor(id);
+    // 身体
+    const body = svgEl('ellipse', {cx:x, cy:y+10, rx:16, ry:20, fill:color, stroke:'#fff', 'stroke-width':'1.5'});
+    // 头
+    const head = svgEl('circle', {cx:x, cy:y-18, r:15, fill:'#fcd34d', stroke:'#f59e0b', 'stroke-width':'2'});
+    // 编号
+    const num = svgEl('text', {x:x, y:y-22, 'text-anchor':'middle', fill:'#1f2937', 'font-size':'11', 'font-weight':'700', 'font-family':'JetBrains Mono'});
+    num.textContent = `C${id}`;
+    g.append(body, head, num);
+    dom.customersGroup.appendChild(g);
+    // 淡入
+    setTimeout(() => { g.style.opacity = '1'; g.style.transition = 'opacity 0.3s'; }, 50);
+    return g;
+}
+
+function moveCustomer(id, tx, ty, dur=800) {
+    const g = document.getElementById(`cust-${id}`);
+    if (!g) return;
+    const body = g.querySelector('ellipse');
+    const head = g.querySelector('circle');
+    const text = g.querySelector('text');
+    const bx = parseFloat(body.getAttribute('cx')), by = parseFloat(body.getAttribute('cy'));
+    const hx = parseFloat(head.getAttribute('cx')), hy = parseFloat(head.getAttribute('cy'));
+    const tx2 = tx, ty2 = ty + 10, hx2 = tx, hy2 = ty - 18;
+    const dx = tx2 - bx, dy = ty2 - by;
+    const start = performance.now();
+    function step() {
+        const p = Math.min((performance.now() - start) / dur, 1);
+        const e = 1 - Math.pow(1 - p, 3);
+        body.setAttribute('cx', bx + dx * e);
+        body.setAttribute('cy', by + dy * e);
+        head.setAttribute('cx', hx + (hx2 - hx) * e);
+        head.setAttribute('cy', hy + (hy2 - hy) * e);
+        if (text) {
+            text.setAttribute('x', hx + (hx2 - hx) * e);
+            text.setAttribute('y', hy + (hy2 - hy) * e - 4);
+        }
+        if (p < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+}
+
+// ===== 日志 =====
+function addLog(text) {
+    const item = document.createElement('div');
+    item.className = 'log-item new';
+    item.textContent = `› ${text}`;
+    dom.logList.insertBefore(item, dom.logList.firstChild);
+    setTimeout(() => item.classList.remove('new'), 1000);
+}
+
+// ===== 信号量更新 =====
+function updateSem(name, val) {
+    const el = dom[`sem${name}`];
+    if (!el) return;
+    el.textContent = val;
+    el.classList.add('anim');
+    setTimeout(() => el.classList.remove('anim'), 300);
+}
+
+// ===== 理发师状态 =====
+function setBarberState(s) {
+    state.barberState = s;
+    if (s === 'sleep') {
+        dom.sleepBubble.style.opacity = '1';
+        dom.scissorsGroup.style.opacity = '0';
+        dom.barberStateText.textContent = '休眠中';
+        dom.barberStateText.setAttribute('fill', '#60a5fa');
+        dom.barberStateBg.setAttribute('fill', '#1e3a5f');
+        dom.statBarber.textContent = '休眠';
+        dom.statBarber.style.color = '#60a5fa';
+    } else {
+        dom.sleepBubble.style.opacity = '0';
+        dom.scissorsGroup.style.opacity = '1';
+        dom.barberStateText.textContent = '工作中';
+        dom.barberStateText.setAttribute('fill', '#f97316');
+        dom.barberStateBg.setAttribute('fill', '#2d1a0a');
+        dom.statBarber.textContent = '工作中';
+        dom.statBarber.style.color = '#f97316';
+    }
+}
+
+// ===== 椅子状态 =====
+const chairPositions = [{x:212,y:255},{x:300,y:255},{x:388,y:255}];
+function updateChairDisplay(seat, occupied, custId) {
+    const bg = dom[`chairBg${seat}`];
+    const label = dom[`chairLabel${seat}`];
+    if (occupied) {
+        bg.setAttribute('fill', 'rgba(249,115,22,0.2)');
+        bg.setAttribute('stroke', '#f97316');
+        label.textContent = `C${custId}`;
+        label.setAttribute('fill', '#f97316');
+    } else {
+        bg.setAttribute('fill', '#1e4d2e');
+        bg.setAttribute('stroke', '#4ade80');
+        label.textContent = '空';
+        label.setAttribute('fill', '#6b7280');
+    }
+}
+function updateWaiting() {
+    const count = state.chairOccupied.filter(Boolean).length;
+    state.waitingCount = count;
+    dom.semWaiting.textContent = `${count}/3`;
+    dom.statWaiting.textContent = count;
+}
+
+// ===== 动作函数 =====
+const actions = {
+    showHeader() { dom.header.classList.add('visible'); },
+    hint(p) {
+        dom.hintBox.innerHTML = p.text;
+        dom.hintBox.classList.add('visible');
+    },
+    showLayout() { dom.mainLayout.classList.add('visible'); },
+    showCards() {
+        dom.ruleCard.classList.add('visible');
+        dom.statsCard.classList.add('visible');
+    },
+    customerArrive(p) {
+        const g = spawnCustomer(p.id, 80, 290);
+        state.customers.push({id: p.id, el: g});
+        addLog(`顾客C${p.id} 推门进入`);
+    },
+    acquireMutex() {
+        state.semMutex = 0;
+        updateSem('Mutex', 0);
+        dom.mutexEmoji.textContent = '🔒';
+        dom.mutexLabel.textContent = 'mutex=0';
+        dom.mutexLabel.setAttribute('fill', '#f87171');
+        addLog('P(mutex) → mutex=0 [锁定等候区]');
+    },
+    releaseMutex() {
+        state.semMutex = 1;
+        updateSem('Mutex', 1);
+        dom.mutexEmoji.textContent = '🔓';
+        dom.mutexLabel.textContent = 'mutex=1';
+        dom.mutexLabel.setAttribute('fill', '#9ca3af');
+        addLog('V(mutex) → mutex=1 [释放等候区]');
+    },
+    customerSit(p) {
+        const seat = p.seat;
+        state.chairOccupied[seat] = true;
+        state.chairCustomerIds[seat] = p.id;
+        updateChairDisplay(seat, true, p.id);
+        updateWaiting();
+        const pos = chairPositions[seat];
+        moveCustomer(p.id, pos.x, pos.y - 20, 700);
+        addLog(`顾客C${p.id} 入座等候椅${seat+1}`);
+    },
+    vCustomers() {
+        state.semCustomers++;
+        updateSem('Customers', state.semCustomers);
+        addLog(`V(customers) → customers=${state.semCustomers}`);
+    },
+    wakeBarber() {
+        setBarberState('working');
+        state.semBarber = 1;
+        updateSem('Barber', 1);
+        addLog('理发师被唤醒！开始工作');
+    },
+    barberBusy() { setBarberState('working'); },
+    barberSleep() {
+        setBarberState('sleep');
+        addLog('customers=0，理发师进入休眠');
+    },
+    barberServe(p) {
+        const seat = p.seat;
+        state.semCustomers = Math.max(0, state.semCustomers - 1);
+        updateSem('Customers', state.semCustomers);
+        // 顾客走向理发椅
+        moveCustomer(p.customerId, 535, 230, 900);
+        // 清空椅子
+        state.chairOccupied[seat] = false;
+        state.chairCustomerIds[seat] = null;
+        updateChairDisplay(seat, false, null);
+        updateWaiting();
+        state.servedCount++;
+        dom.statServed.textContent = state.servedCount;
+        addLog(`理发师开始为C${p.customerId}理发`);
+    },
+    customerLeave(p) {
+        const g = document.getElementById(`cust-${p.id}`);
+        if (g) {
+            moveCustomer(p.id, 80, 330, 600);
+            setTimeout(() => { g.style.opacity = '0'; setTimeout(() => g.remove(), 400); }, 650);
+        }
+        addLog(`顾客C${p.id} 理发完成，离店`);
+    },
+    rejectCustomer(p) {
+        state.rejectedCount++;
+        dom.statRejected.textContent = state.rejectedCount;
+        const g = document.getElementById(`cust-${p.id}`);
+        if (g) {
+            // 显示失望
+            const t = svgEl('text', {x:80, y:265, 'text-anchor':'middle', fill:'#f87171', 'font-size':'11', 'font-family':'Noto Sans SC'});
+            t.textContent = '满员！离开';
+            g.appendChild(t);
+            setTimeout(() => {
+                moveCustomer(p.id, -30, 290, 600);
+                setTimeout(() => { g.style.opacity = '0'; setTimeout(() => g.remove(), 400); }, 650);
+            }, 600);
+        }
+        addLog(`等候区满员！顾客C${p.id} 转身离开`);
+    },
+    chairFull() {
+        // 椅子全满红色提示
+        for (let i = 0; i < 3; i++) {
+            if (state.chairOccupied[i]) {
+                dom[`chairBg${i}`].setAttribute('stroke', '#f87171');
+            }
+        }
+        addLog('⚠ 等候区已满（3/3）');
+    },
+    pvSummary() {
+        addLog('同步循环完成：P/V 操作保证缓冲区安全');
+    },
+    resetSemaphores() {
+        state.semCustomers = 0; state.semBarber = 0; state.semMutex = 1;
+        updateSem('Customers', 0); updateSem('Barber', 0); updateSem('Mutex', 1);
+        dom.mutexEmoji.textContent = '🔓';
+        dom.mutexLabel.textContent = 'mutex=1';
+        dom.mutexLabel.setAttribute('fill', '#9ca3af');
+    },
+    showSummary() { dom.summaryOverlay.classList.add('visible'); },
+};
+
+// ===== 动画循环 =====
+function tick(now) {
+    if (!state.isPlaying) return;
+    state.sceneTime += now - state.lastTimestamp;
+    state.lastTimestamp = now;
+
+    const scene = scenes[state.currentScene];
+    if (!scene) { state.isPlaying = false; updatePlayIcon(); return; }
+
+    const totalDur = scenes.reduce((s, sc) => s + sc.duration, 0);
+    const elapsed = scenes.slice(0, state.currentScene).reduce((s, sc) => s + sc.duration, 0) + state.sceneTime;
+    dom.progressFill.style.width = `${(elapsed / totalDur) * 100}%`;
+
+    scene.actions.forEach((a, i) => {
+        const key = `${state.currentScene}-${i}`;
+        if (state.sceneTime >= a.t && !executed.has(key)) {
+            executed.add(key);
+            if (actions[a.fn]) actions[a.fn](a);
+        }
+    });
+
+    if (state.sceneTime >= scene.duration) {
+        state.currentScene++;
+        state.sceneTime = 0;
+        executed.clear();
+        updateSceneLabel();
+        if (state.currentScene >= scenes.length) { state.isPlaying = false; updatePlayIcon(); return; }
+    }
+    state.animFrame = requestAnimationFrame(tick);
+}
+
+function updatePlayIcon() {
+    dom.playIcon.innerHTML = state.isPlaying
+        ? '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>'
+        : '<polygon points="5,3 19,12 5,21"/>';
+}
+
+function updateSceneLabel() {
+    dom.sceneLabel.textContent = `场景 ${state.currentScene + 1}/${scenes.length}`;
+}
+
+function togglePlay() {
+    state.isPlaying = !state.isPlaying;
+    updatePlayIcon();
+    if (state.isPlaying) { state.lastTimestamp = performance.now(); requestAnimationFrame(tick); }
+    else cancelAnimationFrame(state.animFrame);
+}
+
+function reset() {
+    cancelAnimationFrame(state.animFrame);
+    state.isPlaying = false; state.currentScene = 0; state.sceneTime = 0;
+    state.semCustomers = 0; state.semBarber = 0; state.semMutex = 1;
+    state.waitingCount = 0; state.servedCount = 0; state.rejectedCount = 0;
+    state.barberState = 'sleep';
+    state.chairOccupied = [false,false,false];
+    state.chairCustomerIds = [null,null,null];
+    state.customers = [];
+    state.nextCustomerId = 1;
+    executed.clear();
+
+    updatePlayIcon();
+    dom.progressFill.style.width = '0%';
+    ['header','hintBox','mainLayout','ruleCard','statsCard'].forEach(k => {
+        if (dom[k]) dom[k].classList.remove('visible');
+    });
+    dom.summaryOverlay.classList.remove('visible');
+    dom.hintBox.classList.remove('visible');
+    dom.customersGroup.innerHTML = '';
+    dom.logList.innerHTML = '';
+
+    updateSem('Customers', 0); updateSem('Barber', 0); updateSem('Mutex', 1);
+    dom.semWaiting.textContent = '0/3';
+    dom.statServed.textContent = '0'; dom.statRejected.textContent = '0';
+    dom.statWaiting.textContent = '0';
+    dom.mutexEmoji.textContent = '🔓'; dom.mutexLabel.textContent = 'mutex=1';
+    dom.mutexLabel.setAttribute('fill', '#9ca3af');
+    setBarberState('sleep');
+    for (let i = 0; i < 3; i++) updateChairDisplay(i, false, null);
+    updateSceneLabel();
+}
+
+// ===== 初始化 =====
+document.addEventListener('DOMContentLoaded', () => {
+    initDom();
+    dom.playBtn.addEventListener('click', togglePlay);
+    dom.resetBtn.addEventListener('click', reset);
+    dom.summaryClose.addEventListener('click', () => dom.summaryOverlay.classList.remove('visible'));
+    dom.replayBtn.addEventListener('click', () => {
+        dom.summaryOverlay.classList.remove('visible');
+        reset();
+        setTimeout(togglePlay, 300);
+    });
+    document.addEventListener('keydown', e => {
+        if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
+        else if (e.code === 'KeyR') reset();
+    });
+    setBarberState('sleep');
+    updateSceneLabel();
+});
+</script>
+</body>
+</html>

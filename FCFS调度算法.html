@@ -22,7 +22,75 @@
             --highlight-color: #f87171;
         }
         
-        * {
+        .home-btn {
+            position: fixed;
+            top: 16px;
+            left: 16px;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--fg);
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            font-family: inherit;
+        }
+        
+        .home-btn:hover {
+            background: var(--accent);
+            border-color: var(--accent);
+            transform: translateY(-2px);
+        }
+        
+        .summary-close-btn {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            background: transparent;
+            border: none;
+            color: var(--muted);
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 4px;
+            transition: all 0.3s ease;
+        }
+        
+        .summary-close-btn:hover {
+            color: var(--fg);
+            background: rgba(255,255,255,0.1);
+        }
+        
+        .replay-btn {
+            margin-top: 20px;
+            padding: 10px 24px;
+            border-radius: 30px;
+            border: 2px solid var(--accent);
+            background: transparent;
+            color: var(--accent);
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-family: inherit;
+        }
+        
+        .replay-btn:hover {
+            background: var(--accent);
+            color: white;
+            transform: translateY(-2px);
+        }
+        
+        .summary-card {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
@@ -545,6 +613,7 @@
             max-width: 600px;
             transform: scale(0.9);
             transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+            position: relative;
         }
         
         .summary-overlay.visible .summary-card {
@@ -619,6 +688,14 @@
     </style>
 </head>
 <body>
+    <a href="index.html" class="home-btn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+            <polyline points="9 22 9 12 15 12 15 22"/>
+        </svg>
+        返回主页
+    </a>
+    
     <div class="bg-layer">
         <div class="bg-gradient"></div>
         <div class="bg-grid"></div>
@@ -853,12 +930,25 @@
     
     <div class="summary-overlay" id="summaryOverlay">
         <div class="summary-card">
+            <button class="summary-close-btn" id="summaryCloseBtn">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"/>
+                    <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+            </button>
             <h2 class="summary-title">FCFS 核心特点</h2>
             <p class="summary-text">
                 <span class="pros">✅ 优点</span>：简单易实现、公平（按到达顺序）<br><br>
                 <span class="cons">❌ 缺点</span>：短作业等待时间长、存在"护航效应"、CPU利用率低<br><br>
                 <span class="key">⚠️ 关键</span>：非抢占式，一旦执行不中断
             </p>
+            <button class="replay-btn" id="replayBtn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                    <path d="M3 3v5h5"/>
+                </svg>
+                重新播放
+            </button>
         </div>
     </div>
     

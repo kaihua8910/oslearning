@@ -1,0 +1,1537 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UNIX inode文件系统——索引式文件存储与软硬链接</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0c1015;
+            --bg-secondary: #141c24;
+            --bg-tertiary: #1c2730;
+            --fg: #e4eaf1;
+            --muted: #6a7d8f;
+            --accent: #f97316;
+            --accent-glow: rgba(249, 115, 22, 0.35);
+            --inode-color: #0ea5e9;
+            --inode-glow: rgba(14, 165, 233, 0.35);
+            --data-color: #10b981;
+            --data-glow: rgba(16, 185, 129, 0.35);
+            --softlink-color: #a855f7;
+            --softlink-glow: rgba(168, 85, 247, 0.35);
+            --danger: #ef4444;
+            --danger-glow: rgba(239, 68, 68, 0.35);
+            --card: rgba(20, 28, 36, 0.95);
+            --border: rgba(249, 115, 22, 0.2);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Noto Sans SC', sans-serif;
+            background: var(--bg);
+            color: var(--fg);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .bg-pattern {
+            position: fixed;
+            inset: 0;
+            background: 
+                radial-gradient(circle at 25% 35%, rgba(249, 115, 22, 0.05) 0%, transparent 50%),
+                radial-gradient(circle at 75% 65%, rgba(14, 165, 233, 0.05) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .bg-grid {
+            position: fixed;
+            inset: 0;
+            background-image: 
+                linear-gradient(rgba(249, 115, 22, 0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(249, 115, 22, 0.02) 1px, transparent 1px);
+            background-size: 30px 30px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* 三分区容器 */
+        .zone-container {
+            display: grid;
+            grid-template-columns: 1fr 1.3fr 1fr;
+            gap: 20px;
+            align-items: start;
+            position: relative;
+        }
+
+        .zone {
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .zone-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: linear-gradient(180deg, var(--bg-tertiary), var(--bg-secondary));
+        }
+
+        .zone-icon {
+            width: 28px;
+            height: 28px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .zone-content {
+            padding: 16px;
+            min-height: 320px;
+            position: relative;
+        }
+
+        /* 目录项 */
+        .dir-entry {
+            background: linear-gradient(145deg, rgba(249, 115, 22, 0.15), rgba(249, 115, 22, 0.05));
+            border: 2px solid var(--accent);
+            border-radius: 10px;
+            padding: 14px 16px;
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.4s ease;
+            position: relative;
+            cursor: pointer;
+        }
+
+        .dir-entry:last-child {
+            margin-bottom: 0;
+        }
+
+        .dir-entry:hover {
+            box-shadow: 0 0 25px var(--accent-glow);
+            transform: translateX(3px);
+        }
+
+        .dir-entry.highlight {
+            box-shadow: 0 0 30px var(--accent-glow);
+            animation: entry-pulse 0.6s ease-in-out infinite;
+        }
+
+        @keyframes entry-pulse {
+            0%, 100% { box-shadow: 0 0 20px var(--accent-glow); }
+            50% { box-shadow: 0 0 35px var(--accent-glow); }
+        }
+
+        .dir-entry.softlink {
+            background: linear-gradient(145deg, rgba(168, 85, 247, 0.15), rgba(168, 85, 247, 0.05));
+            border-color: var(--softlink-color);
+        }
+
+        .dir-entry.softlink:hover {
+            box-shadow: 0 0 25px var(--softlink-glow);
+        }
+
+        .dir-entry.deleted {
+            opacity: 0.25;
+            border-style: dashed;
+            filter: grayscale(0.5);
+        }
+
+        .dir-entry.broken {
+            border-color: var(--danger);
+            animation: broken-shake 0.3s ease 2;
+        }
+
+        @keyframes broken-shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+
+        .file-icon {
+            width: 20px;
+            height: 20px;
+            margin-right: 8px;
+        }
+
+        .file-name {
+            font-weight: 700;
+            font-size: 15px;
+            display: flex;
+            align-items: center;
+        }
+
+        .inode-ref {
+            font-size: 12px;
+            color: var(--muted);
+            background: rgba(0,0,0,0.2);
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+
+        /* inode节点 */
+        .inode-node {
+            background: linear-gradient(145deg, rgba(14, 165, 233, 0.15), rgba(14, 165, 233, 0.05));
+            border: 2px solid var(--inode-color);
+            border-radius: 10px;
+            padding: 14px;
+            margin-bottom: 12px;
+            transition: all 0.4s ease;
+            position: relative;
+        }
+
+        .inode-node:last-child {
+            margin-bottom: 0;
+        }
+
+        .inode-node:hover {
+            box-shadow: 0 0 25px var(--inode-glow);
+        }
+
+        .inode-node.highlight {
+            box-shadow: 0 0 30px var(--inode-glow);
+            animation: inode-pulse 0.6s ease-in-out infinite;
+        }
+
+        @keyframes inode-pulse {
+            0%, 100% { box-shadow: 0 0 20px var(--inode-glow); }
+            50% { box-shadow: 0 0 40px var(--inode-glow); }
+        }
+
+        .inode-node.deleted {
+            opacity: 0.2;
+            border-style: dashed;
+            filter: grayscale(0.8);
+        }
+
+        .inode-node.softlink {
+            border-color: var(--softlink-color);
+        }
+
+        .inode-node.softlink:hover {
+            box-shadow: 0 0 25px var(--softlink-glow);
+        }
+
+        .inode-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid rgba(14, 165, 233, 0.2);
+        }
+
+        .inode-number {
+            font-weight: 700;
+            font-size: 16px;
+            color: var(--inode-color);
+        }
+
+        .inode-node.softlink .inode-number {
+            color: var(--softlink-color);
+        }
+
+        .link-count {
+            background: var(--inode-color);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 700;
+            transition: all 0.3s;
+        }
+
+        .link-count.highlight {
+            animation: count-bounce 0.5s ease;
+            background: var(--accent);
+            transform: scale(1.1);
+        }
+
+        @keyframes count-bounce {
+            0% { transform: scale(1); }
+            30% { transform: scale(1.3); }
+            60% { transform: scale(0.9); }
+            100% { transform: scale(1); }
+        }
+
+        .inode-meta {
+            font-size: 11px;
+            color: var(--muted);
+            margin-bottom: 8px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4px;
+        }
+
+        .inode-meta span {
+            background: rgba(0,0,0,0.15);
+            padding: 3px 6px;
+            border-radius: 4px;
+        }
+
+        .block-pointers {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .block-ptr {
+            background: rgba(16, 185, 129, 0.25);
+            border: 1px solid var(--data-color);
+            border-radius: 4px;
+            padding: 3px 10px;
+            font-size: 11px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        .block-ptr:hover {
+            background: rgba(16, 185, 129, 0.4);
+            box-shadow: 0 0 10px var(--data-glow);
+        }
+
+        .block-ptr.softlink {
+            background: rgba(168, 85, 247, 0.25);
+            border-color: var(--softlink-color);
+        }
+
+        /* 数据块 */
+        .data-block {
+            background: linear-gradient(145deg, rgba(16, 185, 129, 0.15), rgba(16, 185, 129, 0.05));
+            border: 2px solid var(--data-color);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 10px;
+            transition: all 0.4s ease;
+        }
+
+        .data-block:last-child {
+            margin-bottom: 0;
+        }
+
+        .data-block:hover {
+            box-shadow: 0 0 25px var(--data-glow);
+        }
+
+        .data-block.highlight {
+            box-shadow: 0 0 30px var(--data-glow);
+            animation: block-pulse 0.6s ease-in-out infinite;
+        }
+
+        @keyframes block-pulse {
+            0%, 100% { box-shadow: 0 0 15px var(--data-glow); }
+            50% { box-shadow: 0 0 30px var(--data-glow); }
+        }
+
+        .data-block.deleted {
+            opacity: 0.2;
+            border-style: dashed;
+            filter: grayscale(0.8);
+        }
+
+        .data-block.softlink-data {
+            background: linear-gradient(145deg, rgba(168, 85, 247, 0.15), rgba(168, 85, 247, 0.05));
+            border-color: var(--softlink-color);
+        }
+
+        .block-label {
+            font-weight: 700;
+            font-size: 13px;
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .block-content {
+            font-size: 11px;
+            color: var(--muted);
+            background: rgba(0,0,0,0.25);
+            padding: 8px 10px;
+            border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace;
+            word-break: break-all;
+        }
+
+        /* 箭头连接线 SVG */
+        .arrow-svg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 60;
+        }
+
+        .arrow-path {
+            fill: none;
+            stroke: var(--fg);
+            stroke-width: 2;
+            stroke-linecap: round;
+            transition: all 0.4s ease;
+        }
+
+        .arrow-path.active {
+            stroke: var(--accent);
+            stroke-width: 3;
+            filter: drop-shadow(0 0 6px var(--accent-glow));
+        }
+
+        .arrow-path.softlink {
+            stroke: var(--softlink-color);
+            filter: drop-shadow(0 0 6px var(--softlink-glow));
+        }
+
+        .arrow-path.danger {
+            stroke: var(--danger);
+            stroke-dasharray: 8, 4;
+            filter: drop-shadow(0 0 6px var(--danger-glow));
+        }
+
+        .arrow-head {
+            fill: var(--fg);
+            transition: all 0.3s;
+        }
+
+        .arrow-head.active {
+            fill: var(--accent);
+        }
+
+        .arrow-head.softlink {
+            fill: var(--softlink-color);
+        }
+
+        .arrow-head.danger {
+            fill: var(--danger);
+        }
+
+        /* 状态提示 */
+        .status-badge {
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 12px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .status-badge.info {
+            background: rgba(14, 165, 233, 0.2);
+            color: #38bdf8;
+            border: 1px solid rgba(14, 165, 233, 0.4);
+        }
+
+        .status-badge.warning {
+            background: rgba(249, 115, 22, 0.2);
+            color: #fb923c;
+            border: 1px solid rgba(249, 115, 22, 0.4);
+        }
+
+        .status-badge.success {
+            background: rgba(16, 185, 129, 0.2);
+            color: #34d399;
+            border: 1px solid rgba(16, 185, 129, 0.4);
+        }
+
+        .status-badge.danger {
+            background: rgba(239, 68, 68, 0.2);
+            color: #f87171;
+            border: 1px solid rgba(239, 68, 68, 0.4);
+        }
+
+        /* 进度条 */
+        .progress-bar {
+            height: 4px;
+            background: var(--bg-secondary);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent), var(--inode-color), var(--data-color));
+            width: 0%;
+            transition: width 0.1s linear;
+        }
+
+        /* 按钮 */
+        .btn {
+            padding: 10px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent), #ea580c);
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px var(--accent-glow);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: var(--card);
+            color: var(--fg);
+            border: 2px solid var(--border);
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            border-color: var(--accent);
+        }
+
+        .btn-secondary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* 场景指示器 */
+        .scene-indicator {
+            width: 24px;
+            height: 4px;
+            border-radius: 2px;
+            background: var(--bg-secondary);
+            transition: background 0.3s;
+        }
+
+        .scene-indicator.active {
+            background: linear-gradient(90deg, var(--accent), var(--inode-color));
+        }
+
+        /* 对比卡片 */
+        .compare-card {
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+        }
+
+        .compare-card.hardlink {
+            border-color: var(--accent);
+        }
+
+        .compare-card.softlink {
+            border-color: var(--softlink-color);
+        }
+
+        /* 信息面板 */
+        .info-panel {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-bottom: 12px;
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            padding: 4px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .info-row:last-child {
+            border-bottom: none;
+        }
+
+        /* 动画 */
+        .fade-in {
+            animation: fadeIn 0.5s ease-out forwards;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(15px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .slide-in-right {
+            animation: slideInRight 0.4s ease-out forwards;
+        }
+
+        @keyframes slideInRight {
+            from { opacity: 0; transform: translateX(20px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .slide-in-left {
+            animation: slideInLeft 0.4s ease-out forwards;
+        }
+
+        @keyframes slideInLeft {
+            from { opacity: 0; transform: translateX(-20px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        @media (max-width: 1024px) {
+            .zone-container {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+    <div class="bg-pattern"></div>
+    <div class="bg-grid"></div>
+
+    <div class="relative z-10 max-w-7xl mx-auto px-4 py-5">
+        <!-- 标题 -->
+        <header class="text-center mb-4">
+            <h1 class="text-xl md:text-2xl font-black mb-1 tracking-tight" id="main-title"></h1>
+            <p class="text-sm text-[var(--muted)]" id="sub-title">Linux文件系统核心底层逻辑</p>
+        </header>
+
+        <!-- 进度条 -->
+        <div class="progress-bar mb-4">
+            <div class="progress-fill" id="progress"></div>
+        </div>
+
+        <!-- 算法标识 -->
+        <div class="text-center mb-4" id="algorithm-display">
+            <span class="status-badge info">inode 索引机制</span>
+        </div>
+
+        <!-- 三分区主舞台 -->
+        <div class="zone-container mb-4" id="main-stage">
+            <!-- SVG箭头层 -->
+            <svg class="arrow-svg" id="arrow-svg">
+                <defs>
+                    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                        <polygon points="0 0, 10 3.5, 0 7" class="arrow-head"/>
+                    </marker>
+                    <marker id="arrowhead-active" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                        <polygon points="0 0, 10 3.5, 0 7" class="arrow-head active"/>
+                    </marker>
+                    <marker id="arrowhead-softlink" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                        <polygon points="0 0, 10 3.5, 0 7" class="arrow-head softlink"/>
+                    </marker>
+                    <marker id="arrowhead-danger" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                        <polygon points="0 0, 10 3.5, 0 7" class="arrow-head danger"/>
+                    </marker>
+                </defs>
+                <!-- 动态绘制的箭头 -->
+            </svg>
+
+            <!-- 目录区 -->
+            <div class="zone" id="dir-zone">
+                <div class="zone-header">
+                    <div class="zone-icon" style="background: var(--accent);">
+                        <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+                        </svg>
+                    </div>
+                    <span class="font-bold text-sm">目录区</span>
+                    <span class="text-xs text-[var(--muted)] ml-auto">文件名 → inode号</span>
+                </div>
+                <div class="zone-content" id="dir-content">
+                    <!-- 由JS生成 -->
+                </div>
+            </div>
+
+            <!-- inode表区 -->
+            <div class="zone" id="inode-zone">
+                <div class="zone-header">
+                    <div class="zone-icon" style="background: var(--inode-color);">
+                        <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm-1 7V3.5L18.5 9H13z"/>
+                        </svg>
+                    </div>
+                    <span class="font-bold text-sm">inode 表区</span>
+                    <span class="text-xs text-[var(--muted)] ml-auto">文件元数据</span>
+                </div>
+                <div class="zone-content" id="inode-content">
+                    <!-- 由JS生成 -->
+                </div>
+            </div>
+
+            <!-- 数据块区 -->
+            <div class="zone" id="data-zone">
+                <div class="zone-header">
+                    <div class="zone-icon" style="background: var(--data-color);">
+                        <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M2 20h20v-4H2v4zm2-3h2v2H4v-2zM2 4v4h20V4H2zm4 3H4V5h2v2zm-4 7h20v-4H2v4zm2-3h2v2H4v-2z"/>
+                        </svg>
+                    </div>
+                    <span class="font-bold text-sm">数据块区</span>
+                    <span class="text-xs text-[var(--muted)] ml-auto">实际内容</span>
+                </div>
+                <div class="zone-content" id="data-content">
+                    <!-- 由JS生成 -->
+                </div>
+            </div>
+        </div>
+
+        <!-- 状态显示 -->
+        <div class="text-center mb-4" id="status-display">
+            <span class="text-sm text-[var(--muted)]">点击开始演示</span>
+        </div>
+
+        <!-- 旁白区 -->
+        <div class="bg-[var(--card)] rounded-xl p-4 border border-[var(--border)] mb-4">
+            <div class="flex items-start gap-3">
+                <div class="w-8 h-8 rounded-full bg-gradient-to-br from-[var(--accent)] to-amber-500 flex items-center justify-center flex-shrink-0">
+                    <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                    </svg>
+                </div>
+                <div>
+                    <h4 class="font-bold text-sm mb-1">讲解</h4>
+                    <p class="text-[var(--muted)] leading-relaxed text-sm transition-opacity duration-300" id="narration">点击"开始演示"按钮，观看inode文件系统的完整演示。</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 控制区 -->
+        <div class="flex items-center justify-center gap-3 flex-wrap mb-4">
+            <button class="btn btn-primary" id="btn-start">
+                <span class="flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M8 5v14l11-7z"/>
+                    </svg>
+                    开始演示
+                </span>
+            </button>
+            <button class="btn btn-secondary" id="btn-pause" disabled>
+                <span class="flex items-center gap-2" id="btn-pause-content">
+                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+                    </svg>
+                    暂停
+                </span>
+            </button>
+            <button class="btn btn-secondary" id="btn-reset">
+                <span class="flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                    重置
+                </span>
+            </button>
+            
+            <div class="flex items-center gap-2 ml-3">
+                <span class="text-xs text-[var(--muted)]">场景:</span>
+                <div class="flex gap-1" id="scene-indicators">
+                    <span class="scene-indicator" data-scene="1"></span>
+                    <span class="scene-indicator" data-scene="2"></span>
+                    <span class="scene-indicator" data-scene="3"></span>
+                    <span class="scene-indicator" data-scene="4"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 对比面板 -->
+        <div id="compare-panel" class="hidden">
+            <h3 class="text-lg font-bold mb-4 text-center">软硬链接核心对比</h3>
+            <div class="grid md:grid-cols-2 gap-4">
+                <div class="compare-card hardlink">
+                    <h4 class="font-bold mb-3 text-[var(--accent)]">硬链接</h4>
+                    <ul class="space-y-2 text-sm">
+                        <li class="flex items-start gap-2">
+                            <span class="text-[var(--data-color)]">-</span>
+                            <span>多个文件名指向同一inode</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <span class="text-[var(--data-color)]">-</span>
+                            <span>无独立inode，不占额外空间</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <span class="text-[var(--danger)]">!</span>
+                            <span>不能跨分区、不能指向目录</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <span class="text-[var(--inode-color)]">OK</span>
+                            <span>链接计数归0才彻底删除</span>
+                        </li>
+                    </ul>
+                </div>
+                <div class="compare-card softlink">
+                    <h4 class="font-bold mb-3 text-[var(--softlink-color)]">软链接</h4>
+                    <ul class="space-y-2 text-sm">
+                        <li class="flex items-start gap-2">
+                            <span class="text-[var(--softlink-color)]">-</span>
+                            <span>独立文件，有专属inode</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <span class="text-[var(--softlink-color)]">-</span>
+                            <span>存储目标文件路径</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <span class="text-[var(--data-color)]">+</span>
+                            <span>可跨分区、可指向目录</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <span class="text-[var(--danger)]">!</span>
+                            <span>原文件删除则断链失效</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            <div class="mt-4 p-4 bg-[var(--bg-secondary)] rounded-lg text-center">
+                <p class="text-sm font-bold mb-2">核心本质区别</p>
+                <p class="text-sm text-[var(--muted)]">硬链接指向文件本体 | 软链接指向文件路径</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==================== 状态管理 ====================
+        var animationState = {
+            isPlaying: false,
+            isPaused: false,
+            currentTime: 0,
+            totalDuration: 130000,
+            currentScene: 0
+        };
+
+        var progressIntervalId = null;
+        var sceneTimeouts = [];
+
+        // 文件系统状态
+        var fileSystem = {
+            directories: [],
+            inodes: [],
+            dataBlocks: []
+        };
+
+        // 箭头数据
+        var arrows = [];
+
+        // ==================== 初始化 ====================
+        document.addEventListener('DOMContentLoaded', function() {
+            initTitle();
+            bindEvents();
+            initFileSystem();
+            renderAll();
+        });
+
+        function initTitle() {
+            var titleText = 'UNIX inode文件系统——索引式文件存储与软硬链接';
+            var titleEl = document.getElementById('main-title');
+            if (!titleEl) return;
+            
+            titleEl.innerHTML = '';
+            for (var i = 0; i < titleText.length; i++) {
+                var span = document.createElement('span');
+                span.style.opacity = '0';
+                span.style.animation = 'fadeIn 0.3s ease-out forwards';
+                span.style.animationDelay = (i * 0.015) + 's';
+                span.textContent = titleText[i];
+                titleEl.appendChild(span);
+            }
+        }
+
+        function bindEvents() {
+            document.getElementById('btn-start').addEventListener('click', startAnimation);
+            document.getElementById('btn-pause').addEventListener('click', togglePause);
+            document.getElementById('btn-reset').addEventListener('click', resetAnimation);
+            window.addEventListener('resize', renderArrows);
+        }
+
+        function initFileSystem() {
+            fileSystem = {
+                directories: [
+                    { name: 'file1', inodeNum: 1001, type: 'normal', deleted: false }
+                ],
+                inodes: [
+                    { 
+                        num: 1001, 
+                        linkCount: 1, 
+                        size: '4KB',
+                        perms: 'rw-r--r--',
+                        blocks: [201, 202],
+                        deleted: false,
+                        isSoftlink: false
+                    }
+                ],
+                dataBlocks: [
+                    { num: 201, content: 'Hello World 数据块1', deleted: false, isSoftlinkData: false },
+                    { num: 202, content: '更多文件内容数据块2', deleted: false, isSoftlinkData: false }
+                ]
+            };
+            arrows = [];
+        }
+
+        function renderAll() {
+            renderDirectories();
+            renderInodes();
+            renderDataBlocks();
+            setTimeout(renderArrows, 100);
+        }
+
+        function renderDirectories() {
+            var container = document.getElementById('dir-content');
+            if (!container) return;
+            
+            var html = '';
+            var visibleDirs = fileSystem.directories.filter(function(d) { return !d.hidden; });
+            
+            for (var i = 0; i < visibleDirs.length; i++) {
+                var dir = visibleDirs[i];
+                var typeClass = dir.type === 'softlink' ? 'softlink' : '';
+                var deletedClass = dir.deleted ? 'deleted' : '';
+                var brokenClass = dir.broken ? 'broken' : '';
+                var icon = dir.type === 'softlink' ? 
+                    '<svg class="file-icon" fill="currentColor" viewBox="0 0 24 24"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>' :
+                    '<svg class="file-icon" fill="currentColor" viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm-1 7V3.5L18.5 9H13z"/></svg>';
+                
+                html += '<div class="dir-entry ' + typeClass + ' ' + deletedClass + ' ' + brokenClass + ' slide-in-left" id="dir-' + dir.id + '" style="animation-delay: ' + (i * 0.1) + 's">';
+                html += '<span class="file-name">' + icon + dir.name + '</span>';
+                html += '<span class="inode-ref mono">→ ' + dir.inodeNum + '</span>';
+                html += '</div>';
+            }
+            
+            if (visibleDirs.length === 0) {
+                html = '<div class="text-center text-[var(--muted)] text-sm py-8">目录为空</div>';
+            }
+            
+            container.innerHTML = html;
+        }
+
+        function renderInodes() {
+            var container = document.getElementById('inode-content');
+            if (!container) return;
+            
+            var html = '';
+            var visibleInodes = fileSystem.inodes.filter(function(n) { return !n.hidden; });
+            
+            for (var i = 0; i < visibleInodes.length; i++) {
+                var inode = visibleInodes[i];
+                var deletedClass = inode.deleted ? 'deleted' : '';
+                var softlinkClass = inode.isSoftlink ? 'softlink' : '';
+                
+                html += '<div class="inode-node ' + deletedClass + ' ' + softlinkClass + ' fade-in" id="inode-' + inode.num + '" style="animation-delay: ' + (i * 0.1) + 's">';
+                html += '<div class="inode-header">';
+                html += '<span class="inode-number mono">inode #' + inode.num + '</span>';
+                html += '<span class="link-count" id="linkcount-' + inode.num + '">nlink: ' + inode.linkCount + '</span>';
+                html += '</div>';
+                html += '<div class="inode-meta">';
+                html += '<span>权限: ' + inode.perms + '</span>';
+                html += '<span>大小: ' + inode.size + '</span>';
+                html += '</div>';
+                html += '<div class="text-xs text-[var(--muted)] mb-2">数据块指针:</div>';
+                html += '<div class="block-pointers">';
+                for (var j = 0; j < inode.blocks.length; j++) {
+                    var ptrClass = inode.isSoftlink ? 'softlink' : '';
+                    html += '<span class="block-ptr ' + ptrClass + ' mono" data-block="' + inode.blocks[j] + '">块' + inode.blocks[j] + '</span>';
+                }
+                html += '</div>';
+                html += '</div>';
+            }
+            
+            if (visibleInodes.length === 0) {
+                html = '<div class="text-center text-[var(--muted)] text-sm py-8">inode表为空</div>';
+            }
+            
+            container.innerHTML = html;
+        }
+
+        function renderDataBlocks() {
+            var container = document.getElementById('data-content');
+            if (!container) return;
+            
+            var html = '';
+            var visibleBlocks = fileSystem.dataBlocks.filter(function(b) { return !b.hidden; });
+            
+            for (var i = 0; i < visibleBlocks.length; i++) {
+                var block = visibleBlocks[i];
+                var deletedClass = block.deleted ? 'deleted' : '';
+                var softlinkClass = block.isSoftlinkData ? 'softlink-data' : '';
+                var icon = block.isSoftlinkData ?
+                    '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>' :
+                    '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M2 20h20v-4H2v4zm2-3h2v2H4v-2zM2 4v4h20V4H2zm4 3H4V5h2v2zm-4 7h20v-4H2v4zm2-3h2v2H4v-2z"/></svg>';
+                
+                html += '<div class="data-block ' + deletedClass + ' ' + softlinkClass + ' slide-in-right" id="block-' + block.num + '" style="animation-delay: ' + (i * 0.1) + 's">';
+                html += '<div class="block-label">' + icon + '<span class="mono">数据块 #' + block.num + '</span></div>';
+                html += '<div class="block-content">' + block.content + '</div>';
+                html += '</div>';
+            }
+            
+            if (visibleBlocks.length === 0) {
+                html = '<div class="text-center text-[var(--muted)] text-sm py-8">数据块为空</div>';
+            }
+            
+            container.innerHTML = html;
+        }
+
+        // ==================== 箭头绘制 ====================
+        function renderArrows() {
+            var svg = document.getElementById('arrow-svg');
+            if (!svg) return;
+            
+            // 保留defs
+            var defs = svg.querySelector('defs');
+            svg.innerHTML = '';
+            if (defs) svg.appendChild(defs);
+            
+            var stage = document.getElementById('main-stage');
+            if (!stage) return;
+            var stageRect = stage.getBoundingClientRect();
+            
+            for (var i = 0; i < arrows.length; i++) {
+                var arrow = arrows[i];
+                if (arrow.hidden) continue;
+                
+                var fromEl = document.getElementById(arrow.from);
+                var toEl = document.getElementById(arrow.to);
+                
+                if (!fromEl || !toEl) continue;
+                
+                var fromRect = fromEl.getBoundingClientRect();
+                var toRect = toEl.getBoundingClientRect();
+                
+                var x1 = fromRect.right - stageRect.left;
+                var y1 = fromRect.top + fromRect.height / 2 - stageRect.top;
+                var x2 = toRect.left - stageRect.left;
+                var y2 = toRect.top + toRect.height / 2 - stageRect.top;
+                
+                // 如果是目录到inode的箭头
+                if (arrow.type === 'dir-to-inode') {
+                    x1 = fromRect.right - stageRect.left;
+                    y1 = fromRect.top + fromRect.height / 2 - stageRect.top;
+                    x2 = toRect.left - stageRect.left;
+                    y2 = toRect.top + toRect.height / 2 - stageRect.top;
+                }
+                // 如果是inode到数据块的箭头
+                else if (arrow.type === 'inode-to-block') {
+                    x1 = fromRect.right - stageRect.left;
+                    y1 = fromRect.top + fromRect.height / 2 - stageRect.top;
+                    x2 = toRect.left - stageRect.left;
+                    y2 = toRect.top + toRect.height / 2 - stageRect.top;
+                }
+                
+                // 绘制曲线路径
+                var midX = (x1 + x2) / 2;
+                var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                var d = 'M ' + x1 + ' ' + y1 + ' Q ' + midX + ' ' + y1 + ' ' + midX + ' ' + ((y1 + y2) / 2) + ' Q ' + midX + ' ' + y2 + ' ' + x2 + ' ' + y2;
+                path.setAttribute('d', d);
+                path.setAttribute('class', 'arrow-path ' + (arrow.className || ''));
+                path.setAttribute('marker-end', 'url(#arrowhead' + (arrow.markerSuffix || '') + ')');
+                path.id = 'arrow-path-' + i;
+                svg.appendChild(path);
+            }
+        }
+
+        function addArrow(from, to, type, className, markerSuffix) {
+            arrows.push({
+                from: from,
+                to: to,
+                type: type,
+                className: className || '',
+                markerSuffix: markerSuffix || '',
+                hidden: false
+            });
+            renderArrows();
+        }
+
+        function clearArrows() {
+            arrows = [];
+            renderArrows();
+        }
+
+        function hideArrow(index) {
+            if (arrows[index]) {
+                arrows[index].hidden = true;
+                renderArrows();
+            }
+        }
+
+        function setArrowDanger(index) {
+            if (arrows[index]) {
+                arrows[index].className = 'danger';
+                arrows[index].markerSuffix = '-danger';
+                renderArrows();
+            }
+        }
+
+        // ==================== 辅助函数 ====================
+        function updateNarration(text) {
+            var el = document.getElementById('narration');
+            if (el) {
+                el.style.opacity = '0';
+                setTimeout(function() {
+                    el.textContent = text;
+                    el.style.opacity = '1';
+                }, 150);
+            }
+        }
+
+        function updateStatus(text, type) {
+            var display = document.getElementById('status-display');
+            if (!display) return;
+            type = type || 'info';
+            display.innerHTML = '<span class="status-badge ' + type + '">' + text + '</span>';
+        }
+
+        function updateAlgorithm(text) {
+            var display = document.getElementById('algorithm-display');
+            if (!display) return;
+            display.innerHTML = '<span class="status-badge info">' + text + '</span>';
+        }
+
+        function setSceneIndicator(sceneNum) {
+            animationState.currentScene = sceneNum;
+            var container = document.getElementById('scene-indicators');
+            if (!container) return;
+            var indicators = container.querySelectorAll('.scene-indicator');
+            for (var i = 0; i < indicators.length; i++) {
+                if (i + 1 <= sceneNum) {
+                    indicators[i].classList.add('active');
+                } else {
+                    indicators[i].classList.remove('active');
+                }
+            }
+        }
+
+        function highlightElement(id, className) {
+            className = className || 'highlight';
+            var el = document.getElementById(id);
+            if (el) {
+                el.classList.add(className);
+            }
+        }
+
+        function unhighlightElement(id, className) {
+            className = className || 'highlight';
+            var el = document.getElementById(id);
+            if (el) {
+                el.classList.remove(className);
+            }
+        }
+
+        function highlightLinkCount(inodeNum) {
+            var el = document.getElementById('linkcount-' + inodeNum);
+            if (el) {
+                el.classList.add('highlight');
+                setTimeout(function() {
+                    el.classList.remove('highlight');
+                }, 600);
+            }
+        }
+
+        function findDirIndex(name) {
+            for (var i = 0; i < fileSystem.directories.length; i++) {
+                if (fileSystem.directories[i].name === name) return i;
+            }
+            return -1;
+        }
+
+        function findInodeIndex(num) {
+            for (var i = 0; i < fileSystem.inodes.length; i++) {
+                if (fileSystem.inodes[i].num === num) return i;
+            }
+            return -1;
+        }
+
+        function findBlockIndex(num) {
+            for (var i = 0; i < fileSystem.dataBlocks.length; i++) {
+                if (fileSystem.dataBlocks[i].num === num) return i;
+            }
+            return -1;
+        }
+
+        // ==================== 场景函数 ====================
+        // 场景一：开场引入
+        function scene1() {
+            setSceneIndicator(1);
+            updateAlgorithm("inode 索引机制");
+            updateNarration("UNIX和Linux的文件系统，核心就是inode索引机制。它打破了连续存储的限制，文件名只是用户看到的标签，真正管理文件的是inode索引节点，文件内容存在数据块里，寻址全靠索引链路完成。");
+            updateStatus("基础寻址流程演示", "info");
+            
+            initFileSystem();
+            // 给每个元素添加ID
+            fileSystem.directories[0].id = 'd0';
+            renderAll();
+            
+            // 高亮目录项
+            sceneTimeouts.push(setTimeout(function() {
+                highlightElement('dir-d0');
+                updateStatus("用户访问文件: file1", "info");
+            }, 2000));
+            
+            // 绘制箭头：目录 → inode
+            sceneTimeouts.push(setTimeout(function() {
+                addArrow('dir-d0', 'inode-1001', 'dir-to-inode', 'active', '-active');
+                updateStatus("目录项 → inode #1001", "success");
+            }, 4000));
+            
+            // 高亮inode
+            sceneTimeouts.push(setTimeout(function() {
+                highlightElement('inode-1001');
+                updateNarration("inode不存储文件名，只存储文件属性（权限、大小、链接计数）和数据块指针。文件名与inode的映射关系存放在目录项中。");
+            }, 6000));
+            
+            // 绘制箭头：inode → 数据块
+            sceneTimeouts.push(setTimeout(function() {
+                addArrow('inode-1001', 'block-201', 'inode-to-block', 'active', '-active');
+                addArrow('inode-1001', 'block-202', 'inode-to-block', 'active', '-active');
+                updateStatus("inode → 数据块 (实际内容)", "success");
+            }, 8000));
+            
+            // 高亮数据块
+            sceneTimeouts.push(setTimeout(function() {
+                highlightElement('block-201');
+                highlightElement('block-202');
+                updateStatus("完整索引链路建立", "success");
+            }, 10000));
+        }
+
+        // 场景二：硬链接
+        function scene2() {
+            setSceneIndicator(2);
+            updateAlgorithm("硬链接演示");
+            updateNarration("硬链接相当于给同一个文件档案贴多个名字标签，多个文件名指向完全同一个inode，共享文件内容和属性。新增硬链接不会占用新的inode和存储空间。");
+            updateStatus("执行: ln file1 file_hard", "warning");
+            
+            // 重置到初始状态
+            fileSystem.directories = [
+                { name: 'file1', inodeNum: 1001, type: 'normal', deleted: false, id: 'd0' }
+            ];
+            fileSystem.inodes = [
+                { num: 1001, linkCount: 1, size: '4KB', perms: 'rw-r--r--', blocks: [201, 202], deleted: false, isSoftlink: false }
+            ];
+            fileSystem.dataBlocks = [
+                { num: 201, content: 'Hello World 数据块1', deleted: false, isSoftlinkData: false },
+                { num: 202, content: '更多文件内容数据块2', deleted: false, isSoftlinkData: false }
+            ];
+            clearArrows();
+            renderAll();
+            
+            // 添加硬链接目录项
+            sceneTimeouts.push(setTimeout(function() {
+                fileSystem.directories.push({ name: 'file_hard', inodeNum: 1001, type: 'normal', deleted: false, id: 'd1' });
+                renderDirectories();
+                updateStatus("新增目录项: file_hard → inode #1001", "success");
+            }, 2000));
+            
+            // 绘制新箭头
+            sceneTimeouts.push(setTimeout(function() {
+                highlightElement('dir-d1');
+                addArrow('dir-d1', 'inode-1001', 'dir-to-inode', 'active', '-active');
+                updateStatus("file_hard 指向同一 inode", "success");
+            }, 4000));
+            
+            // 更新链接计数
+            sceneTimeouts.push(setTimeout(function() {
+                fileSystem.inodes[0].linkCount = 2;
+                renderInodes();
+                highlightLinkCount(1001);
+                updateNarration("新增硬链接不会占用新的inode和存储空间，inode里的链接计数会跟着增加。链接计数 = 指向该inode的文件名数量。");
+                updateStatus("链接计数: 1 → 2", "warning");
+            }, 7000));
+            
+            // 展示限制
+            sceneTimeouts.push(setTimeout(function() {
+                highlightElement('inode-1001');
+                updateNarration("硬链接的限制：不能跨分区（因为inode号在不同分区含义不同）、不能指向目录（防止循环引用）。只能对普通文件创建硬链接。");
+                updateStatus("硬链接限制说明", "info");
+            }, 11000));
+        }
+
+        // 场景三：软链接
+        function scene3() {
+            setSceneIndicator(3);
+            updateAlgorithm("软链接演示");
+            updateNarration("软链接也叫符号链接，本质是一个独立的小文件，相当于一张写着目标文件路径的指路纸条，有自己专属的inode和存储空间。");
+            updateStatus("执行: ln -s file1 file_soft", "warning");
+            
+            // 重置到有硬链接的状态
+            fileSystem.directories = [
+                { name: 'file1', inodeNum: 1001, type: 'normal', deleted: false, id: 'd0' },
+                { name: 'file_hard', inodeNum: 1001, type: 'normal', deleted: false, id: 'd1' }
+            ];
+            fileSystem.inodes = [
+                { num: 1001, linkCount: 2, size: '4KB', perms: 'rw-r--r--', blocks: [201, 202], deleted: false, isSoftlink: false }
+            ];
+            fileSystem.dataBlocks = [
+                { num: 201, content: 'Hello World 数据块1', deleted: false, isSoftlinkData: false },
+                { num: 202, content: '更多文件内容数据块2', deleted: false, isSoftlinkData: false }
+            ];
+            clearArrows();
+            renderAll();
+            
+            // 绘制现有箭头
+            sceneTimeouts.push(setTimeout(function() {
+                addArrow('dir-d0', 'inode-1001', 'dir-to-inode', '', '');
+                addArrow('dir-d1', 'inode-1001', 'dir-to-inode', '', '');
+                addArrow('inode-1001', 'block-201', 'inode-to-block', '', '');
+                addArrow('inode-1001', 'block-202', 'inode-to-block', '', '');
+            }, 500));
+            
+            // 添加软链接目录项
+            sceneTimeouts.push(setTimeout(function() {
+                fileSystem.directories.push({ name: 'file_soft', inodeNum: 1002, type: 'softlink', deleted: false, id: 'd2' });
+                renderDirectories();
+                highlightElement('dir-d2', 'highlight');
+                updateStatus("新增软链接目录项: file_soft", "success");
+            }, 2500));
+            
+            // 添加软链接的inode
+            sceneTimeouts.push(setTimeout(function() {
+                fileSystem.inodes.push({ num: 1002, linkCount: 1, size: '100B', perms: 'rwxrwxrwx', blocks: [301], deleted: false, isSoftlink: true });
+                renderInodes();
+                updateStatus("软链接获得独立 inode #1002", "success");
+            }, 4500));
+            
+            // 添加软链接的数据块
+            sceneTimeouts.push(setTimeout(function() {
+                fileSystem.dataBlocks.push({ num: 301, content: '/file1 (目标文件路径)', deleted: false, isSoftlinkData: true });
+                renderDataBlocks();
+                updateNarration("软链接有自己独立的inode和小数据块，数据块中仅存储目标文件的路径字符串。类似Windows的快捷方式。");
+                updateStatus("软链接数据块存储路径", "info");
+            }, 6500));
+            
+            // 绘制软链接箭头
+            sceneTimeouts.push(setTimeout(function() {
+                addArrow('dir-d2', 'inode-1002', 'dir-to-inode', 'softlink', '-softlink');
+                addArrow('inode-1002', 'block-301', 'inode-to-block', 'softlink', '-softlink');
+                updateStatus("软链接索引链路", "info");
+            }, 8500));
+            
+            // 展示特点
+            sceneTimeouts.push(setTimeout(function() {
+                updateNarration("软链接的特点：可跨分区、可指向目录。但缺点是原文件删除后，软链接会变成断链，无法访问。");
+                updateStatus("软链接特点与限制", "info");
+            }, 11000));
+        }
+
+        // 场景四：删除逻辑与对比
+        function scene4() {
+            setSceneIndicator(4);
+            updateAlgorithm("删除逻辑与对比");
+            updateNarration("最后梳理删除逻辑：硬链接是文件本体的多个别名，共享inode，链接计数归0才彻底删除；软链接是独立快捷方式，有独立inode，依赖原文件存在。");
+            updateStatus("删除逻辑演示", "info");
+            
+            // 重置到有软硬链接的状态
+            fileSystem.directories = [
+                { name: 'file1', inodeNum: 1001, type: 'normal', deleted: false, id: 'd0' },
+                { name: 'file_hard', inodeNum: 1001, type: 'normal', deleted: false, id: 'd1' },
+                { name: 'file_soft', inodeNum: 1002, type: 'softlink', deleted: false, id: 'd2' }
+            ];
+            fileSystem.inodes = [
+                { num: 1001, linkCount: 2, size: '4KB', perms: 'rw-r--r--', blocks: [201, 202], deleted: false, isSoftlink: false },
+                { num: 1002, linkCount: 1, size: '100B', perms: 'rwxrwxrwx', blocks: [301], deleted: false, isSoftlink: true }
+            ];
+            fileSystem.dataBlocks = [
+                { num: 201, content: 'Hello World 数据块1', deleted: false, isSoftlinkData: false },
+                { num: 202, content: '更多文件内容数据块2', deleted: false, isSoftlinkData: false },
+                { num: 301, content: '/file1 (目标文件路径)', deleted: false, isSoftlinkData: true }
+            ];
+            clearArrows();
+            renderAll();
+            
+            // 绘制所有箭头
+            sceneTimeouts.push(setTimeout(function() {
+                addArrow('dir-d0', 'inode-1001', 'dir-to-inode', '', '');
+                addArrow('dir-d1', 'inode-1001', 'dir-to-inode', '', '');
+                addArrow('dir-d2', 'inode-1002', 'dir-to-inode', 'softlink', '-softlink');
+                addArrow('inode-1001', 'block-201', 'inode-to-block', '', '');
+                addArrow('inode-1001', 'block-202', 'inode-to-block', '', '');
+                addArrow('inode-1002', 'block-301', 'inode-to-block', 'softlink', '-softlink');
+            }, 500));
+            
+            // 删除file1
+            sceneTimeouts.push(setTimeout(function() {
+                var idx = findDirIndex('file1');
+                if (idx >= 0) fileSystem.directories[idx].deleted = true;
+                fileSystem.inodes[0].linkCount = 1;
+                renderAll();
+                highlightLinkCount(1001);
+                updateStatus("删除file1: 链接计数 2 → 1", "warning");
+            }, 2500));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                updateNarration("删除file1后，inode #1001的链接计数减为1，数据块仍保留。file_hard可以正常访问，文件内容不受影响。");
+                updateStatus("file_hard 仍可正常访问", "success");
+                highlightElement('dir-d1');
+            }, 5500));
+            
+            // 彻底删除file_hard
+            sceneTimeouts.push(setTimeout(function() {
+                var idx = findDirIndex('file_hard');
+                if (idx >= 0) fileSystem.directories[idx].deleted = true;
+                fileSystem.inodes[0].deleted = true;
+                fileSystem.dataBlocks[0].deleted = true;
+                fileSystem.dataBlocks[1].deleted = true;
+                renderAll();
+                updateStatus("彻底删除: 链接计数归0，释放空间", "danger");
+            }, 9000));
+            
+            // 软链接断链
+            sceneTimeouts.push(setTimeout(function() {
+                var idx = findDirIndex('file_soft');
+                if (idx >= 0) {
+                    fileSystem.directories[idx].broken = true;
+                }
+                renderDirectories();
+                updateNarration("当链接计数归0时，inode和数据块才被真正释放。此时软链接file_soft指向的原文件已不存在，成为断链。");
+                updateStatus("软链接断链失效", "danger");
+            }, 12000));
+            
+            // 显示对比面板
+            sceneTimeouts.push(setTimeout(function() {
+                var panel = document.getElementById('compare-panel');
+                if (panel) {
+                    panel.classList.remove('hidden');
+                    panel.classList.add('fade-in');
+                }
+            }, 15000));
+        }
+
+        // ==================== 动画控制 ====================
+        function clearAllTimers() {
+            if (progressIntervalId) {
+                clearInterval(progressIntervalId);
+                progressIntervalId = null;
+            }
+            for (var i = 0; i < sceneTimeouts.length; i++) {
+                clearTimeout(sceneTimeouts[i]);
+            }
+            sceneTimeouts = [];
+        }
+
+        function updateProgress() {
+            if (!animationState.isPlaying) return;
+            
+            if (!animationState.isPaused) {
+                animationState.currentTime += 100;
+                var progress = Math.min((animationState.currentTime / animationState.totalDuration) * 100, 100);
+                var progressEl = document.getElementById('progress');
+                if (progressEl) {
+                    progressEl.style.width = progress + '%';
+                }
+            }
+        }
+
+        function startAnimation() {
+            if (animationState.isPlaying) return;
+            
+            animationState.isPlaying = true;
+            animationState.isPaused = false;
+            animationState.currentTime = 0;
+            
+            document.getElementById('btn-start').disabled = true;
+            document.getElementById('btn-pause').disabled = false;
+            
+            var panel = document.getElementById('compare-panel');
+            if (panel) panel.classList.add('hidden');
+            
+            clearAllTimers();
+            initFileSystem();
+            clearArrows();
+            renderAll();
+            
+            progressIntervalId = setInterval(updateProgress, 100);
+            
+            // 场景调度（总时长130秒）
+            sceneTimeouts.push(setTimeout(function() {
+                if (animationState.isPlaying && !animationState.isPaused) scene1();
+            }, 0));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                if (animationState.isPlaying && !animationState.isPaused) scene2();
+            }, 40000));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                if (animationState.isPlaying && !animationState.isPaused) scene3();
+            }, 75000));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                if (animationState.isPlaying && !animationState.isPaused) scene4();
+            }, 110000));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                animationComplete();
+            }, 130000));
+        }
+
+        function togglePause() {
+            animationState.isPaused = !animationState.isPaused;
+            
+            var btnContent = document.getElementById('btn-pause-content');
+            if (btnContent) {
+                if (animationState.isPaused) {
+                    btnContent.innerHTML = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg> 继续';
+                } else {
+                    btnContent.innerHTML = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg> 暂停';
+                }
+            }
+        }
+
+        function resetAnimation() {
+            animationState.isPlaying = false;
+            animationState.isPaused = false;
+            animationState.currentTime = 0;
+            animationState.currentScene = 0;
+            
+            clearAllTimers();
+            clearArrows();
+            
+            document.getElementById('progress').style.width = '0%';
+            document.getElementById('btn-start').disabled = false;
+            document.getElementById('btn-pause').disabled = true;
+            
+            var panel = document.getElementById('compare-panel');
+            if (panel) panel.classList.add('hidden');
+            
+            initFileSystem();
+            renderAll();
+            
+            updateNarration('点击"开始演示"按钮，观看inode文件系统的完整演示。');
+            updateStatus("点击开始演示", "info");
+            updateAlgorithm("inode 索引机制");
+            setSceneIndicator(0);
+        }
+
+        function animationComplete() {
+            animationState.isPlaying = false;
+            if (progressIntervalId) {
+                clearInterval(progressIntervalId);
+                progressIntervalId = null;
+            }
+            
+            document.getElementById('btn-start').disabled = false;
+            document.getElementById('btn-pause').disabled = true;
+        }
+    </script>
+</body>
+</html>

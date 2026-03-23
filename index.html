@@ -19,6 +19,7 @@
             --process-color: #a78bfa;
             --concurrency-color: #f97316;
             --memory-color: #22c55e;
+            --filesystem-color: #eab308;
         }
         
         * {
@@ -168,6 +169,7 @@
         .category-icon.process { background: linear-gradient(135deg, var(--process-color), #7c3aed); }
         .category-icon.concurrency { background: linear-gradient(135deg, var(--concurrency-color), #ea580c); }
         .category-icon.memory { background: linear-gradient(135deg, var(--memory-color), #16a34a); }
+        .category-icon.filesystem { background: linear-gradient(135deg, var(--filesystem-color), #ca8a04); }
         
         .category-title {
             font-size: 1.5rem;
@@ -178,6 +180,7 @@
         .category-title.process { color: var(--process-color); }
         .category-title.concurrency { color: var(--concurrency-color); }
         .category-title.memory { color: var(--memory-color); }
+        .category-title.filesystem { color: var(--filesystem-color); }
         
         .category-desc {
             font-size: 0.9rem;
@@ -238,6 +241,8 @@
         
         .card.memory:hover { border-color: var(--memory-color); }
         .card.memory:hover::before { background: linear-gradient(90deg, var(--memory-color), transparent); }
+        .card.filesystem:hover { border-color: var(--filesystem-color); }
+        .card.filesystem:hover::before { background: linear-gradient(90deg, var(--filesystem-color), transparent); }
         
         .card-header {
             display: flex;
@@ -261,6 +266,7 @@
         .card-icon.process { background: rgba(167, 139, 250, 0.15); }
         .card-icon.concurrency { background: rgba(249, 115, 22, 0.15); }
         .card-icon.memory { background: rgba(34, 197, 94, 0.15); }
+        .card-icon.filesystem { background: rgba(234, 179, 8, 0.15); }
         
         .card-title-group {
             flex: 1;
@@ -297,6 +303,7 @@
         .tag.process { color: var(--process-color); border-color: rgba(167, 139, 250, 0.3); }
         .tag.concurrency { color: var(--concurrency-color); border-color: rgba(249, 115, 22, 0.3); }
         .tag.memory { color: var(--memory-color); border-color: rgba(34, 197, 94, 0.3); }
+        .tag.filesystem { color: var(--filesystem-color); border-color: rgba(234, 179, 8, 0.3); }
         
         .card-desc {
             font-size: 0.9rem;
@@ -346,6 +353,7 @@
         .card.process:hover .card-arrow { background: var(--process-color); }
         .card.concurrency:hover .card-arrow { background: var(--concurrency-color); }
         .card.memory:hover .card-arrow { background: var(--memory-color); }
+        .card.filesystem:hover .card-arrow { background: var(--filesystem-color); }
         
         .footer {
             text-align: center;
@@ -402,11 +410,11 @@
             <p class="subtitle">通过交互式动画深入理解操作系统核心算法</p>
             <div class="stats-bar">
                 <div class="stat-item">
-                    <div class="stat-value">9</div>
+                    <div class="stat-value">22</div>
                     <div class="stat-label">动画模块</div>
                 </div>
                 <div class="stat-item">
-                    <div class="stat-value">5</div>
+                    <div class="stat-value">6</div>
                     <div class="stat-label">知识分类</div>
                 </div>
                 <div class="stat-item">
@@ -540,14 +548,18 @@
                             </div>
                         </div>
                     </a>
+
+
+
+
                 </div>
             </section>
             
             <section class="category-section">
                 <div class="category-header">
                     <div class="category-icon process">📊</div>
-                    <h2 class="category-title process">进程状态模型</h2>
-                    <span class="category-desc">Process State Model</span>
+                    <h2 class="category-title process">进程控制与调度</h2>
+                    <span class="category-desc">Process Control and Scheduling</span>
                 </div>
                 <div class="cards-grid">
                     <a href="进程三状态.html" class="card process">
@@ -589,6 +601,86 @@
                             </div>
                         </div>
                     </a>
+                    
+                    <a href="死锁检测.html" class="card process">
+                        <div class="card-header">
+                            <div class="card-icon process">🔒</div>
+                            <div class="card-title-group">
+                                <h3 class="card-title">死锁检测算法</h3>
+                                <p class="card-subtitle">Deadlock Detection</p>
+                            </div>
+                        </div>
+                        <div class="card-tags">
+                            <span class="tag process">资源分配图</span>
+                            <span class="tag process">死锁判定</span>
+                        </div>
+                        <p class="card-desc">通过资源分配图化简检测死锁，若图可完全化简则无死锁，否则存在死锁进程。</p>
+                        <div class="card-footer">
+                            <div class="card-meta">
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <polyline points="12 6 12 12 16 14"/>
+                                    </svg>
+                                    ~90秒
+                                </span>
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                    </svg>
+                                    5场景
+                                </span>
+                            </div>
+                            <div class="card-arrow">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="5" y1="12" x2="19" y2="12"/>
+                                    <polyline points="12 5 19 12 12 19"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </a>
+                    
+                    <a href="银行家算法.html" class="card process">
+                        <div class="card-header">
+                            <div class="card-icon process">🏦</div>
+                            <div class="card-title-group">
+                                <h3 class="card-title">银行家算法</h3>
+                                <p class="card-subtitle">Banker's Algorithm</p>
+                            </div>
+                        </div>
+                        <div class="card-tags">
+                            <span class="tag process">死锁避免</span>
+                            <span class="tag process">安全序列</span>
+                        </div>
+                        <p class="card-desc">银行家放贷策略！预判资源分配是否导致死锁，只批准安全请求，确保系统始终处于安全状态。</p>
+                        <div class="card-footer">
+                            <div class="card-meta">
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <polyline points="12 6 12 12 16 14"/>
+                                    </svg>
+                                    ~100秒
+                                </span>
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                    </svg>
+                                    5场景
+                                </span>
+                            </div>
+                            <div class="card-arrow">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="5" y1="12" x2="19" y2="12"/>
+                                    <polyline points="12 5 19 12 12 19"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </a>
+                    
+                    
                 </div>
             </section>
             
@@ -628,6 +720,163 @@
                                         <polyline points="14 2 14 8 20 8"/>
                                     </svg>
                                     6场景
+                                </span>
+                            </div>
+                            <div class="card-arrow">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="5" y1="12" x2="19" y2="12"/>
+                                    <polyline points="12 5 19 12 12 19"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </a>
+                    
+                    <a href="理发师问题.html" class="card concurrency">
+                        <div class="card-header">
+                            <div class="card-icon concurrency">💈</div>
+                            <div class="card-title-group">
+                                <h3 class="card-title">打盹的理发师</h3>
+                                <p class="card-subtitle">Sleeping Barber Problem</p>
+                            </div>
+                        </div>
+                        <div class="card-tags">
+                            <span class="tag concurrency">信号量</span>
+                            <span class="tag concurrency">进程同步</span>
+                        </div>
+                        <p class="card-desc">理发师打盹等待顾客，顾客到来唤醒理发师。演示进程同步与互斥的经典模型。</p>
+                        <div class="card-footer">
+                            <div class="card-meta">
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <polyline points="12 6 12 12 16 14"/>
+                                    </svg>
+                                    ~47秒
+                                </span>
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                    </svg>
+                                    5场景
+                                </span>
+                            </div>
+                            <div class="card-arrow">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="5" y1="12" x2="19" y2="12"/>
+                                    <polyline points="12 5 19 12 12 19"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </a>
+                    
+                    <a href="哲学家进餐问题.html" class="card concurrency">
+                        <div class="card-header">
+                            <div class="card-icon concurrency">🍝</div>
+                            <div class="card-title-group">
+                                <h3 class="card-title">哲学家进餐问题</h3>
+                                <p class="card-subtitle">Dining Philosophers Problem</p>
+                            </div>
+                        </div>
+                        <div class="card-tags">
+                            <span class="tag concurrency">死锁</span>
+                            <span class="tag concurrency">互斥</span>
+                            <span class="tag concurrency">经典问题</span>
+                        </div>
+                        <p class="card-desc">五位哲学家围坐进餐，筷子争夺战与死锁破局。演示死锁产生与多种解决方案。</p>
+                        <div class="card-footer">
+                            <div class="card-meta">
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <polyline points="12 6 12 12 16 14"/>
+                                    </svg>
+                                    ~115秒
+                                </span>
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                    </svg>
+                                    5场景
+                                </span>
+                            </div>
+                            <div class="card-arrow">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="5" y1="12" x2="19" y2="12"/>
+                                    <polyline points="12 5 19 12 12 19"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </a>
+
+                    <a href="读者写者问题.html" class="card concurrency">
+                        <div class="card-header">
+                            <div class="card-icon concurrency">📚</div>
+                            <div class="card-title-group">
+                                <h3 class="card-title">读者写者问题</h3>
+                                <p class="card-subtitle">Readers-Writers Problem</p>
+                            </div>
+                        </div>
+                        <div class="card-tags">
+                            <span class="tag concurrency">读写锁</span>
+                            <span class="tag concurrency">多场景</span>
+                        </div>
+                        <p class="card-desc">共享读·独占写·三种调度策略对比。可切换读者优先、写者优先、公平策略三种场景。</p>
+                        <div class="card-footer">
+                            <div class="card-meta">
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <polyline points="12 6 12 12 16 14"/>
+                                    </svg>
+                                    ~120秒
+                                </span>
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                    </svg>
+                                    6场景×3
+                                </span>
+                            </div>
+                            <div class="card-arrow">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="5" y1="12" x2="19" y2="12"/>
+                                    <polyline points="12 5 19 12 12 19"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </a>
+                    
+                    <a href="读者写者2.html" class="card concurrency">
+                        <div class="card-header">
+                            <div class="card-icon concurrency">📖</div>
+                            <div class="card-title-group">
+                                <h3 class="card-title">读者写者问题-变体</h3>
+                                <p class="card-subtitle">Readers-Writers Problem Variants</p>
+                            </div>
+                        </div>
+                        <div class="card-tags">
+                            <span class="tag concurrency">写者优先</span>
+                            <span class="tag concurrency">公平读写</span>
+                        </div>
+                        <p class="card-desc">多种读写锁变体演示：读者优先导致写者饥饿、写者优先导致读者饥饿、公平策略实现无饥饿。</p>
+                        <div class="card-footer">
+                            <div class="card-meta">
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <polyline points="12 6 12 12 16 14"/>
+                                    </svg>
+                                    ~90秒
+                                </span>
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                    </svg>
+                                    5场景
                                 </span>
                             </div>
                             <div class="card-arrow">
@@ -764,6 +1013,201 @@
                             </div>
                         </div>
                     </a>
+                    
+                    <a href="分页内存管理.html" class="card memory">
+                        <div class="card-header">
+                            <div class="card-icon memory">📮</div>
+                            <div class="card-title-group">
+                                <h3 class="card-title">分页内存管理</h3>
+                                <p class="card-subtitle">Paging Memory Management</p>
+                            </div>
+                        </div>
+                        <div class="card-tags">
+                            <span class="tag memory">地址转换</span>
+                            <span class="tag memory">TLB加速</span>
+                        </div>
+                        <p class="card-desc">物流分拣中心版！逻辑地址→物理地址的转换过程演示，页表查询与TLB快表加速机制。</p>
+                        <div class="card-footer">
+                            <div class="card-meta">
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <polyline points="12 6 12 12 16 14"/>
+                                    </svg>
+                                    ~110秒
+                                </span>
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                    </svg>
+                                    5场景
+                                </span>
+                            </div>
+                            <div class="card-arrow">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="5" y1="12" x2="19" y2="12"/>
+                                    <polyline points="12 5 19 12 12 19"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </a>
+                    
+                    <a href="clock算法.html" class="card memory">
+                        <div class="card-header">
+                            <div class="card-icon memory">🕐</div>
+                            <div class="card-title-group">
+                                <h3 class="card-title">CLOCK 时钟置换算法</h3>
+                                <p class="card-subtitle">Clock Page Replacement</p>
+                            </div>
+                        </div>
+                        <div class="card-tags">
+                            <span class="tag memory">近似LRU</span>
+                            <span class="tag memory">环形队列</span>
+                        </div>
+                        <p class="card-desc">时钟指针扫描页面，使用位为1则清零继续，为0则置换。是LRU的高效近似实现。</p>
+                        <div class="card-footer">
+                            <div class="card-meta">
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <polyline points="12 6 12 12 16 14"/>
+                                    </svg>
+                                    ~90秒
+                                </span>
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                    </svg>
+                                    5场景
+                                </span>
+                            </div>
+                            <div class="card-arrow">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="5" y1="12" x2="19" y2="12"/>
+                                    <polyline points="12 5 19 12 12 19"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </a>
+                    
+                    <a href="分段内存管理.html" class="card memory">
+                        <div class="card-header">
+                            <div class="card-icon memory">📐</div>
+                            <div class="card-title-group">
+                                <h3 class="card-title">分段内存管理</h3>
+                                <p class="card-subtitle">Segmented Memory Management</p>
+                            </div>
+                        </div>
+                        <div class="card-tags">
+                            <span class="tag memory">逻辑段</span>
+                            <span class="tag memory">地址映射</span>
+                        </div>
+                        <p class="card-desc">程序分为代码段、数据段、堆、栈，逻辑地址通过段表映射到物理地址，理解内存分段机制。</p>
+                        <div class="card-footer">
+                            <div class="card-meta">
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <polyline points="12 6 12 12 16 14"/>
+                                    </svg>
+                                    ~100秒
+                                </span>
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                    </svg>
+                                    6场景
+                                </span>
+                            </div>
+                            <div class="card-arrow">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="5" y1="12" x2="19" y2="12"/>
+                                    <polyline points="12 5 19 12 12 19"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </a>
+                    
+                    <a href="连续内存分配.html" class="card memory">
+                        <div class="card-header">
+                            <div class="card-icon memory">🅿️</div>
+                            <div class="card-title-group">
+                                <h3 class="card-title">连续内存分配</h3>
+                                <p class="card-subtitle">Contiguous Memory Allocation</p>
+                            </div>
+                        </div>
+                        <div class="card-tags">
+                            <span class="tag memory">首次适应</span>
+                            <span class="tag memory">内存碎片</span>
+                        </div>
+                        <p class="card-desc">停车场版内存分配！首次适应、最佳适应、最坏适应三种算法对比演示，详解内存碎片问题。</p>
+                        <div class="card-footer">
+                            <div class="card-meta">
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <polyline points="12 6 12 12 16 14"/>
+                                    </svg>
+                                    ~85秒
+                                </span>
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                    </svg>
+                                    5场景
+                                </span>
+                            </div>
+                            <div class="card-arrow">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="5" y1="12" x2="19" y2="12"/>
+                                    <polyline points="12 5 19 12 12 19"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </a>
+                    
+                    <a href="虚拟内存.html" class="card memory">
+                        <div class="card-header">
+                            <div class="card-icon memory">☁️</div>
+                            <div class="card-title-group">
+                                <h3 class="card-title">虚拟内存管理</h3>
+                                <p class="card-subtitle">Virtual Memory Management</p>
+                            </div>
+                        </div>
+                        <div class="card-tags">
+                            <span class="tag memory">按需调页</span>
+                            <span class="tag memory">页面置换</span>
+                        </div>
+                        <p class="card-desc">程序大于物理内存怎么办？虚拟内存技术让程序部分加载运行，按需调页+页面置换实现大程序运行。</p>
+                        <div class="card-footer">
+                            <div class="card-meta">
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <polyline points="12 6 12 12 16 14"/>
+                                    </svg>
+                                    ~120秒
+                                </span>
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                    </svg>
+                                    6场景
+                                </span>
+                            </div>
+                            <div class="card-arrow">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="5" y1="12" x2="19" y2="12"/>
+                                    <polyline points="12 5 19 12 12 19"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </a>
                 </div>
             </section>
             
@@ -774,6 +1218,84 @@
                     <span class="category-desc">Disk Scheduling Algorithms</span>
                 </div>
                 <div class="cards-grid">
+                    <a href="FCFS磁盘调度.html" class="card scheduling">
+                        <div class="card-header">
+                            <div class="card-icon scheduling">🚶</div>
+                            <div class="card-title-group">
+                                <h3 class="card-title">FCFS 磁盘调度</h3>
+                                <p class="card-subtitle">First Come First Serve</p>
+                            </div>
+                        </div>
+                        <div class="card-tags">
+                            <span class="tag scheduling">简单公平</span>
+                            <span class="tag scheduling">效率低</span>
+                        </div>
+                        <p class="card-desc">按请求到达顺序依次处理，最简单公平但寻道距离长，适合轻负载场景。</p>
+                        <div class="card-footer">
+                            <div class="card-meta">
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <polyline points="12 6 12 12 16 14"/>
+                                    </svg>
+                                    ~80秒
+                                </span>
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                    </svg>
+                                    4场景
+                                </span>
+                            </div>
+                            <div class="card-arrow">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="5" y1="12" x2="19" y2="12"/>
+                                    <polyline points="12 5 19 12 12 19"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </a>
+                    
+                    <a href="SSTF磁盘调度算法.html" class="card scheduling">
+                        <div class="card-header">
+                            <div class="card-icon scheduling">🎯</div>
+                            <div class="card-title-group">
+                                <h3 class="card-title">SSTF 最短寻道</h3>
+                                <p class="card-subtitle">Shortest Seek Time First</p>
+                            </div>
+                        </div>
+                        <div class="card-tags">
+                            <span class="tag scheduling">贪心策略</span>
+                            <span class="tag scheduling">可能饥饿</span>
+                        </div>
+                        <p class="card-desc">每次选择距当前磁头最近的请求，寻道距离短但可能导致远处请求饥饿。</p>
+                        <div class="card-footer">
+                            <div class="card-meta">
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <polyline points="12 6 12 12 16 14"/>
+                                    </svg>
+                                    ~80秒
+                                </span>
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                    </svg>
+                                    4场景
+                                </span>
+                            </div>
+                            <div class="card-arrow">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="5" y1="12" x2="19" y2="12"/>
+                                    <polyline points="12 5 19 12 12 19"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </a>
+                    
                     <a href="SCAN磁盘调度算法.html" class="card scheduling">
                         <div class="card-header">
                             <div class="card-icon scheduling">🛗</div>
@@ -812,17 +1334,220 @@
                             </div>
                         </div>
                     </a>
+                    
+                    <a href="C-SCAN磁盘调度算法.html" class="card scheduling">
+                        <div class="card-header">
+                            <div class="card-icon scheduling">🚂</div>
+                            <div class="card-title-group">
+                                <h3 class="card-title">C-SCAN 环形扫描</h3>
+                                <p class="card-subtitle">Circular SCAN</p>
+                            </div>
+                        </div>
+                        <div class="card-tags">
+                            <span class="tag scheduling">单向循环</span>
+                            <span class="tag scheduling">极致公平</span>
+                        </div>
+                        <p class="card-desc">SCAN升级版，像单向循环列车，只往一个方向载客，回程空载瞬移，做到极致公平。</p>
+                        <div class="card-footer">
+                            <div class="card-meta">
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <polyline points="12 6 12 12 16 14"/>
+                                    </svg>
+                                    ~90秒
+                                </span>
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                    </svg>
+                                    5场景
+                                </span>
+                            </div>
+                            <div class="card-arrow">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="5" y1="12" x2="19" y2="12"/>
+                                    <polyline points="12 5 19 12 12 19"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </a>
+                    
+                    <a href="LOOK磁盘调度.html" class="card scheduling">
+                        <div class="card-header">
+                            <div class="card-icon scheduling">�</div>
+                            <div class="card-title-group">
+                                <h3 class="card-title">LOOK 调度</h3>
+                                <p class="card-subtitle">LOOK Scheduling</p>
+                            </div>
+                        </div>
+                        <div class="card-tags">
+                            <span class="tag scheduling">提前掉头</span>
+                            <span class="tag scheduling">无空跑</span>
+                        </div>
+                        <p class="card-desc">SCAN优化版，提前"看"前方有无请求，无请求立即掉头，避免空跑到端点。</p>
+                        <div class="card-footer">
+                            <div class="card-meta">
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <polyline points="12 6 12 12 16 14"/>
+                                    </svg>
+                                    ~80秒
+                                </span>
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                    </svg>
+                                    4场景
+                                </span>
+                            </div>
+                            <div class="card-arrow">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="5" y1="12" x2="19" y2="12"/>
+                                    <polyline points="12 5 19 12 12 19"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </a>
+                    
+                    <a href="CLOOK磁盘调度.html" class="card scheduling">
+                        <div class="card-header">
+                            <div class="card-icon scheduling">🔄</div>
+                            <div class="card-title-group">
+                                <h3 class="card-title">C-LOOK 调度</h3>
+                                <p class="card-subtitle">Circular LOOK</p>
+                            </div>
+                        </div>
+                        <div class="card-tags">
+                            <span class="tag scheduling">单向优化</span>
+                            <span class="tag scheduling">高效公平</span>
+                        </div>
+                        <p class="card-desc">C-SCAN优化版，单向服务到最远请求后直接回跳到最近请求，无空载回程。</p>
+                        <div class="card-footer">
+                            <div class="card-meta">
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <polyline points="12 6 12 12 16 14"/>
+                                    </svg>
+                                    ~80秒
+                                </span>
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                    </svg>
+                                    4场景
+                                </span>
+                            </div>
+                            <div class="card-arrow">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="5" y1="12" x2="19" y2="12"/>
+                                    <polyline points="12 5 19 12 12 19"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </a>
                 </div>
             </section>
-        </main>
-        
-        <footer class="footer">
-            <p class="footer-text">
-                操作系统算法动画学习平台 · 
-                <a href="https://github.com" class="footer-link">GitHub</a> · 
-                适配投影展示 · 大字体 · 高对比度
-            </p>
-        </footer>
+
+            <section class="category-section">
+                <div class="category-header">
+                    <div class="category-icon concurrency">💾</div>
+                    <h2 class="category-title concurrency">文件系统</h2>
+                    <span class="category-desc">File System Management</span>
+                </div>
+                <div class="cards-grid">
+                    <a href="inode文件系统.html" class="card filesystem">
+                        <div class="card-header">
+                            <div class="card-icon filesystem">�</div>
+                            <div class="card-title-group">
+                                <h3 class="card-title">inode 文件系统</h3>
+                                <p class="card-subtitle">Inode File System</p>
+                            </div>
+                        </div>
+                        <div class="card-tags">
+                            <span class="tag filesystem">索引节点</span>
+                            <span class="tag filesystem">直接/间接寻址</span>
+                        </div>
+                        <p class="card-desc">inode存储文件元数据，数据块通过直接指针和间接指针访问。理解Unix风格文件系统的核心结构。</p>
+                        <div class="card-footer">
+                            <div class="card-meta">
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <polyline points="12 6 12 12 16 14"/>
+                                    </svg>
+                                    ~100秒
+                                </span>
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                    </svg>
+                                    5场景
+                                </span>
+                            </div>
+                            <div class="card-arrow">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="5" y1="12" x2="19" y2="12"/>
+                                    <polyline points="12 5 19 12 12 19"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </a>
+                    <a href="位视图.html" class="card filesystem">
+                        <div class="card-header">
+                            <div class="card-icon filesystem">🎶</div>
+                            <div class="card-title-group">
+                                <h3 class="card-title">位示图</h3>
+                                <p class="card-subtitle">Bit View</p>
+                            </div>
+                        </div>
+                        <div class="card-tags">
+                            <span class="tag filesystem">位示图</span>
+                            <span class="tag filesystem">位操作</span>
+                        </div>
+                        <p class="card-desc">位示图是一种存储位数据的可视化表示</p>
+                        <div class="card-footer">
+                            <div class="card-meta">
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <polyline points="12 6 12 12 16 14"/>
+                                    </svg>
+                                    ~100秒
+                                </span>
+                                <span class="meta-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                    </svg>
+                                    5场景
+                                </span>
+                            </div>
+                            <div class="card-arrow">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="5" y1="12" x2="19" y2="12"/>
+                                    <polyline points="12 5 19 12 12 19"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </a>
+
+                </div>
+            </section>
+            
+            <footer class="footer">
+                <p class="footer-text">
+                    <a href="https://kaihua8910.github.io" class="footer-link">GitHub</a> · 
+                    适配投影展示 · 大字体 · 高对比度
+                </p>
+            </footer>
+        </div>
     </div>
     
     <script>

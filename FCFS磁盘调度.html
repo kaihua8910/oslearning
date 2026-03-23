@@ -1,0 +1,1225 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FCFS磁盘调度算法 - 先来先服务</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0e14;
+            --fg: #ffffff;
+            --muted: #9ca3af;
+            --accent: #22d3ee;
+            --card: #1a1f2e;
+            --border: #3b4252;
+            
+            --head-color: #f97316;
+            --request-pending: #fb923c;
+            --request-done: #4ade80;
+            --trajectory-color: rgba(255, 255, 255, 0.5);
+            --highlight-color: #fbbf24;
+        }
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Noto Sans SC', sans-serif;
+            background: var(--bg);
+            color: var(--fg);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        
+        .bg-layer {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+        }
+        
+        .bg-gradient {
+            position: absolute;
+            inset: 0;
+            background: 
+                radial-gradient(ellipse 60% 40% at 20% 30%, rgba(251, 146, 60, 0.08) 0%, transparent 60%),
+                radial-gradient(ellipse 50% 30% at 80% 70%, rgba(34, 211, 238, 0.06) 0%, transparent 50%);
+        }
+        
+        .bg-grid {
+            position: absolute;
+            inset: 0;
+            background-image: 
+                linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+        
+        .main-container {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding: 16px 24px;
+        }
+        
+        .header {
+            text-align: center;
+            opacity: 0;
+            transform: translateY(-30px);
+            transition: all 0.8s ease;
+        }
+        
+        .header.visible { opacity: 1; transform: translateY(0); }
+        
+        .main-title {
+            font-size: clamp(1.5rem, 4vw, 2.2rem);
+            font-weight: 900;
+        }
+        
+        .sub-title {
+            font-size: 0.9rem;
+            color: var(--muted);
+            margin-top: 4px;
+        }
+        
+        .hint-container { text-align: center; margin-top: 10px; min-height: 44px; }
+        
+        .hint-box {
+            display: inline-block;
+            background: var(--card);
+            border: 2px solid var(--border);
+            padding: 10px 24px;
+            border-radius: 12px;
+            font-size: 0.95rem;
+            max-width: min(800px, 92vw);
+            opacity: 0;
+            transform: translateY(-15px);
+            transition: all 0.5s ease;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+        
+        .hint-box.visible { opacity: 1; transform: translateY(0); }
+        .hint-box .highlight { color: var(--accent); font-weight: 700; }
+        .hint-box .warning { color: #f87171; font-weight: 700; }
+        .hint-box .success { color: var(--request-done); font-weight: 700; }
+        .hint-box .sweat { color: var(--highlight-color); }
+        
+        /* 控制栏 */
+        .top-controls {
+            position: fixed;
+            top: 16px;
+            right: 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: var(--card);
+            border: 2px solid var(--border);
+            padding: 8px 16px;
+            border-radius: 50px;
+            z-index: 300;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+        }
+        
+        .ctrl-btn {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border: none;
+            background: var(--accent);
+            color: var(--bg);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+        
+        .ctrl-btn:hover { transform: scale(1.1); filter: brightness(1.2); }
+        .ctrl-btn.secondary { background: var(--border); color: var(--fg); }
+        .ctrl-btn svg { width: 18px; height: 18px; }
+        
+        .progress-track { width: 100px; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+        .progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--request-done)); width: 0%; transition: width 0.1s linear; }
+        .scene-label { font-size: 0.8rem; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+        
+        /* 主布局 */
+        .main-layout {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            margin-top: 12px;
+            opacity: 0;
+            transition: opacity 0.6s ease;
+        }
+        
+        .main-layout.visible { opacity: 1; }
+        
+        /* 磁盘区域 */
+        .disk-section {
+            flex: 1;
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 16px;
+            position: relative;
+            overflow: hidden;
+            min-height: 320px;
+        }
+        
+        .disk-svg {
+            width: 100%;
+            height: 100%;
+            min-height: 320px;
+        }
+        
+        /* 请求队列 */
+        .queue-container {
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 16px;
+            padding: 12px 16px;
+        }
+        
+        .queue-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .queue-title {
+            font-size: 0.9rem;
+            font-weight: 700;
+        }
+        
+        .queue-rule {
+            font-size: 0.75rem;
+            color: var(--accent);
+            background: rgba(34, 211, 238, 0.1);
+            padding: 4px 10px;
+            border-radius: 12px;
+        }
+        
+        .queue-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: center;
+        }
+        
+        .queue-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 20px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            font-weight: 600;
+            border: 2px solid transparent;
+            opacity: 0;
+            transform: scale(0.8);
+            transition: all 0.4s ease;
+        }
+        
+        .queue-item.visible { opacity: 1; transform: scale(1); }
+        .queue-item.pending { border-color: var(--request-pending); }
+        .queue-item.active { 
+            border-color: var(--accent); 
+            background: rgba(34, 211, 238, 0.15);
+            box-shadow: 0 0 15px rgba(34, 211, 238, 0.3);
+        }
+        .queue-item.done { 
+            border-color: var(--request-done); 
+            opacity: 0.5;
+        }
+        
+        .queue-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+        
+        .queue-item.pending .queue-dot { background: var(--request-pending); }
+        .queue-item.done .queue-dot { background: var(--request-done); }
+        
+        /* 统计面板 */
+        .stats-row {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        
+        .stat-card {
+            flex: 1;
+            min-width: 140px;
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 16px;
+            padding: 14px;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.5s ease;
+        }
+        
+        .stat-card.visible { opacity: 1; transform: translateY(0); }
+        
+        .stat-title {
+            font-size: 0.75rem;
+            color: var(--muted);
+            margin-bottom: 6px;
+        }
+        
+        .stat-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.6rem;
+            font-weight: 700;
+            color: var(--accent);
+        }
+        
+        .stat-value.warning { color: #f87171; }
+        .stat-value.success { color: var(--request-done); }
+        
+        .stat-sub {
+            font-size: 0.7rem;
+            color: var(--muted);
+            margin-top: 4px;
+        }
+        
+        /* 轨迹面板 */
+        .trajectory-panel {
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 16px;
+            padding: 14px;
+            opacity: 0;
+            transition: all 0.5s ease;
+        }
+        
+        .trajectory-panel.visible { opacity: 1; }
+        
+        .trajectory-title {
+            font-size: 0.85rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+        
+        .trajectory-svg {
+            width: 100%;
+            height: 80px;
+        }
+        
+        /* 对比面板 */
+        .compare-panel {
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 16px;
+            padding: 14px;
+            opacity: 0;
+            transition: all 0.5s ease;
+        }
+        
+        .compare-panel.visible { opacity: 1; }
+        
+        .compare-title {
+            font-size: 0.85rem;
+            font-weight: 700;
+            margin-bottom: 12px;
+        }
+        
+        .compare-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 12px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            font-size: 0.85rem;
+        }
+        
+        .compare-row.fcfs { 
+            background: rgba(248, 113, 113, 0.1); 
+            border: 1px solid #f87171; 
+        }
+        .compare-row.sstf { 
+            background: rgba(74, 222, 128, 0.1); 
+            border: 1px solid var(--request-done); 
+        }
+        
+        .compare-label { font-weight: 600; }
+        .compare-value { font-family: 'JetBrains Mono', monospace; font-weight: 700; }
+        .compare-row.fcfs .compare-value { color: #f87171; }
+        .compare-row.sstf .compare-value { color: var(--request-done); }
+        
+        /* 总结面板 */
+        .summary-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(10, 14, 20, 0.95);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.6s ease;
+            z-index: 400;
+        }
+        
+        .summary-overlay.visible { opacity: 1; pointer-events: auto; }
+        
+        .summary-card {
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 20px;
+            padding: 28px 36px;
+            max-width: 560px;
+            position: relative;
+        }
+        
+        .summary-close {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            border: none;
+            background: var(--border);
+            color: var(--fg);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+        
+        .summary-close:hover { background: #f87171; transform: scale(1.1); }
+        .summary-close svg { width: 16px; height: 16px; }
+        
+        .summary-title { font-size: 1.2rem; font-weight: 700; margin-bottom: 14px; padding-right: 30px; }
+        
+        .summary-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            margin-bottom: 8px;
+            padding: 8px 10px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+        }
+        
+        .summary-num {
+            width: 22px;
+            height: 22px;
+            background: var(--accent);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 0.7rem;
+            color: var(--bg);
+            flex-shrink: 0;
+        }
+        
+        .summary-text { font-size: 0.8rem; line-height: 1.5; }
+        .summary-text strong { color: var(--accent); }
+        .summary-text .bad { color: #f87171; }
+        
+        .summary-actions { margin-top: 16px; text-align: center; }
+        
+        .summary-btn {
+            padding: 10px 24px;
+            border-radius: 25px;
+            border: none;
+            font-weight: 600;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-family: inherit;
+            background: var(--accent);
+            color: var(--bg);
+        }
+        
+        .summary-btn:hover { filter: brightness(1.2); transform: scale(1.05); }
+        
+        @media (max-width: 768px) {
+            .main-container { padding: 12px; }
+            .top-controls { padding: 6px 12px; gap: 8px; }
+            .progress-track { width: 70px; }
+            .stat-card { min-width: 100%; }
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-layer">
+        <div class="bg-gradient"></div>
+        <div class="bg-grid"></div>
+    </div>
+    
+    <div class="top-controls">
+        <button class="ctrl-btn" id="playBtn">
+            <svg id="playIcon" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+        </button>
+        <button class="ctrl-btn secondary" id="resetBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+        </button>
+        <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+        <div class="scene-label" id="sceneLabel">场景 1/4</div>
+    </div>
+    
+    <div class="main-container">
+        <header class="header" id="header">
+            <h1 class="main-title">FCFS 磁盘调度算法</h1>
+            <p class="sub-title">先来先服务 - 老实人的折返跑</p>
+            <div class="hint-container">
+                <div class="hint-box" id="hintBox"></div>
+            </div>
+        </header>
+        
+        <div class="main-layout" id="mainLayout">
+            <div class="disk-section">
+                <svg class="disk-svg" id="diskSvg" viewBox="0 0 700 340" preserveAspectRatio="xMidYMid meet">
+                    <defs>
+                        <linearGradient id="diskGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#1e3a5f"/>
+                            <stop offset="100%" stop-color="#0f2744"/>
+                        </linearGradient>
+                        <radialGradient id="centerGrad">
+                            <stop offset="0%" stop-color="#374151"/>
+                            <stop offset="100%" stop-color="#1f2937"/>
+                        </radialGradient>
+                    </defs>
+                    
+                    <!-- 磁盘 -->
+                    <g id="diskGroup">
+                        <circle cx="170" cy="170" r="130" fill="url(#diskGrad)" stroke="#2d4a6f" stroke-width="2"/>
+                        <g id="tracksGroup"></g>
+                        <circle cx="170" cy="170" r="20" fill="url(#centerGrad)" stroke="#4b5563" stroke-width="2"/>
+                        <circle cx="170" cy="170" r="5" fill="#6b7280"/>
+                    </g>
+                    
+                    <!-- 请求点 -->
+                    <g id="requestsGroup"></g>
+                    
+                    <!-- 磁头 -->
+                    <g id="headGroup" style="opacity: 0">
+                        <line id="headArm" x1="170" y1="170" x2="170" y2="55" stroke="#f97316" stroke-width="4" stroke-linecap="round"/>
+                        <circle id="headDot" cx="170" cy="55" r="9" fill="#fb923c" stroke="#fff" stroke-width="2"/>
+                        <text id="headLabel" x="170" y="38" text-anchor="middle" fill="#fb923c" font-size="12" font-weight="700" font-family="JetBrains Mono">53</text>
+                        <!-- 流汗效果 -->
+                        <g id="sweatEffect" style="opacity: 0">
+                            <path d="M 158 48 Q 155 55 158 62" stroke="#fbbf24" stroke-width="2" fill="none" stroke-linecap="round"/>
+                        </g>
+                    </g>
+                    
+                    <!-- 距离线 -->
+                    <g id="distanceLineGroup"></g>
+                    
+                    <!-- 磁道标尺 -->
+                    <g transform="translate(330, 50)">
+                        <text x="0" y="0" fill="#9ca3af" font-size="11">磁道标尺</text>
+                        <line x1="0" y1="20" x2="320" y2="20" stroke="#3b4252" stroke-width="2"/>
+                        
+                        <!-- 刻度 -->
+                        <g font-size="10" fill="#6b7280" font-family="JetBrains Mono">
+                            <line x1="0" y1="15" x2="0" y2="25" stroke="#4b5563" stroke-width="1"/>
+                            <text x="0" y="40" text-anchor="middle">0</text>
+                            
+                            <line x1="80" y1="15" x2="80" y2="25" stroke="#4b5563" stroke-width="1"/>
+                            <text x="80" y="40" text-anchor="middle">50</text>
+                            
+                            <line x1="160" y1="15" x2="160" y2="25" stroke="#4b5563" stroke-width="1"/>
+                            <text x="160" y="40" text-anchor="middle">100</text>
+                            
+                            <line x1="240" y1="15" x2="240" y2="25" stroke="#4b5563" stroke-width="1"/>
+                            <text x="240" y="40" text-anchor="middle">150</text>
+                            
+                            <line x1="320" y1="15" x2="320" y2="25" stroke="#4b5563" stroke-width="1"/>
+                            <text x="320" y="40" text-anchor="middle">199</text>
+                        </g>
+                        
+                        <!-- 磁头位置指示器 -->
+                        <g id="rulerIndicator">
+                            <circle id="rulerDot" cx="85" cy="20" r="6" fill="#fb923c" stroke="#fff" stroke-width="1.5"/>
+                            <text id="rulerLabel" x="85" y="12" text-anchor="middle" fill="#fb923c" font-size="10" font-weight="600" font-family="JetBrains Mono">53</text>
+                        </g>
+                        
+                        <!-- 轨迹绘制区 -->
+                        <g transform="translate(0, 60)">
+                            <text x="0" y="0" fill="#9ca3af" font-size="11">寻道轨迹</text>
+                            <line x1="0" y1="15" x2="320" y2="15" stroke="#3b4252" stroke-width="1"/>
+                            <polyline id="trajectoryLine" points="" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-dasharray="6 3" stroke-linecap="round" stroke-linejoin="round"/>
+                            <g id="trajectoryPoints"></g>
+                        </g>
+                        
+                        <!-- 当前状态 -->
+                        <g transform="translate(0, 140)">
+                            <text x="0" y="0" fill="#9ca3af" font-size="11">当前状态</text>
+                            
+                            <text x="0" y="25" fill="#6b7280" font-size="10">当前磁道</text>
+                            <text id="infoCurrent" x="80" y="25" fill="#22d3ee" font-size="14" font-weight="700" font-family="JetBrains Mono">53</text>
+                            
+                            <text x="0" y="45" fill="#6b7280" font-size="10">目标磁道</text>
+                            <text id="infoTarget" x="80" y="45" fill="#ffffff" font-size="14" font-weight="700" font-family="JetBrains Mono">-</text>
+                            
+                            <text x="0" y="65" fill="#6b7280" font-size="10">移动距离</text>
+                            <text id="infoDist" x="80" y="65" fill="#fbbf24" font-size="14" font-weight="700" font-family="JetBrains Mono">0</text>
+                        </g>
+                        
+                        <!-- 统计 -->
+                        <g transform="translate(0, 230)">
+                            <text x="0" y="0" fill="#9ca3af" font-size="11">统计数据</text>
+                            
+                            <text x="0" y="22" fill="#6b7280" font-size="10">总寻道</text>
+                            <text id="infoTotal" x="70" y="22" fill="#f87171" font-size="16" font-weight="700" font-family="JetBrains Mono">0</text>
+                            
+                            <text x="150" y="22" fill="#6b7280" font-size="10">平均</text>
+                            <text id="infoAvg" x="190" y="22" fill="#fbbf24" font-size="14" font-weight="700" font-family="JetBrains Mono">0.0</text>
+                            
+                            <text x="0" y="45" fill="#6b7280" font-size="10">完成</text>
+                            <text id="infoDone" x="40" y="45" fill="#ffffff" font-size="12" font-weight="700" font-family="JetBrains Mono">0/8</text>
+                        </g>
+                    </g>
+                </svg>
+            </div>
+            
+            <div class="queue-container">
+                <div class="queue-header">
+                    <div class="queue-title">请求队列</div>
+                    <div class="queue-rule">按到达顺序处理</div>
+                </div>
+                <div class="queue-list" id="queueList"></div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 总结面板 -->
+    <div class="summary-overlay" id="summaryOverlay">
+        <div class="summary-card">
+            <button class="summary-close" id="summaryClose">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+            <h2 class="summary-title">FCFS算法总结</h2>
+            <div class="summary-item">
+                <div class="summary-num">1</div>
+                <div class="summary-text"><strong>核心思想</strong>：严格按请求到达顺序服务，不考虑距离</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-num">2</div>
+                <div class="summary-text"><strong>效率数据</strong>：总寻道<span class="bad">640磁道</span>，平均80磁道</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-num">3</div>
+                <div class="summary-text"><strong>优点</strong>：绝对公平，实现简单，无饥饿</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-num">4</div>
+                <div class="summary-text"><strong>缺点</strong>：<span class="bad">反复折返</span>，效率极低</div>
+            </div>
+            <div class="summary-actions">
+                <button class="summary-btn" id="replayBtn">重新播放</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // ========== 配置 ==========
+        const CONFIG = {
+            diskCenter: { x: 170, y: 170 },
+            diskRadius: 128,
+            centerRadius: 20,
+            maxTrack: 199,
+            initialPosition: 53,
+            requests: [98, 183, 37, 122, 14, 124, 65, 67]
+        };
+        
+        // FCFS执行序列（按请求顺序）
+        const FCFS_SEQUENCE = [];
+        let currentPos = CONFIG.initialPosition;
+        CONFIG.requests.forEach(track => {
+            FCFS_SEQUENCE.push({
+                from: currentPos,
+                to: track,
+                distance: Math.abs(track - currentPos)
+            });
+            currentPos = track;
+        });
+        
+        // ========== 状态 ==========
+        const state = {
+            isPlaying: false,
+            currentScene: 0,
+            sceneTime: 0,
+            animationFrame: null,
+            lastTimestamp: 0,
+            headPosition: CONFIG.initialPosition,
+            totalDistance: 0,
+            completed: [],
+            trajectoryPoints: [{ track: CONFIG.initialPosition, x: 85 }]
+        };
+        
+        const executedActions = new Set();
+        
+        // ========== DOM ==========
+        let dom = {};
+        
+        // ========== 场景 ==========
+        function createScenes() {
+            return [
+                {
+                    name: '队列入场',
+                    duration: 5000,
+                    actions: [
+                        { time: 0, type: 'showHeader' },
+                        { time: 300, type: 'showHint', text: 'FCFS是磁盘调度界的<span class="highlight">老实人</span>，眼里只有先来后到。' },
+                        { time: 1200, type: 'showLayout' },
+                        { time: 1500, type: 'showDisk' },
+                        { time: 2000, type: 'showHead', position: CONFIG.initialPosition },
+                        { time: 2500, type: 'showQueue' }
+                    ]
+                },
+                {
+                    name: '疯狂折返跑',
+                    duration: 28000,
+                    actions: createFCFSActions()
+                },
+                {
+                    name: '数据统计',
+                    duration: 8000,
+                    actions: [
+                        { time: 0, type: 'showHint', text: '全部完成！总寻道<span class="warning">640磁道</span>，平均80磁道/请求' },
+                        { time: 2000, type: 'showSweat', show: false },
+                        { time: 2500, type: 'showCompare' }
+                    ]
+                },
+                {
+                    name: '总结',
+                    duration: 6000,
+                    actions: [
+                        { time: 0, type: 'showHint', text: 'FCFS公平但<span class="warning">低效</span>，需要更智能的调度算法' },
+                        { time: 2500, type: 'showSummary' }
+                    ]
+                }
+            ];
+        }
+        
+        function createFCFSActions() {
+            const actions = [];
+            let time = 0;
+            
+            FCFS_SEQUENCE.forEach((step, idx) => {
+                // 显示距离计算
+                actions.push({
+                    time: time,
+                    type: 'showDistance',
+                    stepIndex: idx
+                });
+                
+                time += 800;
+                
+                // 选择请求
+                actions.push({
+                    time: time,
+                    type: 'selectRequest',
+                    stepIndex: idx
+                });
+                
+                time += 600;
+                
+                // 移动磁头
+                actions.push({
+                    time: time,
+                    type: 'moveHead',
+                    stepIndex: idx
+                });
+                
+                // 大折返显示流汗
+                if (step.distance > 100) {
+                    actions.push({
+                        time: time + 200,
+                        type: 'showSweat',
+                        show: true
+                    });
+                }
+                
+                time += Math.max(1500, step.distance * 8);
+            });
+            
+            return actions;
+        }
+        
+        const scenes = createScenes();
+        
+        // ========== 初始化 ==========
+        function init() {
+            dom.header = document.getElementById('header');
+            dom.hintBox = document.getElementById('hintBox');
+            dom.mainLayout = document.getElementById('mainLayout');
+            dom.diskSvg = document.getElementById('diskSvg');
+            dom.tracksGroup = document.getElementById('tracksGroup');
+            dom.requestsGroup = document.getElementById('requestsGroup');
+            dom.headGroup = document.getElementById('headGroup');
+            dom.headArm = document.getElementById('headArm');
+            dom.headDot = document.getElementById('headDot');
+            dom.headLabel = document.getElementById('headLabel');
+            dom.sweatEffect = document.getElementById('sweatEffect');
+            dom.distanceLineGroup = document.getElementById('distanceLineGroup');
+            dom.queueList = document.getElementById('queueList');
+            dom.trajectoryLine = document.getElementById('trajectoryLine');
+            dom.trajectoryPoints = document.getElementById('trajectoryPoints');
+            dom.rulerDot = document.getElementById('rulerDot');
+            dom.rulerLabel = document.getElementById('rulerLabel');
+            
+            dom.infoCurrent = document.getElementById('infoCurrent');
+            dom.infoTarget = document.getElementById('infoTarget');
+            dom.infoDist = document.getElementById('infoDist');
+            dom.infoTotal = document.getElementById('infoTotal');
+            dom.infoAvg = document.getElementById('infoAvg');
+            dom.infoDone = document.getElementById('infoDone');
+            
+            dom.summaryOverlay = document.getElementById('summaryOverlay');
+            dom.playBtn = document.getElementById('playBtn');
+            dom.playIcon = document.getElementById('playIcon');
+            dom.resetBtn = document.getElementById('resetBtn');
+            dom.progressFill = document.getElementById('progressFill');
+            dom.sceneLabel = document.getElementById('sceneLabel');
+            dom.summaryClose = document.getElementById('summaryClose');
+            dom.replayBtn = document.getElementById('replayBtn');
+            
+            dom.playBtn.addEventListener('click', togglePlayback);
+            dom.resetBtn.addEventListener('click', resetAnimation);
+            dom.summaryClose.addEventListener('click', () => dom.summaryOverlay.classList.remove('visible'));
+            dom.replayBtn.addEventListener('click', () => {
+                dom.summaryOverlay.classList.remove('visible');
+                resetAnimation();
+                setTimeout(togglePlayback, 300);
+            });
+            
+            document.addEventListener('keydown', e => {
+                if (e.code === 'Space') { e.preventDefault(); togglePlayback(); }
+                else if (e.code === 'KeyR') resetAnimation();
+            });
+            
+            drawTracks();
+            updateSceneLabel();
+        }
+        
+        // ========== 绘制磁道 ==========
+        function drawTracks() {
+            [0, 50, 100, 150, 199].forEach((t, i) => {
+                const radius = 22 + i * 26;
+                const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                circle.setAttribute('cx', CONFIG.diskCenter.x);
+                circle.setAttribute('cy', CONFIG.diskCenter.y);
+                circle.setAttribute('r', radius);
+                circle.setAttribute('fill', 'none');
+                circle.setAttribute('stroke', 'rgba(255,255,255,0.08)');
+                circle.setAttribute('stroke-width', '1');
+                dom.tracksGroup.appendChild(circle);
+            });
+        }
+        
+        // ========== 坐标转换 ==========
+        function trackToRadius(track) {
+            const ratio = track / CONFIG.maxTrack;
+            return CONFIG.centerRadius + 2 + ratio * (CONFIG.diskRadius - CONFIG.centerRadius - 2);
+        }
+        
+        function trackToPosition(track) {
+            const radius = trackToRadius(track);
+            return {
+                x: CONFIG.diskCenter.x,
+                y: CONFIG.diskCenter.y - radius
+            };
+        }
+        
+        function trackToAngle(track, angleDeg) {
+            const radius = trackToRadius(track);
+            const rad = (angleDeg - 90) * Math.PI / 180;
+            return {
+                x: CONFIG.diskCenter.x + radius * Math.cos(rad),
+                y: CONFIG.diskCenter.y + radius * Math.sin(rad)
+            };
+        }
+        
+        function trackToRulerX(track) {
+            return (track / CONFIG.maxTrack) * 320;
+        }
+        
+        // ========== 播放控制 ==========
+        function togglePlayback() {
+            state.isPlaying = !state.isPlaying;
+            dom.playIcon.innerHTML = state.isPlaying 
+                ? '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>'
+                : '<polygon points="5,3 19,12 5,21"/>';
+            
+            if (state.isPlaying) {
+                state.lastTimestamp = performance.now();
+                runAnimation();
+            } else {
+                cancelAnimationFrame(state.animationFrame);
+            }
+        }
+        
+        function resetAnimation() {
+            cancelAnimationFrame(state.animationFrame);
+            state.isPlaying = false;
+            state.currentScene = 0;
+            state.sceneTime = 0;
+            state.headPosition = CONFIG.initialPosition;
+            state.totalDistance = 0;
+            state.completed = [];
+            state.trajectoryPoints = [{ track: CONFIG.initialPosition, x: 85 }];
+            executedActions.clear();
+            
+            dom.playIcon.innerHTML = '<polygon points="5,3 19,12 5,21"/>';
+            dom.progressFill.style.width = '0%';
+            
+            dom.header.classList.remove('visible');
+            dom.hintBox.classList.remove('visible');
+            dom.mainLayout.classList.remove('visible');
+            dom.summaryOverlay.classList.remove('visible');
+            
+            dom.headGroup.style.opacity = '0';
+            dom.sweatEffect.style.opacity = '0';
+            dom.requestsGroup.innerHTML = '';
+            dom.distanceLineGroup.innerHTML = '';
+            dom.queueList.innerHTML = '';
+            dom.trajectoryLine.setAttribute('points', '');
+            dom.trajectoryPoints.innerHTML = '';
+            
+            dom.infoCurrent.textContent = '53';
+            dom.infoTarget.textContent = '-';
+            dom.infoDist.textContent = '0';
+            dom.infoTotal.textContent = '0';
+            dom.infoAvg.textContent = '0.0';
+            dom.infoDone.textContent = '0/8';
+            
+            dom.rulerDot.setAttribute('cx', '85');
+            dom.rulerLabel.setAttribute('x', '85');
+            dom.rulerLabel.textContent = '53';
+            
+            updateSceneLabel();
+        }
+        
+        // ========== 动画循环 ==========
+        function runAnimation() {
+            if (!state.isPlaying) return;
+            
+            const now = performance.now();
+            state.sceneTime += now - state.lastTimestamp;
+            state.lastTimestamp = now;
+            
+            const scene = scenes[state.currentScene];
+            if (!scene) {
+                state.isPlaying = false;
+                dom.playIcon.innerHTML = '<polygon points="5,3 19,12 5,21"/>';
+                return;
+            }
+            
+            dom.progressFill.style.width = `${((state.currentScene + state.sceneTime / scene.duration) / scenes.length) * 100}%`;
+            
+            scene.actions.forEach((a, i) => {
+                const key = `${state.currentScene}-${i}`;
+                if (state.sceneTime >= a.time && !executedActions.has(key)) {
+                    executedActions.add(key);
+                    executeAction(a);
+                }
+            });
+            
+            if (state.sceneTime >= scene.duration) {
+                state.currentScene++;
+                state.sceneTime = 0;
+                executedActions.clear();
+                updateSceneLabel();
+                
+                if (state.currentScene >= scenes.length) {
+                    state.isPlaying = false;
+                    dom.playIcon.innerHTML = '<polygon points="5,3 19,12 5,21"/>';
+                    return;
+                }
+            }
+            
+            state.animationFrame = requestAnimationFrame(runAnimation);
+        }
+        
+        // ========== 动作执行 ==========
+        function executeAction(a) {
+            switch (a.type) {
+                case 'showHeader':
+                    dom.header.classList.add('visible');
+                    break;
+                    
+                case 'showHint':
+                    dom.hintBox.innerHTML = a.text;
+                    dom.hintBox.classList.add('visible');
+                    break;
+                    
+                case 'showLayout':
+                    dom.mainLayout.classList.add('visible');
+                    break;
+                    
+                case 'showDisk':
+                    // 已绘制
+                    break;
+                    
+                case 'showHead':
+                    updateHeadPosition(a.position);
+                    dom.headGroup.style.opacity = '1';
+                    break;
+                    
+                case 'showQueue':
+                    showQueue();
+                    break;
+                    
+                case 'showDistance':
+                    showDistance(a.stepIndex);
+                    break;
+                    
+                case 'selectRequest':
+                    selectRequest(a.stepIndex);
+                    break;
+                    
+                case 'moveHead':
+                    moveHead(a.stepIndex);
+                    break;
+                    
+                case 'showSweat':
+                    dom.sweatEffect.style.opacity = a.show ? '1' : '0';
+                    break;
+                    
+                case 'showCompare':
+                    // 对比信息
+                    break;
+                    
+                case 'showSummary':
+                    dom.summaryOverlay.classList.add('visible');
+                    break;
+            }
+        }
+        
+        // ========== 磁头 ==========
+        function updateHeadPosition(track) {
+            const pos = trackToPosition(track);
+            const angle = Math.atan2(pos.y - CONFIG.diskCenter.y, pos.x - CONFIG.diskCenter.x);
+            
+            const armX = CONFIG.diskCenter.x + (CONFIG.centerRadius + 2) * Math.cos(angle);
+            const armY = CONFIG.diskCenter.y + (CONFIG.centerRadius + 2) * Math.sin(angle);
+            
+            dom.headArm.setAttribute('x1', armX);
+            dom.headArm.setAttribute('y1', armY);
+            dom.headArm.setAttribute('x2', pos.x);
+            dom.headArm.setAttribute('y2', pos.y);
+            
+            dom.headDot.setAttribute('cx', pos.x);
+            dom.headDot.setAttribute('cy', pos.y);
+            
+            dom.headLabel.setAttribute('x', pos.x);
+            dom.headLabel.setAttribute('y', pos.y - 16);
+            dom.headLabel.textContent = track;
+            
+            // 更新标尺
+            const rulerX = trackToRulerX(track);
+            dom.rulerDot.setAttribute('cx', rulerX);
+            dom.rulerLabel.setAttribute('x', rulerX);
+            dom.rulerLabel.textContent = track;
+            
+            state.headPosition = track;
+            dom.infoCurrent.textContent = track;
+        }
+        
+        function animateHead(from, to, duration, callback) {
+            const startPos = trackToPosition(from);
+            const endPos = trackToPosition(to);
+            const startTime = performance.now();
+            
+            function animate() {
+                const elapsed = performance.now() - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                const eased = progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+                
+                const currentX = startPos.x + (endPos.x - startPos.x) * eased;
+                const currentY = startPos.y + (endPos.y - startPos.y) * eased;
+                
+                const angle = Math.atan2(currentY - CONFIG.diskCenter.y, currentX - CONFIG.diskCenter.x);
+                const armX = CONFIG.diskCenter.x + (CONFIG.centerRadius + 2) * Math.cos(angle);
+                const armY = CONFIG.diskCenter.y + (CONFIG.centerRadius + 2) * Math.sin(angle);
+                
+                dom.headArm.setAttribute('x1', armX);
+                dom.headArm.setAttribute('y1', armY);
+                dom.headArm.setAttribute('x2', currentX);
+                dom.headArm.setAttribute('y2', currentY);
+                
+                dom.headDot.setAttribute('cx', currentX);
+                dom.headDot.setAttribute('cy', currentY);
+                
+                // 更新标尺
+                const currentTrack = Math.round(from + (to - from) * eased);
+                const rulerX = trackToRulerX(currentTrack);
+                dom.rulerDot.setAttribute('cx', rulerX);
+                dom.rulerLabel.setAttribute('x', rulerX);
+                dom.rulerLabel.textContent = currentTrack;
+                
+                if (progress < 1) {
+                    requestAnimationFrame(animate);
+                } else {
+                    updateHeadPosition(to);
+                    if (callback) callback();
+                }
+            }
+            
+            requestAnimationFrame(animate);
+        }
+        
+        // ========== 请求 ==========
+        function showQueue() {
+            dom.queueList.innerHTML = '';
+            CONFIG.requests.forEach((track, i) => {
+                setTimeout(() => {
+                    const div = document.createElement('div');
+                    div.className = 'queue-item pending';
+                    div.id = `queue-${track}`;
+                    div.innerHTML = `<div class="queue-dot"></div><span>${track}</span>`;
+                    dom.queueList.appendChild(div);
+                    requestAnimationFrame(() => div.classList.add('visible'));
+                }, i * 100);
+            });
+        }
+        
+        function showRequests() {
+            const angles = [0, 45, 90, 135, 180, 225, 270, 315];
+            
+            CONFIG.requests.forEach((track, i) => {
+                setTimeout(() => {
+                    const pos = trackToAngle(track, angles[i]);
+                    
+                    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                    g.setAttribute('id', `req-${track}`);
+                    g.style.opacity = '0';
+                    g.style.transition = 'opacity 0.3s';
+                    
+                    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                    circle.setAttribute('cx', pos.x);
+                    circle.setAttribute('cy', pos.y);
+                    circle.setAttribute('r', '7');
+                    circle.setAttribute('fill', '#fb923c');
+                    circle.setAttribute('stroke', '#fff');
+                    circle.setAttribute('stroke-width', '1.5');
+                    
+                    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    text.setAttribute('x', pos.x);
+                    text.setAttribute('y', pos.y - 12);
+                    text.setAttribute('text-anchor', 'middle');
+                    text.setAttribute('fill', '#fb923c');
+                    text.setAttribute('font-size', '10');
+                    text.setAttribute('font-weight', '700');
+                    text.setAttribute('font-family', 'JetBrains Mono');
+                    text.textContent = track;
+                    
+                    g.appendChild(circle);
+                    g.appendChild(text);
+                    dom.requestsGroup.appendChild(g);
+                    
+                    requestAnimationFrame(() => g.style.opacity = '1');
+                }, i * 120);
+            });
+        }
+        
+        function showDistance(stepIndex) {
+            const step = FCFS_SEQUENCE[stepIndex];
+            dom.distanceLineGroup.innerHTML = '';
+            
+            const fromPos = trackToPosition(step.from);
+            const toPos = trackToPosition(step.to);
+            
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            line.setAttribute('x1', fromPos.x);
+            line.setAttribute('y1', fromPos.y);
+            line.setAttribute('x2', toPos.x);
+            line.setAttribute('y2', toPos.y);
+            line.setAttribute('stroke', 'rgba(255,255,255,0.3)');
+            line.setAttribute('stroke-width', '1.5');
+            line.setAttribute('stroke-dasharray', '4 3');
+            dom.distanceLineGroup.appendChild(line);
+            
+            dom.infoTarget.textContent = step.to;
+            dom.infoDist.textContent = step.distance;
+        }
+        
+        function selectRequest(stepIndex) {
+            const step = FCFS_SEQUENCE[stepIndex];
+            const track = step.to;
+            
+            // 高亮队列
+            const queueEl = document.getElementById(`queue-${track}`);
+            if (queueEl) queueEl.classList.add('active');
+        }
+        
+        function moveHead(stepIndex) {
+            const step = FCFS_SEQUENCE[stepIndex];
+            
+            dom.distanceLineGroup.innerHTML = '';
+            
+            // 更新队列
+            const queueEl = document.getElementById(`queue-${step.to}`);
+            if (queueEl) {
+                queueEl.classList.remove('pending', 'active');
+                queueEl.classList.add('done');
+            }
+            
+            // 更新统计
+            state.totalDistance += step.distance;
+            state.completed.push(step.to);
+            
+            dom.infoTotal.textContent = state.totalDistance;
+            dom.infoAvg.textContent = (state.totalDistance / state.completed.length).toFixed(1);
+            dom.infoDone.textContent = `${state.completed.length}/8`;
+            
+            // 动画移动
+            const duration = Math.min(1200, step.distance * 6);
+            animateHead(step.from, step.to, duration, () => {
+                // 更新请求点
+                const reqEl = document.getElementById(`req-${step.to}`);
+                if (reqEl) {
+                    const circle = reqEl.querySelector('circle');
+                    if (circle) circle.setAttribute('fill', '#4ade80');
+                }
+                
+                addTrajectoryPoint(step.to);
+            });
+        }
+        
+        function addTrajectoryPoint(track) {
+            const x = trackToRulerX(track);
+            state.trajectoryPoints.push({ track, x });
+            
+            const points = state.trajectoryPoints.map((p, i) => {
+                const y = 15 + (i % 2 === 0 ? -6 : 6);
+                return `${p.x},${y}`;
+            }).join(' ');
+            
+            dom.trajectoryLine.setAttribute('points', points);
+            
+            const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            const last = state.trajectoryPoints[state.trajectoryPoints.length - 1];
+            const y = 15 + ((state.trajectoryPoints.length - 1) % 2 === 0 ? -6 : 6);
+            circle.setAttribute('cx', last.x);
+            circle.setAttribute('cy', y);
+            circle.setAttribute('r', '2.5');
+            circle.setAttribute('fill', 'rgba(255,255,255,0.6)');
+            dom.trajectoryPoints.appendChild(circle);
+        }
+        
+        function updateSceneLabel() {
+            dom.sceneLabel.textContent = `场景 ${state.currentScene + 1}/${scenes.length}`;
+        }
+        
+        // 启动
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>

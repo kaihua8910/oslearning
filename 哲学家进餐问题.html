@@ -1,0 +1,1120 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>哲学家进餐问题——筷子争夺战与死锁破局</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0d1117;
+            --bg-secondary: #161b22;
+            --fg: #e6edf3;
+            --muted: #8b949e;
+            --accent: #58a6ff;
+            --thinking: #3b82f6;
+            --hungry: #f59e0b;
+            --eating: #22c55e;
+            --deadlock: #ef4444;
+            --starvation: #94a3b8;
+            --chopstick-free: #d4d4d8;
+            --chopstick-used: #fbbf24;
+            --card: rgba(22, 27, 34, 0.9);
+            --border: rgba(88, 166, 255, 0.3);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Noto Sans SC', sans-serif;
+            background: var(--bg);
+            color: var(--fg);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* 背景网格 */
+        .bg-grid {
+            position: fixed;
+            inset: 0;
+            background-image: 
+                radial-gradient(circle at 1px 1px, rgba(88, 166, 255, 0.05) 1px, transparent 0);
+            background-size: 40px 40px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* 圆桌布局 */
+        .table-container {
+            position: relative;
+            width: 500px;
+            height: 500px;
+            margin: 0 auto;
+        }
+
+        .dining-table {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 280px;
+            height: 280px;
+            border-radius: 50%;
+            background: linear-gradient(145deg, #2d3748, #1a202c);
+            border: 4px solid #4a5568;
+            box-shadow: 
+                0 0 40px rgba(0, 0, 0, 0.5),
+                inset 0 0 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .table-food {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            background: linear-gradient(145deg, #fbbf24, #f59e0b);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: 700;
+            color: #1a202c;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(251, 191, 36, 0.3);
+        }
+
+        /* 哲学家 */
+        .philosopher {
+            position: absolute;
+            width: 70px;
+            height: 70px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transform-origin: center;
+            transition: all 0.3s ease;
+        }
+
+        .philosopher-body {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 16px;
+            position: relative;
+            border: 3px solid transparent;
+            transition: all 0.3s ease;
+        }
+
+        .philosopher.thinking .philosopher-body {
+            background: linear-gradient(145deg, #3b82f6, #2563eb);
+            border-color: #60a5fa;
+        }
+
+        .philosopher.hungry .philosopher-body {
+            background: linear-gradient(145deg, #f59e0b, #d97706);
+            border-color: #fbbf24;
+            animation: hungry-shake 0.5s ease-in-out infinite;
+        }
+
+        .philosopher.eating .philosopher-body {
+            background: linear-gradient(145deg, #22c55e, #16a34a);
+            border-color: #4ade80;
+        }
+
+        .philosopher.deadlock .philosopher-body {
+            background: linear-gradient(145deg, #ef4444, #dc2626);
+            border-color: #f87171;
+            animation: deadlock-pulse 0.3s ease-in-out infinite;
+        }
+
+        .philosopher.starvation .philosopher-body {
+            background: linear-gradient(145deg, #64748b, #475569);
+            border-color: #94a3b8;
+            opacity: 0.7;
+        }
+
+        .philosopher.special .philosopher-body {
+            border: 3px solid #f97316;
+            box-shadow: 0 0 15px rgba(249, 115, 22, 0.5);
+        }
+
+        @keyframes hungry-shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-2px); }
+            75% { transform: translateX(2px); }
+        }
+
+        @keyframes deadlock-pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+
+        /* 状态气泡 */
+        .status-bubble {
+            position: absolute;
+            top: -35px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            transition: all 0.3s ease;
+            opacity: 0;
+        }
+
+        .status-bubble.show {
+            opacity: 1;
+        }
+
+        .philosopher.thinking .status-bubble {
+            background: rgba(59, 130, 246, 0.3);
+            color: #93c5fd;
+        }
+
+        .philosopher.hungry .status-bubble {
+            background: rgba(245, 158, 11, 0.3);
+            color: #fcd34d;
+        }
+
+        .philosopher.eating .status-bubble {
+            background: rgba(34, 197, 94, 0.3);
+            color: #86efac;
+        }
+
+        .philosopher.deadlock .status-bubble {
+            background: rgba(239, 68, 68, 0.3);
+            color: #fca5a5;
+        }
+
+        .philosopher.starvation .status-bubble {
+            background: rgba(148, 163, 184, 0.3);
+            color: #cbd5e1;
+        }
+
+        /* 筷子 */
+        .chopstick {
+            position: absolute;
+            width: 40px;
+            height: 8px;
+            background: var(--chopstick-free);
+            border-radius: 4px;
+            transform-origin: center;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .chopstick.used {
+            background: var(--chopstick-used);
+            box-shadow: 0 0 10px rgba(251, 191, 36, 0.5);
+        }
+
+        .chopstick-label {
+            position: absolute;
+            font-size: 10px;
+            font-weight: 600;
+            color: var(--muted);
+            white-space: nowrap;
+        }
+
+        /* 死锁遮罩 */
+        .deadlock-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(239, 68, 68, 0.15);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+            z-index: 50;
+        }
+
+        .deadlock-overlay.show {
+            opacity: 1;
+            animation: deadlock-flash 0.5s ease-in-out 3;
+        }
+
+        @keyframes deadlock-flash {
+            0%, 100% { background: rgba(239, 68, 68, 0.15); }
+            50% { background: rgba(239, 68, 68, 0.3); }
+        }
+
+        /* 领座员 */
+        .waiter {
+            position: absolute;
+            right: -80px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: linear-gradient(145deg, #8b5cf6, #7c3aed);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 700;
+            text-align: center;
+            opacity: 0;
+            transition: opacity 0.5s;
+            border: 2px solid #a78bfa;
+        }
+
+        .waiter.show {
+            opacity: 1;
+        }
+
+        /* 规则提示条 */
+        .rule-bar {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 12px 20px;
+            backdrop-filter: blur(10px);
+        }
+
+        /* 进度条 */
+        .progress-bar {
+            height: 4px;
+            background: var(--bg-secondary);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--thinking), var(--hungry), var(--eating));
+            width: 0%;
+            transition: width 0.1s linear;
+        }
+
+        /* 按钮 */
+        .btn {
+            padding: 12px 28px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent), #3b82f6);
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(88, 166, 255, 0.3);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: var(--card);
+            color: var(--fg);
+            border: 2px solid var(--border);
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            border-color: var(--accent);
+        }
+
+        .btn-secondary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* 动画 */
+        .fade-in {
+            animation: fadeIn 0.6s ease-out forwards;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .slide-up {
+            animation: slideUp 0.5s ease-out forwards;
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* 场景指示器 */
+        .scene-indicator {
+            width: 32px;
+            height: 4px;
+            border-radius: 2px;
+            background: var(--bg-secondary);
+            transition: background 0.3s;
+        }
+
+        .scene-indicator.active {
+            background: linear-gradient(90deg, var(--thinking), var(--eating));
+        }
+
+        /* 状态图例 */
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .legend-dot {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+        }
+
+        @media (max-width: 768px) {
+            .table-container {
+                width: 350px;
+                height: 350px;
+            }
+            .dining-table {
+                width: 200px;
+                height: 200px;
+            }
+            .philosopher-body {
+                width: 40px;
+                height: 40px;
+                font-size: 12px;
+            }
+            .chopstick {
+                width: 30px;
+                height: 6px;
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+    <div class="bg-grid"></div>
+    <div class="deadlock-overlay" id="deadlock-overlay"></div>
+
+    <div class="relative z-10 max-w-5xl mx-auto px-4 py-6">
+        <!-- 标题 -->
+        <header class="text-center mb-6">
+            <h1 class="text-2xl md:text-3xl font-black mb-2 tracking-tight" id="main-title"></h1>
+            <p class="text-base text-[var(--muted)]" id="sub-title">操作系统死锁经典案例</p>
+        </header>
+
+        <!-- 进度条 -->
+        <div class="progress-bar mb-4">
+            <div class="progress-fill" id="progress"></div>
+        </div>
+
+        <!-- 主舞台 -->
+        <div class="flex justify-center mb-6">
+            <div class="table-container" id="table-container">
+                <div class="dining-table">
+                    <div class="table-food">意大利面</div>
+                </div>
+                <!-- 哲学家和筷子将由JS生成 -->
+            </div>
+        </div>
+
+        <!-- 规则提示 -->
+        <div class="rule-bar text-center mb-4" id="rule-bar">
+            <p class="text-sm text-[var(--muted)]" id="rule-text">点击"开始演示"，观看哲学家进餐问题的完整演示</p>
+        </div>
+
+        <!-- 状态图例 -->
+        <div class="flex justify-center gap-4 flex-wrap mb-4" id="legend">
+            <div class="legend-item">
+                <div class="legend-dot" style="background: linear-gradient(145deg, #3b82f6, #2563eb)"></div>
+                <span class="text-xs text-[var(--muted)]">思考</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background: linear-gradient(145deg, #f59e0b, #d97706)"></div>
+                <span class="text-xs text-[var(--muted)]">饥饿</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background: linear-gradient(145deg, #22c55e, #16a34a)"></div>
+                <span class="text-xs text-[var(--muted)]">进餐</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background: linear-gradient(145deg, #ef4444, #dc2626)"></div>
+                <span class="text-xs text-[var(--muted)]">死锁</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background: linear-gradient(145deg, #64748b, #475569)"></div>
+                <span class="text-xs text-[var(--muted)]">饥饿态</span>
+            </div>
+        </div>
+
+        <!-- 旁白区 -->
+        <div class="bg-[var(--card)] rounded-xl p-4 border border-[var(--border)] backdrop-blur mb-4">
+            <div class="flex items-start gap-3">
+                <div class="w-8 h-8 rounded-full bg-gradient-to-br from-[var(--accent)] to-blue-500 flex items-center justify-center flex-shrink-0">
+                    <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                    </svg>
+                </div>
+                <div>
+                    <h4 class="font-bold text-sm mb-1">讲解</h4>
+                    <p class="text-[var(--muted)] leading-relaxed transition-opacity duration-300" id="narration">点击"开始演示"按钮，观看哲学家进餐问题的完整演示。</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 控制区 -->
+        <div class="flex items-center justify-center gap-4 flex-wrap mb-4">
+            <button class="btn btn-primary" id="btn-start">
+                <span class="flex items-center gap-2">
+                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M8 5v14l11-7z"/>
+                    </svg>
+                    开始演示
+                </span>
+            </button>
+            <button class="btn btn-secondary" id="btn-pause" disabled>
+                <span class="flex items-center gap-2" id="btn-pause-content">
+                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+                    </svg>
+                    暂停
+                </span>
+            </button>
+            <button class="btn btn-secondary" id="btn-reset">
+                <span class="flex items-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                    重置
+                </span>
+            </button>
+            
+            <div class="flex items-center gap-2 ml-4">
+                <span class="text-sm text-[var(--muted)]">场景:</span>
+                <div class="flex gap-1" id="scene-indicators">
+                    <span class="scene-indicator" data-scene="1"></span>
+                    <span class="scene-indicator" data-scene="2"></span>
+                    <span class="scene-indicator" data-scene="3"></span>
+                    <span class="scene-indicator" data-scene="4"></span>
+                    <span class="scene-indicator" data-scene="5"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 知识点总结 -->
+        <div id="summary" class="bg-[var(--card)] rounded-xl p-5 border border-[var(--border)]" style="opacity: 0; transition: opacity 0.5s;">
+            <h3 class="text-lg font-bold mb-4 text-center">哲学家进餐问题核心知识点</h3>
+            <div class="grid md:grid-cols-2 gap-4 text-sm">
+                <div class="bg-[var(--bg-secondary)] rounded-lg p-3">
+                    <div class="font-semibold mb-2 text-[var(--accent)]">核心类比</div>
+                    <p class="text-[var(--muted)]">哲学家=并发进程，筷子=临界资源，吃面=进程执行</p>
+                </div>
+                <div class="bg-[var(--bg-secondary)] rounded-lg p-3">
+                    <div class="font-semibold mb-2 text-[var(--deadlock)]">死锁成因</div>
+                    <p class="text-[var(--muted)]">循环等待+互斥+请求保持+不可剥夺</p>
+                </div>
+                <div class="bg-[var(--bg-secondary)] rounded-lg p-3">
+                    <div class="font-semibold mb-2 text-[var(--eating)]">方案A: 破坏对称性</div>
+                    <p class="text-[var(--muted)]">颠倒部分哲学家拿筷顺序，切断死锁环</p>
+                </div>
+                <div class="bg-[var(--bg-secondary)] rounded-lg p-3">
+                    <div class="font-semibold mb-2 text-[var(--eating)]">方案B: 限制就餐人数</div>
+                    <p class="text-[var(--muted)]">最多4人同时就餐，保证空闲资源</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==================== 状态管理 ====================
+        var animationState = {
+            isPlaying: false,
+            isPaused: false,
+            currentTime: 0,
+            totalDuration: 115000,
+            currentScene: 0
+        };
+
+        var progressIntervalId = null;
+        var sceneTimeouts = [];
+
+        var PHILOSOPHER_COUNT = 5;
+        var CENTER_X = 250;
+        var CENTER_Y = 250;
+        var TABLE_RADIUS = 160;
+
+        // 哲学家状态
+        var philosopherStates = ['thinking', 'thinking', 'thinking', 'thinking', 'thinking'];
+        var chopstickStates = [false, false, false, false, false]; // false = free
+
+        // ==================== 初始化 ====================
+        document.addEventListener('DOMContentLoaded', function() {
+            initTitle();
+            bindEvents();
+            initTable();
+        });
+
+        function initTitle() {
+            var titleText = '哲学家进餐问题——筷子争夺战与死锁破局';
+            var titleEl = document.getElementById('main-title');
+            if (!titleEl) return;
+            
+            titleEl.innerHTML = '';
+            for (var i = 0; i < titleText.length; i++) {
+                var span = document.createElement('span');
+                span.style.opacity = '0';
+                span.style.animation = 'fadeIn 0.4s ease-out forwards';
+                span.style.animationDelay = (i * 0.02) + 's';
+                span.textContent = titleText[i];
+                titleEl.appendChild(span);
+            }
+        }
+
+        function bindEvents() {
+            document.getElementById('btn-start').addEventListener('click', startAnimation);
+            document.getElementById('btn-pause').addEventListener('click', togglePause);
+            document.getElementById('btn-reset').addEventListener('click', resetAnimation);
+        }
+
+        function initTable() {
+            var container = document.getElementById('table-container');
+            if (!container) return;
+            
+            // 清除旧的哲学家和筷子
+            var oldPhilosophers = container.querySelectorAll('.philosopher');
+            var oldChopsticks = container.querySelectorAll('.chopstick');
+            var oldWaiter = container.querySelectorAll('.waiter');
+            for (var i = 0; i < oldPhilosophers.length; i++) {
+                oldPhilosophers[i].remove();
+            }
+            for (var i = 0; i < oldChopsticks.length; i++) {
+                oldChopsticks[i].remove();
+            }
+            for (var i = 0; i < oldWaiter.length; i++) {
+                oldWaiter[i].remove();
+            }
+            
+            // 创建哲学家
+            for (var i = 0; i < PHILOSOPHER_COUNT; i++) {
+                var angle = (i * 72 - 90) * Math.PI / 180;
+                var x = CENTER_X + TABLE_RADIUS * Math.cos(angle) - 35;
+                var y = CENTER_Y + TABLE_RADIUS * Math.sin(angle) - 35;
+                
+                var philosopher = document.createElement('div');
+                philosopher.className = 'philosopher thinking';
+                philosopher.id = 'philosopher-' + i;
+                philosopher.style.left = x + 'px';
+                philosopher.style.top = y + 'px';
+                
+                philosopher.innerHTML = 
+                    '<div class="status-bubble show" id="bubble-' + i + '">' +
+                        '<span>' + getStatusIcon('thinking') + '</span>' +
+                        '<span>思考中</span>' +
+                    '</div>' +
+                    '<div class="philosopher-body">' +
+                        '<span>P' + i + '</span>' +
+                    '</div>';
+                
+                container.appendChild(philosopher);
+            }
+            
+            // 创建筷子（放在两位哲学家之间）
+            for (var i = 0; i < PHILOSOPHER_COUNT; i++) {
+                var angle = ((i + 0.5) * 72 - 90) * Math.PI / 180;
+                var x = CENTER_X + (TABLE_RADIUS - 40) * Math.cos(angle);
+                var y = CENTER_Y + (TABLE_RADIUS - 40) * Math.sin(angle);
+                
+                var chopstick = document.createElement('div');
+                chopstick.className = 'chopstick';
+                chopstick.id = 'chopstick-' + i;
+                
+                var rotation = (i * 72 + 36);
+                chopstick.style.left = (x - 20) + 'px';
+                chopstick.style.top = (y - 4) + 'px';
+                chopstick.style.transform = 'rotate(' + rotation + 'deg)';
+                
+                container.appendChild(chopstick);
+            }
+        }
+
+        function getStatusIcon(state) {
+            var icons = {
+                thinking: '💭',
+                hungry: '🍽',
+                eating: '😋',
+                deadlock: '💀',
+                starvation: '😵'
+            };
+            return icons[state] || '💭';
+        }
+
+        // ==================== 状态更新 ====================
+        function updatePhilosopherState(index, state) {
+            philosopherStates[index] = state;
+            var philosopher = document.getElementById('philosopher-' + index);
+            var bubble = document.getElementById('bubble-' + index);
+            
+            if (philosopher) {
+                philosopher.className = 'philosopher ' + state;
+            }
+            
+            if (bubble) {
+                var stateTexts = {
+                    thinking: '思考中',
+                    hungry: '饥饿',
+                    eating: '进餐中',
+                    deadlock: '死锁',
+                    starvation: '饥饿态'
+                };
+                bubble.innerHTML = '<span>' + getStatusIcon(state) + '</span><span>' + stateTexts[state] + '</span>';
+            }
+        }
+
+        function updateChopstickState(index, used) {
+            chopstickStates[index] = used;
+            var chopstick = document.getElementById('chopstick-' + index);
+            if (chopstick) {
+                if (used) {
+                    chopstick.classList.add('used');
+                } else {
+                    chopstick.classList.remove('used');
+                }
+            }
+        }
+
+        function updateNarration(text) {
+            var el = document.getElementById('narration');
+            if (el) {
+                el.style.opacity = '0';
+                setTimeout(function() {
+                    el.textContent = text;
+                    el.style.opacity = '1';
+                }, 200);
+            }
+        }
+
+        function updateRule(text) {
+            var el = document.getElementById('rule-text');
+            if (el) {
+                el.textContent = text;
+            }
+        }
+
+        function setSceneIndicator(sceneNum) {
+            animationState.currentScene = sceneNum;
+            var container = document.getElementById('scene-indicators');
+            if (!container) return;
+            var indicators = container.querySelectorAll('.scene-indicator');
+            for (var i = 0; i < indicators.length; i++) {
+                if (i + 1 <= sceneNum) {
+                    indicators[i].classList.add('active');
+                } else {
+                    indicators[i].classList.remove('active');
+                }
+            }
+        }
+
+        // ==================== 场景函数 ====================
+        // 场景一：哲学家行为循环
+        function scene1() {
+            setSceneIndicator(1);
+            updateNarration("我们接着死锁模块学习经典案例：哲学家进餐问题。桌上5个哲学家、5根筷子，哲学家只有两种状态：思考、饿了吃面，而吃面的硬规矩是，必须同时拿到左右两根筷子，缺一不可。");
+            updateRule("核心规则：必须同时拿起左右两根筷子，才能吃面");
+            
+            // 重置状态
+            for (var i = 0; i < 5; i++) {
+                updatePhilosopherState(i, 'thinking');
+                updateChopstickState(i, false);
+            }
+            
+            // P0 正常进餐演示
+            sceneTimeouts.push(setTimeout(function() {
+                updatePhilosopherState(0, 'hungry');
+            }, 2000));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                updateChopstickState(0, true); // 左筷子
+            }, 3500));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                updateChopstickState(4, true); // 右筷子（P0的右边是C4）
+            }, 4500));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                updatePhilosopherState(0, 'eating');
+            }, 5500));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                updatePhilosopherState(0, 'thinking');
+                updateChopstickState(0, false);
+                updateChopstickState(4, false);
+            }, 8000));
+        }
+
+        // 场景二：死锁的诞生
+        function scene2() {
+            setSceneIndicator(2);
+            updateNarration("危险出现！当所有哲学家同时饿了，又都先拿左手筷子，就会陷入循环等待：每个人都拿着一根筷子，等着邻居松手，谁都拿不到第二根，系统彻底卡死，这就是典型的进程死锁。");
+            updateRule("死锁成因：循环等待 + 互斥 + 请求保持 + 不可剥夺");
+            
+            // 所有哲学家同时饥饿
+            for (var i = 0; i < 5; i++) {
+                updatePhilosopherState(i, 'thinking');
+                updateChopstickState(i, false);
+            }
+            
+            sceneTimeouts.push(setTimeout(function() {
+                for (var i = 0; i < 5; i++) {
+                    updatePhilosopherState(i, 'hungry');
+                }
+            }, 2000));
+            
+            // 同时拿起左手筷子
+            sceneTimeouts.push(setTimeout(function() {
+                for (var i = 0; i < 5; i++) {
+                    updateChopstickState(i, true); // 每人拿左边筷子
+                }
+            }, 4000));
+            
+            // 死锁状态
+            sceneTimeouts.push(setTimeout(function() {
+                for (var i = 0; i < 5; i++) {
+                    updatePhilosopherState(i, 'deadlock');
+                }
+                document.getElementById('deadlock-overlay').classList.add('show');
+                updateRule("DEADLOCK 死锁！全员循环等待，无法继续执行");
+            }, 6000));
+            
+            // 移除死锁遮罩
+            sceneTimeouts.push(setTimeout(function() {
+                document.getElementById('deadlock-overlay').classList.remove('show');
+            }, 14000));
+        }
+
+        // 场景三：解决方案A——破坏对称性
+        function scene3() {
+            setSceneIndicator(3);
+            updateNarration("第一种破局方法：破坏对称性，也就是打破循环等待。我们只需要让一位哲学家颠倒拿筷子的顺序，原本闭合的死锁环路就被切断，不会出现全员占用一根筷子的僵局。");
+            updateRule("方案A：奇数号先拿左，偶数号/最后一位先拿右");
+            
+            // 重置状态
+            for (var i = 0; i < 5; i++) {
+                updatePhilosopherState(i, 'thinking');
+                updateChopstickState(i, false);
+            }
+            
+            // 标记P4为特殊
+            var p4 = document.getElementById('philosopher-4');
+            if (p4) p4.classList.add('special');
+            
+            sceneTimeouts.push(setTimeout(function() {
+                for (var i = 0; i < 5; i++) {
+                    updatePhilosopherState(i, 'hungry');
+                }
+            }, 2000));
+            
+            // P0-P3先拿左，P4先拿右
+            sceneTimeouts.push(setTimeout(function() {
+                updateChopstickState(0, true); // P0左
+                updateChopstickState(1, true); // P1左
+                updateChopstickState(2, true); // P2左
+                updateChopstickState(3, true); // P3左
+                // P4先拿右边（C3），但C3已被P3占用
+            }, 3500));
+            
+            // P3拿到两根筷子，开始吃
+            sceneTimeouts.push(setTimeout(function() {
+                updateChopstickState(4, true); // P3的右边
+                updatePhilosopherState(3, 'eating');
+            }, 5000));
+            
+            // P3吃完，释放筷子
+            sceneTimeouts.push(setTimeout(function() {
+                updatePhilosopherState(3, 'thinking');
+                updateChopstickState(3, false);
+                updateChopstickState(4, false);
+            }, 7000));
+            
+            // 其他哲学家开始吃
+            sceneTimeouts.push(setTimeout(function() {
+                updateChopstickState(4, true);
+                updateChopstickState(0, true);
+                updatePhilosopherState(0, 'eating');
+            }, 8500));
+        }
+
+        // 场景四：解决方案B——限制就餐人数
+        function scene4() {
+            setSceneIndicator(4);
+            updateNarration("第二种破局方法：资源数量限制，相当于操作系统的信号量机制。5根筷子最多只允许4人抢，无论怎么分配，总会剩下一根空闲筷子，保证至少有一个进程能拿到全部资源执行。");
+            updateRule("方案B：限制就餐人数，最多允许4人同时入座");
+            
+            // 移除P4特殊标记
+            var p4 = document.getElementById('philosopher-4');
+            if (p4) p4.classList.remove('special');
+            
+            // 重置状态
+            for (var i = 0; i < 5; i++) {
+                updatePhilosopherState(i, 'thinking');
+                updateChopstickState(i, false);
+            }
+            
+            // 添加领座员
+            var container = document.getElementById('table-container');
+            var waiter = document.createElement('div');
+            waiter.className = 'waiter';
+            waiter.id = 'waiter';
+            waiter.innerHTML = 'OS<br>调度';
+            container.appendChild(waiter);
+            
+            sceneTimeouts.push(setTimeout(function() {
+                document.getElementById('waiter').classList.add('show');
+            }, 1000));
+            
+            // 4位哲学家就座
+            sceneTimeouts.push(setTimeout(function() {
+                for (var i = 0; i < 4; i++) {
+                    updatePhilosopherState(i, 'hungry');
+                }
+                updatePhilosopherState(4, 'thinking'); // P4等待
+            }, 2500));
+            
+            // 分配筷子
+            sceneTimeouts.push(setTimeout(function() {
+                updateChopstickState(0, true);
+                updateChopstickState(1, true);
+                updateChopstickState(2, true);
+                updateChopstickState(3, true);
+                // C4 仍然空闲
+                updatePhilosopherState(0, 'eating');
+            }, 4000));
+            
+            // P0吃完，P4入场
+            sceneTimeouts.push(setTimeout(function() {
+                updatePhilosopherState(0, 'thinking');
+                updateChopstickState(0, false);
+                updateChopstickState(4, false);
+                updatePhilosopherState(4, 'hungry');
+            }, 6500));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                updatePhilosopherState(4, 'eating');
+                updateChopstickState(4, true);
+                updateChopstickState(0, true);
+            }, 8000));
+        }
+
+        // 场景五：规避饥饿问题
+        function scene5() {
+            setSceneIndicator(5);
+            updateNarration("最后我们要注意：解决死锁还不够，还要避免饥饿——也就是个别进程长期抢不到资源。通过记录等待时长、按序分配资源，既能杜绝死锁，又能保证每个进程都能获得资源。");
+            updateRule("完善方案：既要防死锁，也要规避饥饿，保证公平性");
+            
+            // 移除领座员
+            var waiter = document.getElementById('waiter');
+            if (waiter) waiter.remove();
+            
+            // 重置状态
+            for (var i = 0; i < 5; i++) {
+                updatePhilosopherState(i, 'thinking');
+                updateChopstickState(i, false);
+            }
+            
+            // 演示饥饿：P1长期等待
+            sceneTimeouts.push(setTimeout(function() {
+                updatePhilosopherState(0, 'eating');
+                updatePhilosopherState(2, 'eating');
+                updatePhilosopherState(3, 'eating');
+                updatePhilosopherState(4, 'eating');
+                updateChopstickState(0, true);
+                updateChopstickState(1, true);
+                updateChopstickState(2, true);
+                updateChopstickState(3, true);
+                updateChopstickState(4, true);
+                updatePhilosopherState(1, 'starvation');
+            }, 2000));
+            
+            // 优化后：轮流进餐
+            sceneTimeouts.push(setTimeout(function() {
+                for (var i = 0; i < 5; i++) {
+                    updatePhilosopherState(i, 'thinking');
+                    updateChopstickState(i, false);
+                }
+            }, 5000));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                updatePhilosopherState(0, 'eating');
+                updateChopstickState(0, true);
+                updateChopstickState(4, true);
+            }, 6000));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                updatePhilosopherState(0, 'thinking');
+                updatePhilosopherState(1, 'eating');
+                updateChopstickState(0, false);
+                updateChopstickState(4, false);
+                updateChopstickState(1, true);
+                updateChopstickState(0, true);
+            }, 8000));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                updatePhilosopherState(1, 'thinking');
+                updatePhilosopherState(2, 'eating');
+                updateChopstickState(1, false);
+                updateChopstickState(0, false);
+                updateChopstickState(2, true);
+                updateChopstickState(1, true);
+            }, 10000));
+            
+            // 显示总结
+            sceneTimeouts.push(setTimeout(function() {
+                document.getElementById('summary').style.opacity = '1';
+            }, 12000));
+        }
+
+        // ==================== 辅助函数 ====================
+        function clearAllTimers() {
+            if (progressIntervalId) {
+                clearInterval(progressIntervalId);
+                progressIntervalId = null;
+            }
+            for (var i = 0; i < sceneTimeouts.length; i++) {
+                clearTimeout(sceneTimeouts[i]);
+            }
+            sceneTimeouts = [];
+        }
+
+        function updateProgress() {
+            if (!animationState.isPlaying) return;
+            
+            if (!animationState.isPaused) {
+                animationState.currentTime += 100;
+                var progress = Math.min((animationState.currentTime / animationState.totalDuration) * 100, 100);
+                var progressEl = document.getElementById('progress');
+                if (progressEl) {
+                    progressEl.style.width = progress + '%';
+                }
+            }
+        }
+
+        // ==================== 动画控制 ====================
+        function startAnimation() {
+            if (animationState.isPlaying) return;
+            
+            animationState.isPlaying = true;
+            animationState.isPaused = false;
+            animationState.currentTime = 0;
+            
+            document.getElementById('btn-start').disabled = true;
+            document.getElementById('btn-pause').disabled = false;
+            document.getElementById('summary').style.opacity = '0';
+            
+            clearAllTimers();
+            initTable();
+            
+            progressIntervalId = setInterval(updateProgress, 100);
+            
+            // 场景调度（基于115秒总时长）
+            sceneTimeouts.push(setTimeout(function() {
+                if (animationState.isPlaying && !animationState.isPaused) scene1();
+            }, 0));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                if (animationState.isPlaying && !animationState.isPaused) scene2();
+            }, 20000));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                if (animationState.isPlaying && !animationState.isPaused) scene3();
+            }, 50000));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                if (animationState.isPlaying && !animationState.isPaused) scene4();
+            }, 70000));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                if (animationState.isPlaying && !animationState.isPaused) scene5();
+            }, 90000));
+            
+            sceneTimeouts.push(setTimeout(function() {
+                animationComplete();
+            }, 115000));
+        }
+
+        function togglePause() {
+            animationState.isPaused = !animationState.isPaused;
+            
+            var btnContent = document.getElementById('btn-pause-content');
+            if (btnContent) {
+                if (animationState.isPaused) {
+                    btnContent.innerHTML = '<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg> 继续';
+                } else {
+                    btnContent.innerHTML = '<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg> 暂停';
+                }
+            }
+        }
+
+        function resetAnimation() {
+            animationState.isPlaying = false;
+            animationState.isPaused = false;
+            animationState.currentTime = 0;
+            animationState.currentScene = 0;
+            
+            clearAllTimers();
+            
+            document.getElementById('progress').style.width = '0%';
+            document.getElementById('btn-start').disabled = false;
+            document.getElementById('btn-pause').disabled = true;
+            document.getElementById('summary').style.opacity = '0';
+            document.getElementById('deadlock-overlay').classList.remove('show');
+            
+            initTable();
+            updateNarration('点击"开始演示"按钮，观看哲学家进餐问题的完整演示。');
+            updateRule('点击"开始演示"，观看哲学家进餐问题的完整演示');
+            setSceneIndicator(0);
+        }
+
+        function animationComplete() {
+            animationState.isPlaying = false;
+            if (progressIntervalId) {
+                clearInterval(progressIntervalId);
+                progressIntervalId = null;
+            }
+            
+            document.getElementById('btn-start').disabled = false;
+            document.getElementById('btn-pause').disabled = true;
+        }
+    </script>
+</body>
+</html>

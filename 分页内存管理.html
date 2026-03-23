@@ -1,0 +1,1195 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>分页内存管理——地址转换</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0e14;
+            --fg: #ffffff;
+            --muted: #9ca3af;
+            --accent: #60a5fa;
+            --card: #1a1f2e;
+            --border: #3b4252;
+            
+            --page-color: #22c55e;
+            --offset-color: #f97316;
+            --logic-addr: #06b6d4;
+            --physical-addr: #ffffff;
+            --tlb-color: #8b5cf6;
+            --highlight: #fbbf24;
+            --memory-block: #3b82f6;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Noto Sans SC', sans-serif;
+            background: var(--bg);
+            color: var(--fg);
+            min-height: 100vh;
+            overflow: hidden;
+        }
+        
+        .bg-layer {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+        }
+        
+        .bg-grid {
+            position: absolute;
+            inset: 0;
+            background-image: 
+                linear-gradient(rgba(6, 182, 212, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(6, 182, 212, 0.03) 1px, transparent 1px);
+            background-size: 50px 50px;
+        }
+        
+        .bg-glow {
+            position: absolute;
+            width: 800px;
+            height: 600px;
+            border-radius: 50%;
+            filter: blur(120px);
+            opacity: 0.12;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: radial-gradient(circle, var(--logic-addr), transparent 70%);
+        }
+        
+        .home-btn {
+            position: fixed;
+            top: 16px;
+            left: 16px;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--fg);
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            font-family: inherit;
+        }
+        
+        .home-btn:hover {
+            background: var(--accent);
+            border-color: var(--accent);
+            transform: translateY(-2px);
+        }
+        
+        .container {
+            position: relative;
+            z-index: 1;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .header {
+            text-align: center;
+            padding: 10px 0 15px;
+        }
+        
+        .header h1 {
+            font-size: 1.6rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--logic-addr), var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .header .subtitle {
+            color: var(--muted);
+            font-size: 0.9rem;
+            margin-top: 4px;
+        }
+        
+        .stage {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 1fr 320px;
+            grid-template-rows: auto 1fr auto;
+            gap: 16px;
+            min-height: 0;
+        }
+        
+        .main-stage {
+            grid-column: 1;
+            grid-row: 2;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 30px;
+            position: relative;
+        }
+        
+        .address-display {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+        
+        .address-box {
+            padding: 20px 40px;
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 16px;
+            text-align: center;
+            min-width: 200px;
+            transition: all 0.5s ease;
+        }
+        
+        .address-box.logic {
+            border-color: var(--logic-addr);
+            box-shadow: 0 0 30px rgba(6, 182, 212, 0.2);
+        }
+        
+        .address-box.physical {
+            border-color: var(--page-color);
+            box-shadow: 0 0 30px rgba(34, 197, 94, 0.2);
+        }
+        
+        .address-label {
+            font-size: 0.85rem;
+            color: var(--muted);
+            margin-bottom: 8px;
+        }
+        
+        .address-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 2rem;
+            font-weight: 700;
+        }
+        
+        .address-box.logic .address-value {
+            color: var(--logic-addr);
+        }
+        
+        .address-box.physical .address-value {
+            color: var(--page-color);
+        }
+        
+        .address-split {
+            display: flex;
+            gap: 30px;
+            opacity: 0;
+            transform: scale(0.8);
+            transition: all 0.6s ease;
+        }
+        
+        .address-split.visible {
+            opacity: 1;
+            transform: scale(1);
+        }
+        
+        .split-part {
+            padding: 16px 30px;
+            background: var(--card);
+            border-radius: 12px;
+            text-align: center;
+        }
+        
+        .split-part.page {
+            border: 2px solid var(--page-color);
+        }
+        
+        .split-part.offset {
+            border: 2px solid var(--offset-color);
+        }
+        
+        .split-label {
+            font-size: 0.8rem;
+            color: var(--muted);
+            margin-bottom: 6px;
+        }
+        
+        .split-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.6rem;
+            font-weight: 700;
+        }
+        
+        .split-part.page .split-value {
+            color: var(--page-color);
+        }
+        
+        .split-part.offset .split-value {
+            color: var(--offset-color);
+        }
+        
+        .arrow-indicator {
+            font-size: 2rem;
+            color: var(--muted);
+            opacity: 0;
+            transition: opacity 0.5s ease;
+        }
+        
+        .arrow-indicator.visible {
+            opacity: 1;
+        }
+        
+        .formula-display {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px 30px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.1rem;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.6s ease;
+        }
+        
+        .formula-display.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .formula-display .highlight {
+            color: var(--highlight);
+            font-weight: 700;
+        }
+        
+        .calculation-steps {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            width: 100%;
+            max-width: 600px;
+        }
+        
+        .calc-step {
+            padding: 12px 20px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1rem;
+            opacity: 0;
+            transform: translateX(-20px);
+            transition: all 0.5s ease;
+        }
+        
+        .calc-step.visible {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        
+        .calc-step .result {
+            color: var(--page-color);
+            font-weight: 700;
+            font-size: 1.2rem;
+        }
+        
+        .calc-step .label {
+            color: var(--muted);
+            font-size: 0.85rem;
+        }
+        
+        .side-panel {
+            grid-column: 2;
+            grid-row: 2;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        
+        .panel-box {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+        }
+        
+        .panel-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--muted);
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .page-table {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        
+        .page-table-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            padding: 8px 12px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 6px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+        }
+        
+        .page-table-row.highlight {
+            background: rgba(251, 191, 36, 0.2);
+            border: 1px solid var(--highlight);
+        }
+        
+        .page-table-row .page-num {
+            color: var(--page-color);
+        }
+        
+        .page-table-row .frame-num {
+            color: var(--highlight);
+            text-align: right;
+        }
+        
+        .tlb-box {
+            border: 2px solid var(--tlb-color);
+            opacity: 0.6;
+            transition: all 0.5s ease;
+        }
+        
+        .tlb-box.active {
+            opacity: 1;
+            box-shadow: 0 0 20px rgba(139, 92, 246, 0.3);
+        }
+        
+        .tlb-box.hit {
+            animation: tlbHit 0.5s ease;
+        }
+        
+        @keyframes tlbHit {
+            0%, 100% { box-shadow: 0 0 20px rgba(139, 92, 246, 0.3); }
+            50% { box-shadow: 0 0 40px rgba(34, 197, 94, 0.6); }
+        }
+        
+        .tlb-content {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+            color: var(--tlb-color);
+        }
+        
+        .tlb-status {
+            margin-top: 8px;
+            font-size: 0.8rem;
+            color: var(--muted);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .tlb-status.visible {
+            opacity: 1;
+        }
+        
+        .memory-blocks {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 6px;
+        }
+        
+        .memory-block {
+            aspect-ratio: 1;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            color: var(--muted);
+            transition: all 0.3s ease;
+        }
+        
+        .memory-block.active {
+            background: rgba(34, 197, 94, 0.2);
+            border-color: var(--page-color);
+            color: var(--page-color);
+            transform: scale(1.05);
+        }
+        
+        .memory-block.highlight {
+            background: rgba(251, 191, 36, 0.3);
+            border-color: var(--highlight);
+            color: var(--highlight);
+        }
+        
+        .formula-panel {
+            grid-column: 1 / 3;
+            grid-row: 3;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px 30px;
+            display: flex;
+            justify-content: center;
+            gap: 40px;
+            min-height: 90px;
+        }
+        
+        .formula-item {
+            text-align: center;
+            opacity: 0;
+            transform: translateY(10px);
+            transition: all 0.5s ease;
+        }
+        
+        .formula-item.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .formula-label {
+            font-size: 0.8rem;
+            color: var(--muted);
+            margin-bottom: 6px;
+        }
+        
+        .formula-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: var(--fg);
+        }
+        
+        .formula-item .result {
+            color: var(--page-color);
+            font-size: 1.5rem;
+        }
+        
+        .control-bar {
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+            padding: 12px 0;
+        }
+        
+        .control-btn {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: inherit;
+        }
+        
+        .control-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        
+        .control-btn.primary {
+            background: var(--logic-addr);
+            color: white;
+        }
+        
+        .control-btn.primary:hover:not(:disabled) {
+            background: #0891b2;
+            transform: translateY(-2px);
+        }
+        
+        .control-btn.secondary {
+            background: var(--card);
+            border: 1px solid var(--border);
+            color: var(--fg);
+        }
+        
+        .control-btn.secondary:hover:not(:disabled) {
+            background: var(--border);
+        }
+        
+        .summary-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.5s ease;
+        }
+        
+        .summary-overlay.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        
+        .summary-card {
+            background: var(--card);
+            border: 3px solid var(--logic-addr);
+            border-radius: 16px;
+            padding: 28px 36px;
+            max-width: 650px;
+            transform: scale(0.9);
+            transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+            text-align: center;
+            position: relative;
+        }
+        
+        .summary-overlay.visible .summary-card {
+            transform: scale(1);
+        }
+        
+        .summary-close-btn {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            background: transparent;
+            border: none;
+            color: var(--muted);
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 4px;
+            transition: all 0.3s ease;
+        }
+        
+        .summary-close-btn:hover {
+            color: var(--fg);
+            background: rgba(255,255,255,0.1);
+        }
+        
+        .replay-btn {
+            margin-top: 20px;
+            padding: 10px 24px;
+            border-radius: 30px;
+            border: 2px solid var(--logic-addr);
+            background: transparent;
+            color: var(--logic-addr);
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-family: inherit;
+        }
+        
+        .replay-btn:hover {
+            background: var(--logic-addr);
+            color: white;
+            transform: translateY(-2px);
+        }
+        
+        .summary-title {
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: var(--logic-addr);
+            margin-bottom: 16px;
+        }
+        
+        .summary-text {
+            font-size: 1rem;
+            line-height: 1.8;
+            color: var(--fg);
+            text-align: left;
+        }
+        
+        .summary-text .highlight {
+            color: var(--logic-addr);
+            font-weight: 600;
+        }
+        
+        .summary-text .key {
+            color: var(--highlight);
+            font-weight: 700;
+        }
+        
+        .progress-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: var(--border);
+            z-index: 100;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--logic-addr), var(--accent));
+            width: 0%;
+            transition: width 0.1s linear;
+        }
+        
+        .scene-indicator {
+            position: fixed;
+            bottom: 10px;
+            right: 16px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            padding: 5px 12px;
+            border-radius: 16px;
+            font-size: 0.8rem;
+            color: var(--fg);
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        @media (max-width: 1000px) {
+            .stage {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto auto auto auto auto;
+            }
+            
+            .main-stage, .side-panel, .formula-panel {
+                grid-column: 1;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-layer">
+        <div class="bg-grid"></div>
+        <div class="bg-glow"></div>
+    </div>
+    
+    <a href="index.html" class="home-btn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+            <polyline points="9 22 9 12 15 12 15 22"/>
+        </svg>
+        返回主页
+    </a>
+    
+    <div class="container">
+        <header class="header">
+            <h1>分页内存管理——地址转换大变身</h1>
+            <p class="subtitle">物流分拣中心版 · 逻辑地址 → 物理地址</p>
+        </header>
+        
+        <div class="stage">
+            <div class="main-stage">
+                <div class="address-display" id="addressDisplay">
+                    <div class="address-box logic" id="logicAddrBox">
+                        <div class="address-label">逻辑地址</div>
+                        <div class="address-value" id="logicAddr">7000</div>
+                    </div>
+                    <div class="arrow-indicator" id="splitArrow">→</div>
+                </div>
+                
+                <div class="address-split" id="addressSplit">
+                    <div class="split-part page">
+                        <div class="split-label">页号 P（分区）</div>
+                        <div class="split-value" id="pageNum">1</div>
+                    </div>
+                    <div class="split-part offset">
+                        <div class="split-label">页内偏移 W（户址）</div>
+                        <div class="split-value" id="offsetNum">2904</div>
+                    </div>
+                </div>
+                
+                <div class="formula-display" id="formulaDisplay">
+                    <span class="highlight">物理地址</span> = 块号 × 页面大小 + 偏移量
+                </div>
+                
+                <div class="calculation-steps" id="calcSteps">
+                    <div class="calc-step" id="calcStep1">
+                        <span class="label">页面大小 L = 4KB = 4096B</span>
+                    </div>
+                    <div class="calc-step" id="calcStep2">
+                        <span class="label">页号 P = 7000 ÷ 4096 = </span><span class="result">1</span>
+                    </div>
+                    <div class="calc-step" id="calcStep3">
+                        <span class="label">偏移量 W = 7000 % 4096 = </span><span class="result">2904</span>
+                    </div>
+                    <div class="calc-step" id="calcStep4">
+                        <span class="label">物理地址 = 9 × 4096 + 2904 = </span><span class="result">39768</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="side-panel">
+                <div class="panel-box page-table-panel">
+                    <div class="panel-title">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                            <line x1="3" y1="9" x2="21" y2="9"/>
+                            <line x1="9" y1="21" x2="9" y2="9"/>
+                        </svg>
+                        页表（分区地图）
+                    </div>
+                    <div class="page-table" id="pageTable">
+                        <div class="page-table-row" id="ptRow0">
+                            <span class="page-num">0</span>
+                            <span class="frame-num">→ 5</span>
+                        </div>
+                        <div class="page-table-row" id="ptRow1">
+                            <span class="page-num">1</span>
+                            <span class="frame-num">→ 9</span>
+                        </div>
+                        <div class="page-table-row" id="ptRow2">
+                            <span class="page-num">2</span>
+                            <span class="frame-num">→ 2</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="panel-box tlb-box" id="tlbBox">
+                    <div class="panel-title">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                        </svg>
+                        TLB快表（高速缓存）
+                    </div>
+                    <div class="tlb-content" id="tlbContent">
+                        1 → 9
+                    </div>
+                    <div class="tlb-status" id="tlbStatus">命中！极速转换</div>
+                </div>
+                
+                <div class="panel-box">
+                    <div class="panel-title">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
+                            <rect x="2" y="14" width="20" height="8" rx="2" ry="2"/>
+                        </svg>
+                        物理内存块
+                    </div>
+                    <div class="memory-blocks" id="memoryBlocks"></div>
+                </div>
+            </div>
+            
+            <div class="formula-panel" id="formulaPanel">
+                <div class="formula-item" id="formula1">
+                    <div class="formula-label">页面大小 L</div>
+                    <div class="formula-value">4096 B</div>
+                </div>
+                <div class="formula-item" id="formula2">
+                    <div class="formula-label">页号 P</div>
+                    <div class="formula-value">1</div>
+                </div>
+                <div class="formula-item" id="formula3">
+                    <div class="formula-label">偏移量 W</div>
+                    <div class="formula-value">2904</div>
+                </div>
+                <div class="formula-item" id="formula4">
+                    <div class="formula-label">物理块号</div>
+                    <div class="formula-value">9</div>
+                </div>
+                <div class="formula-item" id="formula5">
+                    <div class="formula-label">物理地址</div>
+                    <div class="formula-value result">39768</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="control-bar">
+            <button class="control-btn primary" id="playBtn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <polygon points="5,3 19,12 5,21"/>
+                </svg>
+                播放
+            </button>
+            <button class="control-btn primary" id="pauseBtn" disabled>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <rect x="6" y="4" width="4" height="16"/>
+                    <rect x="14" y="4" width="4" height="16"/>
+                </svg>
+                暂停
+            </button>
+            <button class="control-btn secondary" id="resetBtn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                    <path d="M3 3v5h5"/>
+                </svg>
+                重置
+            </button>
+        </div>
+    </div>
+    
+    <div class="summary-overlay" id="summaryOverlay">
+        <div class="summary-card">
+            <button class="summary-close-btn" id="summaryCloseBtn">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"/>
+                    <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+            </button>
+            <h2 class="summary-title">分页地址转换总结</h2>
+            <p class="summary-text">
+                分页管理就像<span class="highlight">物流分拣中心</span>，把内存分成固定大小的块（页面）。<br><br>
+                <span class="key">核心步骤：</span><br>
+                1. 逻辑地址拆分：页号 + 页内偏移<br>
+                2. 查页表：页号 → 物理块号<br>
+                3. 物理地址合成：块号×页面大小 + 偏移<br><br>
+                <span class="key">TLB快表：</span>高速缓存常用页表项，避免频繁查表，提升转换效率。
+            </p>
+            <button class="replay-btn" id="replayBtn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                    <path d="M3 3v5h5"/>
+                </svg>
+                重新播放
+            </button>
+        </div>
+    </div>
+    
+    <div class="progress-bar">
+        <div class="progress-fill" id="progressFill"></div>
+    </div>
+    
+    <div class="scene-indicator" id="sceneIndicator">场景 1/5</div>
+    
+    <script>
+        const dom = {};
+        
+        const pageSize = 4096;
+        const logicAddr = 7000;
+        const pageNum = Math.floor(logicAddr / pageSize);
+        const offset = logicAddr % pageSize;
+        const frameNum = 9;
+        const physicalAddr = frameNum * pageSize + offset;
+        
+        let appState = {
+            currentScene: 0,
+            isPlaying: false,
+            isPaused: false,
+            sceneTimeout: null,
+            actionTimeouts: [],
+            sceneStartTime: 0,
+            progressInterval: null
+        };
+        
+        const scenes = [
+            {
+                name: '地址的拆解',
+                duration: 25000,
+                actions: [
+                    { time: 0, type: 'showSplitArrow' },
+                    { time: 1000, type: 'showAddressSplit' },
+                    { time: 3000, type: 'showCalcStep', step: 1 },
+                    { time: 6000, type: 'showCalcStep', step: 2 },
+                    { time: 10000, type: 'showCalcStep', step: 3 }
+                ]
+            },
+            {
+                name: '页表查询',
+                duration: 25000,
+                actions: [
+                    { time: 0, type: 'highlightPageTable', row: 1 },
+                    { time: 3000, type: 'showFrameMatch' },
+                    { time: 8000, type: 'showFormula' }
+                ]
+            },
+            {
+                name: '物理地址重组',
+                duration: 25000,
+                actions: [
+                    { time: 0, type: 'showCalcStep', step: 4 },
+                    { time: 5000, type: 'highlightFormula', formula: 5 },
+                    { time: 10000, type: 'showPhysicalAddr' }
+                ]
+            },
+            {
+                name: '内存定位',
+                duration: 20000,
+                actions: [
+                    { time: 0, type: 'highlightMemory', block: 9 },
+                    { time: 5000, type: 'highlightMemory', block: 9, highlight: true },
+                    { time: 10000, type: 'showFormulaPanel' }
+                ]
+            },
+            {
+                name: 'TLB快表加速',
+                duration: 20000,
+                actions: [
+                    { time: 0, type: 'activateTLB' },
+                    { time: 3000, type: 'tlbHit' },
+                    { time: 6000, type: 'tlbStatus' },
+                    { time: 10000, type: 'summary' }
+                ]
+            }
+        ];
+        
+        function initialize() {
+            initDOM();
+            initMemoryBlocks();
+            initEventListeners();
+            updateSceneIndicator();
+        }
+        
+        function initDOM() {
+            dom.logicAddr = document.getElementById('logicAddr');
+            dom.logicAddrBox = document.getElementById('logicAddrBox');
+            dom.splitArrow = document.getElementById('splitArrow');
+            dom.addressSplit = document.getElementById('addressSplit');
+            dom.pageNum = document.getElementById('pageNum');
+            dom.offsetNum = document.getElementById('offsetNum');
+            dom.formulaDisplay = document.getElementById('formulaDisplay');
+            dom.calcSteps = document.querySelectorAll('.calc-step');
+            dom.pageTable = document.getElementById('pageTable');
+            dom.ptRows = [
+                document.getElementById('ptRow0'),
+                document.getElementById('ptRow1'),
+                document.getElementById('ptRow2')
+            ];
+            dom.tlbBox = document.getElementById('tlbBox');
+            dom.tlbContent = document.getElementById('tlbContent');
+            dom.tlbStatus = document.getElementById('tlbStatus');
+            dom.memoryBlocks = document.getElementById('memoryBlocks');
+            dom.formulaPanel = document.getElementById('formulaPanel');
+            dom.formulaItems = document.querySelectorAll('.formula-item');
+            dom.progressFill = document.getElementById('progressFill');
+            dom.sceneIndicator = document.getElementById('sceneIndicator');
+            dom.summaryOverlay = document.getElementById('summaryOverlay');
+            dom.playBtn = document.getElementById('playBtn');
+            dom.pauseBtn = document.getElementById('pauseBtn');
+            dom.resetBtn = document.getElementById('resetBtn');
+            dom.summaryCloseBtn = document.getElementById('summaryCloseBtn');
+            dom.replayBtn = document.getElementById('replayBtn');
+        }
+        
+        function initMemoryBlocks() {
+            dom.memoryBlocks.innerHTML = '';
+            for (let i = 0; i < 15; i++) {
+                const block = document.createElement('div');
+                block.className = 'memory-block';
+                block.id = `memBlock${i}`;
+                block.textContent = i;
+                dom.memoryBlocks.appendChild(block);
+            }
+            dom.memBlocks = document.querySelectorAll('.memory-block');
+        }
+        
+        function initEventListeners() {
+            dom.playBtn.addEventListener('click', startPlayback);
+            dom.pauseBtn.addEventListener('click', pausePlayback);
+            dom.resetBtn.addEventListener('click', resetAll);
+            dom.summaryCloseBtn.addEventListener('click', closeSummary);
+            dom.replayBtn.addEventListener('click', replayAnimation);
+        }
+        
+        function startPlayback() {
+            if (appState.isPaused) {
+                appState.isPaused = false;
+                appState.isPlaying = true;
+                updateControlButtons();
+                resumeScene();
+                return;
+            }
+            
+            if (appState.currentScene >= scenes.length - 1 && appState.currentScene > 0) {
+                resetAll();
+            }
+            
+            appState.isPlaying = true;
+            appState.isPaused = false;
+            updateControlButtons();
+            runScene();
+        }
+        
+        function pausePlayback() {
+            appState.isPaused = true;
+            updateControlButtons();
+            
+            if (appState.sceneTimeout) clearTimeout(appState.sceneTimeout);
+            appState.actionTimeouts.forEach(t => clearTimeout(t));
+            appState.actionTimeouts = [];
+            
+            if (appState.progressInterval) clearInterval(appState.progressInterval);
+        }
+        
+        function resumeScene() {
+            const scene = scenes[appState.currentScene];
+            const elapsed = Date.now() - appState.sceneStartTime;
+            
+            scene.actions.forEach(action => {
+                if (action.time > elapsed) {
+                    const delay = action.time - elapsed;
+                    const timeout = setTimeout(() => executeAction(action), delay);
+                    appState.actionTimeouts.push(timeout);
+                }
+            });
+            
+            const remaining = scene.duration - elapsed;
+            appState.sceneTimeout = setTimeout(nextScene, remaining);
+            startProgressBar(remaining);
+        }
+        
+        function stopPlayback() {
+            appState.isPlaying = false;
+            appState.isPaused = false;
+            updateControlButtons();
+            
+            if (appState.sceneTimeout) clearTimeout(appState.sceneTimeout);
+            appState.actionTimeouts.forEach(t => clearTimeout(t));
+            appState.actionTimeouts = [];
+            
+            if (appState.progressInterval) clearInterval(appState.progressInterval);
+        }
+        
+        function updateControlButtons() {
+            dom.playBtn.disabled = appState.isPlaying && !appState.isPaused;
+            dom.pauseBtn.disabled = !appState.isPlaying || appState.isPaused;
+        }
+        
+        function runScene() {
+            const scene = scenes[appState.currentScene];
+            appState.sceneStartTime = Date.now();
+            
+            scene.actions.forEach(action => {
+                const timeout = setTimeout(() => executeAction(action), action.time);
+                appState.actionTimeouts.push(timeout);
+            });
+            
+            appState.sceneTimeout = setTimeout(nextScene, scene.duration);
+            startProgressBar(scene.duration);
+        }
+        
+        function executeAction(action) {
+            switch (action.type) {
+                case 'showSplitArrow':
+                    dom.splitArrow.classList.add('visible');
+                    break;
+                case 'showAddressSplit':
+                    dom.addressSplit.classList.add('visible');
+                    break;
+                case 'showCalcStep':
+                    dom.calcSteps[action.step - 1].classList.add('visible');
+                    break;
+                case 'highlightPageTable':
+                    dom.ptRows.forEach((row, i) => {
+                        if (i === action.row) row.classList.add('highlight');
+                        else row.classList.remove('highlight');
+                    });
+                    break;
+                case 'showFrameMatch':
+                    break;
+                case 'showFormula':
+                    dom.formulaDisplay.classList.add('visible');
+                    break;
+                case 'highlightFormula':
+                    dom.formulaItems[action.formula - 1].classList.add('visible');
+                    break;
+                case 'showPhysicalAddr':
+                    dom.logicAddrBox.classList.remove('logic');
+                    dom.logicAddrBox.classList.add('physical');
+                    dom.logicAddr.textContent = physicalAddr;
+                    break;
+                case 'highlightMemory':
+                    dom.memBlocks[action.block].classList.add('active');
+                    if (action.highlight) {
+                        dom.memBlocks[action.block].classList.add('highlight');
+                    }
+                    break;
+                case 'showFormulaPanel':
+                    dom.formulaItems.forEach((item, i) => {
+                        setTimeout(() => item.classList.add('visible'), i * 300);
+                    });
+                    break;
+                case 'activateTLB':
+                    dom.tlbBox.classList.add('active');
+                    break;
+                case 'tlbHit':
+                    dom.tlbBox.classList.add('hit');
+                    break;
+                case 'tlbStatus':
+                    dom.tlbStatus.classList.add('visible');
+                    break;
+                case 'summary':
+                    showSummary();
+                    break;
+            }
+        }
+        
+        function showSummary() {
+            stopPlayback();
+            setTimeout(() => {
+                dom.summaryOverlay.classList.add('visible');
+            }, 500);
+        }
+        
+        function closeSummary() {
+            dom.summaryOverlay.classList.remove('visible');
+        }
+        
+        function replayAnimation() {
+            closeSummary();
+            resetAll();
+            setTimeout(() => {
+                startPlayback();
+            }, 300);
+        }
+        
+        function startProgressBar(duration) {
+            const startTime = Date.now();
+            dom.progressFill.style.width = '0%';
+            
+            appState.progressInterval = setInterval(() => {
+                const elapsed = Date.now() - startTime;
+                const progress = Math.min((elapsed / duration) * 100, 100);
+                dom.progressFill.style.width = `${progress}%`;
+                
+                if (progress >= 100) {
+                    clearInterval(appState.progressInterval);
+                }
+            }, 50);
+        }
+        
+        function nextScene() {
+            if (appState.currentScene < scenes.length - 1) {
+                appState.currentScene++;
+                updateSceneIndicator();
+                runScene();
+            }
+        }
+        
+        function resetAll() {
+            stopPlayback();
+            
+            appState.currentScene = 0;
+            
+            dom.splitArrow.classList.remove('visible');
+            dom.addressSplit.classList.remove('visible');
+            dom.formulaDisplay.classList.remove('visible');
+            dom.calcSteps.forEach(step => step.classList.remove('visible'));
+            dom.ptRows.forEach(row => row.classList.remove('highlight'));
+            dom.tlbBox.classList.remove('active', 'hit');
+            dom.tlbStatus.classList.remove('visible');
+            dom.memBlocks.forEach(block => block.classList.remove('active', 'highlight'));
+            dom.formulaItems.forEach(item => item.classList.remove('visible'));
+            
+            dom.logicAddrBox.classList.remove('physical');
+            dom.logicAddrBox.classList.add('logic');
+            dom.logicAddr.textContent = logicAddr;
+            
+            dom.progressFill.style.width = '0%';
+            
+            updateSceneIndicator();
+        }
+        
+        function updateSceneIndicator() {
+            dom.sceneIndicator.textContent = `场景 ${appState.currentScene + 1}/${scenes.length}: ${scenes[appState.currentScene].name}`;
+        }
+        
+        document.addEventListener('DOMContentLoaded', initialize);
+    </script>
+</body>
+</html>
