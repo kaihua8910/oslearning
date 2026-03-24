@@ -1737,7 +1737,14 @@
             <footer class="footer">
                 <p class="footer-text">
                     <a href="https://github.com/kaihua8910" class="footer-link">西米老师</a> · 
-                    适配投影展示 · 大字体 · 高对比度
+                    适配投影展示 · 大字体 · 高对比度 · 
+                    <span id="visitorCount" style="color: var(--accent); font-weight: 600;">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle; margin-right: 4px;">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                            <circle cx="12" cy="12" r="3"/>
+                        </svg>
+                        <span id="countNumber">0</span> 次访问
+                    </span>
                 </p>
             </footer>
         </div>
@@ -1768,6 +1775,34 @@
         }
         
         document.addEventListener('DOMContentLoaded', createParticles);
+        
+        function initVisitorCount() {
+            let count = localStorage.getItem('oskechen_visitor_count') || 0;
+            count = parseInt(count) + 1;
+            localStorage.setItem('oskechen_visitor_count', count);
+            
+            const countEl = document.getElementById('countNumber');
+            if (countEl) {
+                animateCount(countEl, count);
+            }
+        }
+        
+        function animateCount(el, target) {
+            let current = 0;
+            const duration = 1000;
+            const step = target / (duration / 16);
+            
+            const timer = setInterval(() => {
+                current += step;
+                if (current >= target) {
+                    current = target;
+                    clearInterval(timer);
+                }
+                el.textContent = Math.floor(current).toLocaleString();
+            }, 16);
+        }
+        
+        document.addEventListener('DOMContentLoaded', initVisitorCount);
     </script>
 </body>
 </html>
