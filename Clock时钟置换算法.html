@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clock / 改进Clock 算法——内存页面时钟置换法</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0e14;
+            --fg: #ffffff;
+            --muted: #9ca3af;
+            --accent: #22c55e;
+            --card: #1a1f2e;
+            --border: #3b4252;
+        }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body {
+            font-family: 'Noto Sans SC', sans-serif;
+            background: var(--bg);
+            color: var(--fg);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        .bg-layer { position:fixed; inset:0; z-index:0; }
+        .bg-gradient {
+            position:absolute; inset:0;
+            background:
+                radial-gradient(ellipse 60% 40% at 50% 0%, rgba(34,197,94,0.1) 0%, transparent 60%),
+                radial-gradient(ellipse 40% 30% at 80% 80%, rgba(96,165,250,0.07) 0%, transparent 50%);
+        }
+        .bg-grid {
+            position:absolute; inset:0;
+            background-image: linear-gradient(rgba(255,255,255,0.02) 1px,transparent 1px), linear-gradient(90deg,rgba(255,255,255,0.02) 1px,transparent 1px);
+            background-size: 50px 50px;
+        }
+        .main-container { position:relative; z-index:1; padding:30px 20px; max-width:1200px; margin:0 auto; }
+
+        /* Header */
+        .back-btn {
+            display:inline-flex; align-items:center; gap:8px;
+            color: var(--muted); text-decoration:none; font-size:0.9rem;
+            padding:8px 16px; border:1px solid var(--border); border-radius:8px;
+            transition: all 0.2s; margin-bottom:24px;
+        }
+        .back-btn:hover { color:var(--fg); border-color:var(--accent); }
+        .page-header { text-align:center; margin-bottom:40px; }
+        .page-title { font-size:clamp(1.6rem,4vw,2.5rem); font-weight:900; margin-bottom:8px;
+            background:linear-gradient(135deg, #fff, #22c55e);
+            -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+        .page-subtitle { color:var(--muted); font-size:1rem; }
+
+        /* Tabs */
+        .tabs { display:flex; justify-content:center; gap:12px; margin-bottom:32px; flex-wrap:wrap; }
+        .tab-btn {
+            padding:10px 28px; border-radius:24px; border:2px solid var(--border);
+            background:transparent; color:var(--muted); font-size:0.95rem;
+            font-family:'Noto Sans SC',sans-serif; cursor:pointer; transition:all 0.3s;
+        }
+        .tab-btn.active, .tab-btn:hover {
+            background:rgba(34,197,94,0.15); border-color:#22c55e; color:#22c55e;
+        }
+
+        /* Animation Stage */
+        .stage-wrapper {
+            background:var(--card); border:2px solid var(--border); border-radius:20px;
+            padding:32px; margin-bottom:24px;
+        }
+        .stage-title { font-size:1.1rem; font-weight:700; color:var(--accent); margin-bottom:24px; text-align:center; }
+
+        /* Clock Ring */
+        .clock-container { display:flex; justify-content:center; align-items:center; gap:40px; flex-wrap:wrap; }
+        .clock-ring-wrap { position:relative; width:300px; height:300px; }
+        .clock-svg { width:100%; height:100%; }
+
+        /* Page frames around clock */
+        .page-frame {
+            position:absolute; width:72px; height:64px;
+            background:#1e2a1e; border:2px solid #3b4252; border-radius:10px;
+            display:flex; flex-direction:column; align-items:center; justify-content:center;
+            gap:4px; transition:all 0.5s; font-size:0.8rem; font-weight:700;
+        }
+        .page-frame.highlight { border-color:#ef4444; box-shadow:0 0 16px rgba(239,68,68,0.5); }
+        .page-frame.evict { border-color:#22c55e; background:rgba(34,197,94,0.1); box-shadow:0 0 16px rgba(34,197,94,0.4); }
+        .page-frame .pname { font-size:0.9rem; color:#fff; }
+        .page-frame .bits { display:flex; gap:5px; }
+        .bit-u { width:16px; height:16px; border-radius:50%; background:#374151; border:1px solid #4b5563; transition:all 0.4s; font-size:0.55rem; line-height:16px; text-align:center; }
+        .bit-u.on { background:#22c55e; border-color:#16a34a; color:#052e16; font-weight:700; }
+        .bit-d { width:16px; height:16px; border-radius:3px; background:#374151; border:1px solid #4b5563; transition:all 0.4s; font-size:0.55rem; line-height:16px; text-align:center; }
+        .bit-d.on { background:#3b82f6; border-color:#2563eb; color:#eff6ff; font-weight:700; }
+
+        /* Info panel */
+        .info-panel { flex:1; min-width:260px; max-width:360px; }
+        .info-card { background:#111827; border:1px solid var(--border); border-radius:12px; padding:20px; margin-bottom:16px; }
+        .info-label { font-size:0.78rem; color:var(--muted); margin-bottom:8px; text-transform:uppercase; letter-spacing:0.05em; }
+        .info-value { font-size:1rem; color:#fff; font-weight:600; line-height:1.5; }
+        .info-value.good { color:#22c55e; }
+        .info-value.bad { color:#ef4444; }
+        .info-value.warn { color:#f59e0b; }
+        .step-log { max-height:180px; overflow-y:auto; }
+        .step-item { padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.05); font-size:0.85rem; color:var(--muted); }
+        .step-item:last-child { color:#fff; }
+        .step-item .step-badge { display:inline-block; padding:1px 8px; border-radius:10px; font-size:0.72rem; font-weight:700; margin-right:6px; }
+        .badge-clear { background:rgba(245,158,11,0.2); color:#f59e0b; }
+        .badge-evict { background:rgba(34,197,94,0.2); color:#22c55e; }
+        .badge-skip { background:rgba(59,130,246,0.2); color:#60a5fa; }
+
+        /* Priority table for enhanced clock */
+        .priority-table { width:100%; border-collapse:collapse; font-size:0.85rem; }
+        .priority-table th { padding:8px 12px; background:rgba(255,255,255,0.05); color:var(--muted); font-weight:600; text-align:left; }
+        .priority-table td { padding:8px 12px; border-top:1px solid rgba(255,255,255,0.05); }
+        .priority-table tr.active-row td { background:rgba(34,197,94,0.1); color:#22c55e; font-weight:700; }
+
+        /* Controls */
+        .controls { display:flex; justify-content:center; gap:12px; flex-wrap:wrap; margin-top:24px; }
+        .btn {
+            padding:10px 24px; border-radius:10px; font-family:'Noto Sans SC',sans-serif;
+            font-size:0.9rem; font-weight:700; cursor:pointer; transition:all 0.3s; border:none;
+        }
+        .btn-primary { background:#22c55e; color:#052e16; }
+        .btn-primary:hover { background:#16a34a; }
+        .btn-secondary { background:transparent; border:2px solid var(--border); color:var(--muted); }
+        .btn-secondary:hover { border-color:var(--accent); color:#fff; }
+        .btn-danger { background:transparent; border:2px solid #ef4444; color:#ef4444; }
+        .btn-danger:hover { background:rgba(239,68,68,0.1); }
+
+        /* Knowledge cards */
+        .knowledge-section { margin-top:32px; }
+        .knowledge-title { font-size:1.2rem; font-weight:700; color:var(--accent); margin-bottom:16px; }
+        .knowledge-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:16px; }
+        .knowledge-card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:20px; }
+        .kc-title { font-size:0.9rem; font-weight:700; color:#22c55e; margin-bottom:10px; }
+        .kc-body { font-size:0.85rem; color:var(--muted); line-height:1.7; }
+        .kc-body strong { color:#fff; }
+        .highlight-text { color:#f59e0b; font-weight:700; }
+        .priority-row { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.05); font-size:0.83rem; }
+        .priority-num { width:24px; height:24px; border-radius:50%; background:rgba(34,197,94,0.2); color:#22c55e; font-weight:700; text-align:center; line-height:24px; flex-shrink:0; font-size:0.78rem; }
+    </style>
+</head>
+<body>
+<div class="bg-layer"><div class="bg-gradient"></div><div class="bg-grid"></div></div>
+<div class="main-container">
+    <a href="index.html" class="back-btn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+        返回算法列表
+    </a>
+    <div class="page-header">
+        <h1 class="page-title">⏰ Clock / 改进Clock 算法</h1>
+        <p class="page-subtitle">内存页面时钟置换法 · LRU 轻量化替代 · NRU 最近未使用算法</p>
+    </div>
+
+    <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab('basic')">基础 Clock (NRU)</button>
+        <button class="tab-btn" onclick="switchTab('enhanced')">改进 Clock 算法</button>
+        <button class="tab-btn" onclick="switchTab('compare')">对比总结</button>
+    </div>
+
+    <!-- ===== 基础Clock ===== -->
+    <div id="tab-basic">
+        <div class="stage-wrapper">
+            <div class="stage-title" id="basicStageTitle">🕐 基础 Clock 算法 (NRU) · 仅使用访问位（U位）</div>
+            <div class="clock-container">
+                <div class="clock-ring-wrap">
+                    <svg class="clock-svg" viewBox="0 0 300 300" id="basicClockSVG">
+                        <!-- Ring -->
+                        <circle cx="150" cy="150" r="100" fill="none" stroke="#3b4252" stroke-width="2" stroke-dasharray="4 4"/>
+                        <!-- Center -->
+                        <circle cx="150" cy="150" r="18" fill="#1e2a1e" stroke="#22c55e" stroke-width="2"/>
+                        <text x="150" y="155" text-anchor="middle" fill="#22c55e" font-size="10" font-family="'Noto Sans SC'" font-weight="700">内存</text>
+                        <!-- Pointer -->
+                        <line id="basicPointer" x1="150" y1="150" x2="150" y2="55" stroke="#ef4444" stroke-width="3" stroke-linecap="round"/>
+                        <circle id="basicPointerTip" cx="150" cy="55" r="5" fill="#ef4444"/>
+                    </svg>
+                    <!-- Page frames will be placed absolutely -->
+                    <div id="basicFrames"></div>
+                </div>
+                <div class="info-panel">
+                    <div class="info-card">
+                        <div class="info-label">当前步骤</div>
+                        <div class="info-value" id="basicCurrentStep">点击「下一步」开始演示</div>
+                    </div>
+                    <div class="info-card">
+                        <div class="info-label">新请求页面</div>
+                        <div class="info-value warn" id="basicNewPage">P5（新页面）</div>
+                    </div>
+                    <div class="info-card">
+                        <div class="info-label">步骤日志</div>
+                        <div class="step-log" id="basicLog"></div>
+                    </div>
+                    <div class="info-card" style="background:rgba(34,197,94,0.05); border-color:rgba(34,197,94,0.2)">
+                        <div class="info-label">规则说明</div>
+                        <div class="info-value" style="font-size:0.85rem; line-height:1.7">
+                            <span style="color:#f59e0b">U=1</span>（绿圆点亮）→ 清零，指针继续<br>
+                            <span style="color:#22c55e">U=0</span>（灰圆点）→ 直接淘汰，置入新页
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="controls">
+                <button class="btn btn-primary" onclick="basicNextStep()">▶ 下一步</button>
+                <button class="btn btn-secondary" onclick="basicReset()">↺ 重置</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== 改进Clock ===== -->
+    <div id="tab-enhanced" style="display:none">
+        <div class="stage-wrapper">
+            <div class="stage-title">🕐 改进 Clock 算法 · 访问位（U）+ 修改位（D）四级优先级</div>
+            <div class="clock-container">
+                <div class="clock-ring-wrap">
+                    <svg class="clock-svg" viewBox="0 0 300 300" id="enhClockSVG">
+                        <circle cx="150" cy="150" r="100" fill="none" stroke="#3b4252" stroke-width="2" stroke-dasharray="4 4"/>
+                        <circle cx="150" cy="150" r="18" fill="#1a2240" stroke="#60a5fa" stroke-width="2"/>
+                        <text x="150" y="155" text-anchor="middle" fill="#60a5fa" font-size="10" font-family="'Noto Sans SC'" font-weight="700">内存</text>
+                        <line id="enhPointer" x1="150" y1="150" x2="150" y2="55" stroke="#ef4444" stroke-width="3" stroke-linecap="round"/>
+                        <circle id="enhPointerTip" cx="150" cy="55" r="5" fill="#ef4444"/>
+                    </svg>
+                    <div id="enhFrames"></div>
+                </div>
+                <div class="info-panel">
+                    <div class="info-card">
+                        <div class="info-label">当前扫描阶段</div>
+                        <div class="info-value" id="enhPhaseLabel">等待开始...</div>
+                    </div>
+                    <div class="info-card">
+                        <div class="info-label">优先级规则（从高到低）</div>
+                        <div style="margin-top:4px">
+                            <div class="priority-row"><div class="priority-num">1</div><div style="color:#22c55e">U=0, D=0 → 立即淘汰（最优）</div></div>
+                            <div class="priority-row"><div class="priority-num">2</div><div style="color:#f59e0b">U=0, D=1 → 写回磁盘后淘汰</div></div>
+                            <div class="priority-row"><div class="priority-num">3</div><div style="color:#60a5fa">U=1, D=0 → 清U=0，下轮候选</div></div>
+                            <div class="priority-row" style="border:none"><div class="priority-num">4</div><div style="color:#a78bfa">U=1, D=1 → 清U=0，下轮写回</div></div>
+                        </div>
+                    </div>
+                    <div class="info-card">
+                        <div class="info-label">步骤日志</div>
+                        <div class="step-log" id="enhLog"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="controls">
+                <button class="btn btn-primary" onclick="enhNextStep()">▶ 下一步</button>
+                <button class="btn btn-secondary" onclick="enhReset()">↺ 重置</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== 对比总结 ===== -->
+    <div id="tab-compare" style="display:none">
+        <div class="stage-wrapper">
+            <div class="stage-title">📊 基础 Clock vs 改进 Clock 对比</div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px; margin-bottom:24px">
+                <div style="background:#111827; border:2px solid #22c55e; border-radius:14px; padding:24px">
+                    <div style="font-size:1.1rem; font-weight:700; color:#22c55e; margin-bottom:16px">🕐 基础 Clock (NRU)</div>
+                    <div style="font-size:0.88rem; color:var(--muted); line-height:1.8">
+                        <div style="color:#fff; margin-bottom:8px">核心机制</div>
+                        仅使用 <strong style="color:#22c55e">访问位 U</strong>（1位开销）<br>
+                        时钟指针顺时针循环扫描<br><br>
+                        <div style="color:#fff; margin-bottom:8px">置换规则</div>
+                        U=1 → 清零为0，给一次"机会"<br>
+                        U=0 → 直接淘汰该页面<br><br>
+                        <div style="color:#fff; margin-bottom:8px">缺点</div>
+                        不区分脏页，淘汰修改过的页<br>
+                        可能产生 <span style="color:#ef4444">额外磁盘写回</span>
+                    </div>
+                </div>
+                <div style="background:#111827; border:2px solid #60a5fa; border-radius:14px; padding:24px">
+                    <div style="font-size:1.1rem; font-weight:700; color:#60a5fa; margin-bottom:16px">⏱️ 改进 Clock 算法</div>
+                    <div style="font-size:0.88rem; color:var(--muted); line-height:1.8">
+                        <div style="color:#fff; margin-bottom:8px">核心机制</div>
+                        使用 <strong style="color:#22c55e">访问位 U</strong> + <strong style="color:#60a5fa">修改位 D</strong><br>
+                        按四级优先级置换<br><br>
+                        <div style="color:#fff; margin-bottom:8px">置换优先级</div>
+                        ① U=0,D=0 最优（无需写回）<br>
+                        ② U=0,D=1 写回后淘汰<br>
+                        ③/④ U=1 先清零，下轮再判断<br><br>
+                        <div style="color:#fff; margin-bottom:8px">优势</div>
+                        <span style="color:#22c55e">大幅减少磁盘I/O写回操作</span>
+                    </div>
+                </div>
+            </div>
+            <div style="background:#111827; border:1px solid var(--border); border-radius:12px; padding:20px;">
+                <div style="font-size:1rem; font-weight:700; color:#f59e0b; margin-bottom:12px">🆚 与 LRU 的对比</div>
+                <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; font-size:0.85rem">
+                    <div>
+                        <div style="color:var(--muted); margin-bottom:6px">LRU</div>
+                        <div style="color:#fff; line-height:1.7">精确记录访问顺序<br>硬件实现开销 <span style="color:#ef4444">极高</span><br>软件模拟 <span style="color:#ef4444">性能差</span></div>
+                    </div>
+                    <div>
+                        <div style="color:var(--muted); margin-bottom:6px">基础 Clock</div>
+                        <div style="color:#fff; line-height:1.7">仅用1位U标记<br>硬件开销 <span style="color:#22c55e">极低</span><br>近似LRU效果</div>
+                    </div>
+                    <div>
+                        <div style="color:var(--muted); margin-bottom:6px">改进 Clock</div>
+                        <div style="color:#fff; line-height:1.7">U + D 共2位<br>开销 <span style="color:#22c55e">极低</span><br>减少磁盘写回 <span style="color:#22c55e">效率更高</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Knowledge Section -->
+    <div class="knowledge-section">
+        <div class="knowledge-title">📚 核心知识点</div>
+        <div class="knowledge-grid">
+            <div class="knowledge-card">
+                <div class="kc-title">什么是 Clock 算法？</div>
+                <div class="kc-body">
+                    Clock 算法 = <strong>NRU（最近未使用）算法</strong>，是 LRU 的低成本替代方案。<br>
+                    将内存页面组织为环形，用循环扫描指针代替 LRU 的精确时间戳，<strong>硬件开销远低于 LRU</strong>。
+                </div>
+            </div>
+            <div class="knowledge-card">
+                <div class="kc-title">访问位 U（Used）的作用</div>
+                <div class="kc-body">
+                    页面被 CPU 访问时，硬件自动将 U 置为 <strong style="color:#22c55e">1</strong>。<br>
+                    指针扫描到该页时，若 U=1 则清零并跳过；若 U=0 则认为"最近未使用"，直接淘汰。
+                </div>
+            </div>
+            <div class="knowledge-card">
+                <div class="kc-title">修改位 D（Dirty）的作用</div>
+                <div class="kc-body">
+                    页面内容被修改（写入）时，D 置为 <strong style="color:#60a5fa">1</strong>（脏页）。<br>
+                    脏页被淘汰时必须先写回磁盘，开销较大。改进Clock优先淘汰干净页（D=0），<strong>减少磁盘I/O</strong>。
+                </div>
+            </div>
+            <div class="knowledge-card">
+                <div class="kc-title">改进Clock四级优先级</div>
+                <div class="kc-body">
+                    <strong>优先级1</strong>：U=0, D=0 → 最佳淘汰对象，无需写回<br>
+                    <strong>优先级2</strong>：U=0, D=1 → 需写回磁盘<br>
+                    <strong>优先级3</strong>：U=1, D=0 → 先清U，下轮候选<br>
+                    <strong>优先级4</strong>：U=1, D=1 → 先清U，下轮写回
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// ======= Basic Clock =======
+const PAGE_ANGLES = [270, 342, 54, 126, 198]; // degrees, top=270
+const R = 100; // radius
+const CX = 150, CY = 150;
+
+function polarToPos(deg) {
+    const rad = (deg - 90) * Math.PI / 180;
+    return { x: CX + R * Math.cos(rad), y: CY + R * Math.sin(rad) };
+}
+
+let basicFrames = [
+    { name:'P1', u:1 },
+    { name:'P2', u:0 },
+    { name:'P3', u:1 },
+    { name:'P4', u:1 },
+];
+let basicPointerIdx = 0;
+let basicStepCount = 0;
+let basicFound = false;
+
+function renderBasicFrames() {
+    const container = document.getElementById('basicFrames');
+    container.innerHTML = '';
+    basicFrames.forEach((f, i) => {
+        const pos = polarToPos(PAGE_ANGLES[i]);
+        const div = document.createElement('div');
+        div.className = 'page-frame' + (i === basicPointerIdx ? ' highlight' : '') + (basicFound && i === basicPointerIdx - 1 ? ' evict' : '');
+        div.id = 'basicFrame' + i;
+        div.style.left = (pos.x - 36) + 'px';
+        div.style.top = (pos.y - 32) + 'px';
+        div.innerHTML = `<div class="pname">${f.name}</div>
+            <div class="bits"><div class="bit-u ${f.u ? 'on' : ''}">U</div></div>`;
+        container.appendChild(div);
+    });
+    updateBasicPointer();
+}
+
+function updateBasicPointer() {
+    const angle = PAGE_ANGLES[basicPointerIdx];
+    const rad = (angle - 90) * Math.PI / 180;
+    const tipX = CX + (R - 10) * Math.cos(rad);
+    const tipY = CY + (R - 10) * Math.sin(rad);
+    const baseFrac = 0.3;
+    const baseX = CX + baseFrac * (tipX - CX);
+    const baseY = CY + baseFrac * (tipY - CY);
+    document.getElementById('basicPointer').setAttribute('x1', baseX);
+    document.getElementById('basicPointer').setAttribute('y1', baseY);
+    document.getElementById('basicPointer').setAttribute('x2', tipX);
+    document.getElementById('basicPointer').setAttribute('y2', tipY);
+    document.getElementById('basicPointerTip').setAttribute('cx', tipX);
+    document.getElementById('basicPointerTip').setAttribute('cy', tipY);
+}
+
+function addBasicLog(badge, cls, text) {
+    const log = document.getElementById('basicLog');
+    const item = document.createElement('div');
+    item.className = 'step-item';
+    item.innerHTML = `<span class="step-badge badge-${cls}">${badge}</span>${text}`;
+    log.appendChild(item);
+    log.scrollTop = log.scrollHeight;
+}
+
+function basicNextStep() {
+    if (basicFound) { basicReset(); return; }
+    const f = basicFrames[basicPointerIdx];
+    if (f.u === 1) {
+        f.u = 0;
+        addBasicLog('清零', 'clear', `${f.name}：U=1→0，给一次机会，指针继续`);
+        document.getElementById('basicCurrentStep').textContent = `${f.name} 访问位清零，指针继续前进`;
+        basicPointerIdx = (basicPointerIdx + 1) % basicFrames.length;
+    } else {
+        // evict
+        basicFound = true;
+        const oldName = f.name;
+        addBasicLog('淘汰', 'evict', `${f.name}：U=0，找到淘汰目标！置入 P5`);
+        document.getElementById('basicCurrentStep').textContent = `✅ ${f.name} 被淘汰，P5（新页）载入`;
+        document.getElementById('basicNewPage').textContent = 'P5 已载入内存';
+        f.name = 'P5';
+        f.u = 1;
+    }
+    renderBasicFrames();
+}
+
+function basicReset() {
+    basicFrames = [{ name:'P1', u:1 },{ name:'P2', u:0 },{ name:'P3', u:1 },{ name:'P4', u:1 }];
+    basicPointerIdx = 0;
+    basicFound = false;
+    basicStepCount = 0;
+    document.getElementById('basicCurrentStep').textContent = '点击「下一步」开始演示';
+    document.getElementById('basicNewPage').textContent = 'P5（新页面）';
+    document.getElementById('basicLog').innerHTML = '';
+    renderBasicFrames();
+}
+
+// ======= Enhanced Clock =======
+let enhFrames = [
+    { name:'P1', u:1, d:0 },
+    { name:'P2', u:0, d:1 },
+    { name:'P3', u:1, d:1 },
+    { name:'P4', u:0, d:0 },
+];
+let enhPointerIdx = 0;
+let enhPassNum = 1;
+let enhFound = false;
+
+function renderEnhFrames() {
+    const container = document.getElementById('enhFrames');
+    container.innerHTML = '';
+    enhFrames.forEach((f, i) => {
+        const pos = polarToPos(PAGE_ANGLES[i]);
+        const div = document.createElement('div');
+        div.className = 'page-frame' + (i === enhPointerIdx ? ' highlight' : '');
+        if (enhFound && i === enhPointerIdx - 1 && enhPointerIdx > 0) div.classList.add('evict');
+        div.id = 'enhFrame' + i;
+        div.style.left = (pos.x - 36) + 'px';
+        div.style.top = (pos.y - 32) + 'px';
+        div.innerHTML = `<div class="pname">${f.name}</div>
+            <div class="bits">
+                <div class="bit-u ${f.u ? 'on' : ''}">U</div>
+                <div class="bit-d ${f.d ? 'on' : ''}">D</div>
+            </div>`;
+        container.appendChild(div);
+    });
+    updateEnhPointer();
+}
+
+function updateEnhPointer() {
+    const angle = PAGE_ANGLES[enhPointerIdx % enhFrames.length];
+    const rad = (angle - 90) * Math.PI / 180;
+    const tipX = CX + (R - 10) * Math.cos(rad);
+    const tipY = CY + (R - 10) * Math.sin(rad);
+    const baseFrac = 0.3;
+    const baseX = CX + baseFrac * (tipX - CX);
+    const baseY = CY + baseFrac * (tipY - CY);
+    document.getElementById('enhPointer').setAttribute('x1', baseX);
+    document.getElementById('enhPointer').setAttribute('y1', baseY);
+    document.getElementById('enhPointer').setAttribute('x2', tipX);
+    document.getElementById('enhPointer').setAttribute('y2', tipY);
+    document.getElementById('enhPointerTip').setAttribute('cx', tipX);
+    document.getElementById('enhPointerTip').setAttribute('cy', tipY);
+}
+
+function addEnhLog(badge, cls, text) {
+    const log = document.getElementById('enhLog');
+    const item = document.createElement('div');
+    item.className = 'step-item';
+    item.innerHTML = `<span class="step-badge badge-${cls}">${badge}</span>${text}`;
+    log.appendChild(item);
+    log.scrollTop = log.scrollHeight;
+}
+
+const PASS_LABELS = ['第1轮：寻找 U=0,D=0','第2轮：寻找 U=0,D=1（清U=1→0）','第3轮：必有淘汰目标'];
+
+function enhNextStep() {
+    if (enhFound) { enhReset(); return; }
+    const fi = enhPointerIdx % enhFrames.length;
+    const f = enhFrames[fi];
+    document.getElementById('enhPhaseLabel').textContent = PASS_LABELS[Math.min(enhPassNum - 1, 2)];
+
+    if (enhPassNum === 1) {
+        if (f.u === 0 && f.d === 0) {
+            // evict immediately
+            enhFound = true;
+            addEnhLog('淘汰', 'evict', `${f.name}：U=0,D=0，最优淘汰！无需写回，直接置换`);
+            document.getElementById('enhPhaseLabel').textContent = '✅ 找到最优淘汰页！';
+            f.name = 'P5'; f.u = 1; f.d = 0;
+        } else if (f.u === 0 && f.d === 1) {
+            addEnhLog('跳过', 'skip', `${f.name}：U=0,D=1，第1轮跳过（含脏页）`);
+            enhPointerIdx++;
+        } else {
+            addEnhLog('清零', 'clear', `${f.name}：U=1→0，${f.d ? 'D=1保留' : 'D=0'}`);
+            f.u = 0;
+            enhPointerIdx++;
+        }
+        if (enhPointerIdx >= enhFrames.length && !enhFound) {
+            enhPassNum = 2;
+            enhPointerIdx = 0;
+        }
+    } else if (enhPassNum === 2) {
+        if (f.u === 0 && f.d === 1) {
+            enhFound = true;
+            addEnhLog('写回', 'clear', `${f.name}：U=0,D=1，写回磁盘后淘汰！置入 P5`);
+            document.getElementById('enhPhaseLabel').textContent = '✅ 脏页写回磁盘并淘汰';
+            f.name = 'P5'; f.u = 1; f.d = 0;
+        } else {
+            addEnhLog('跳过', 'skip', `${f.name}：U=0,D=0，第2轮已无此类页`);
+            enhPointerIdx++;
+        }
+        if (enhPointerIdx >= enhFrames.length && !enhFound) {
+            enhPassNum = 3;
+            enhPointerIdx = 0;
+        }
+    }
+    renderEnhFrames();
+}
+
+function enhReset() {
+    enhFrames = [{ name:'P1', u:1, d:0 },{ name:'P2', u:0, d:1 },{ name:'P3', u:1, d:1 },{ name:'P4', u:0, d:0 }];
+    enhPointerIdx = 0; enhPassNum = 1; enhFound = false;
+    document.getElementById('enhPhaseLabel').textContent = '等待开始...';
+    document.getElementById('enhLog').innerHTML = '';
+    renderEnhFrames();
+}
+
+// ======= Tab switching =======
+function switchTab(name) {
+    ['basic','enhanced','compare'].forEach(t => {
+        document.getElementById('tab-' + t).style.display = (t === name) ? '' : 'none';
+    });
+    document.querySelectorAll('.tab-btn').forEach((btn, i) => {
+        btn.classList.toggle('active', ['basic','enhanced','compare'][i] === name);
+    });
+}
+
+// Init
+basicReset();
+enhReset();
+</script>
+</body>
+</html>

@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>内存连续分配算法——停车场的智能停车调度</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root { --bg:#0a0e14; --fg:#ffffff; --muted:#9ca3af; --accent:#22c55e; --card:#1a1f2e; --border:#3b4252; }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family:'Noto Sans SC',sans-serif; background:var(--bg); color:var(--fg); min-height:100vh; }
+        .bg-layer { position:fixed; inset:0; z-index:0; }
+        .bg-gradient { position:absolute; inset:0; background:radial-gradient(ellipse 60% 40% at 50% 0%,rgba(34,197,94,0.08) 0%,transparent 60%),radial-gradient(ellipse 40% 30% at 80% 80%,rgba(96,165,250,0.06) 0%,transparent 50%); }
+        .bg-grid { position:absolute; inset:0; background-image:linear-gradient(rgba(255,255,255,0.02) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.02) 1px,transparent 1px); background-size:50px 50px; }
+        .wrap { position:relative; z-index:1; padding:30px 20px; max-width:1100px; margin:0 auto; }
+        .back-btn { display:inline-flex; align-items:center; gap:8px; color:var(--muted); text-decoration:none; font-size:0.9rem; padding:8px 16px; border:1px solid var(--border); border-radius:8px; transition:all 0.2s; margin-bottom:24px; }
+        .back-btn:hover { color:var(--fg); border-color:var(--accent); }
+        .page-header { text-align:center; margin-bottom:36px; }
+        .page-title { font-size:clamp(1.6rem,4vw,2.4rem); font-weight:900; margin-bottom:8px; background:linear-gradient(135deg,#fff,#22c55e); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+        .page-subtitle { color:var(--muted); }
+
+        /* Tabs */
+        .tabs { display:flex; justify-content:center; gap:10px; margin-bottom:28px; flex-wrap:wrap; }
+        .tab-btn { padding:9px 26px; border-radius:24px; border:2px solid var(--border); background:transparent; color:var(--muted); font-size:0.92rem; font-family:'Noto Sans SC',sans-serif; cursor:pointer; transition:all 0.3s; }
+        .tab-btn.active, .tab-btn:hover { background:rgba(34,197,94,0.15); border-color:#22c55e; color:#22c55e; }
+
+        /* Stage */
+        .stage { background:var(--card); border:2px solid var(--border); border-radius:20px; padding:28px; margin-bottom:20px; }
+        .stage-title { font-size:1.05rem; font-weight:700; color:var(--accent); margin-bottom:20px; text-align:center; }
+
+        /* Memory Bar */
+        .mem-bar-container { margin:20px 0; }
+        .mem-header { display:flex; justify-content:space-between; font-size:0.78rem; color:var(--muted); margin-bottom:6px; }
+        .mem-bar { display:flex; height:72px; border-radius:10px; overflow:hidden; border:2px solid var(--border); position:relative; }
+        .mem-seg { display:flex; flex-direction:column; align-items:center; justify-content:center; transition:all 0.6s; position:relative; overflow:hidden; }
+        .mem-seg .seg-size { font-size:0.75rem; font-family:'JetBrains Mono',monospace; font-weight:700; }
+        .mem-seg .seg-label { font-size:0.65rem; color:rgba(255,255,255,0.6); }
+        .seg-allocated { background:rgba(239,68,68,0.45); border-right:2px solid rgba(239,68,68,0.6); }
+        .seg-free { background:rgba(34,197,94,0.2); border-right:2px solid rgba(34,197,94,0.5); }
+        .seg-frag { background:rgba(245,158,11,0.3); border-right:2px dashed rgba(245,158,11,0.6); animation:fragPulse 2s infinite; }
+        .seg-scanning { border:3px solid #fbbf24 !important; box-shadow:0 0 16px rgba(251,191,36,0.6); }
+        .seg-target { border:3px solid #22c55e !important; box-shadow:0 0 20px rgba(34,197,94,0.5); }
+        @keyframes fragPulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
+
+        /* Scan arrow */
+        .scan-arrow { display:flex; align-items:center; margin:8px 0; height:24px; position:relative; }
+        .scan-line { height:2px; background:rgba(251,191,36,0.5); flex:1; }
+        .scan-head { width:0; height:0; border-top:8px solid transparent; border-bottom:8px solid transparent; border-left:12px solid #fbbf24; }
+
+        /* Info box */
+        .info-box { background:#111827; border:1px solid var(--border); border-radius:12px; padding:16px 20px; margin:16px 0; }
+        .info-box .ib-label { font-size:0.78rem; color:var(--muted); margin-bottom:6px; }
+        .info-box .ib-val { font-size:0.95rem; color:#fff; line-height:1.6; }
+        .text-green { color:#22c55e; }
+        .text-orange { color:#f59e0b; }
+        .text-red { color:#ef4444; }
+
+        /* Car */
+        .car-display { text-align:center; margin:12px 0; }
+        .car-icon { font-size:2.5rem; display:inline-block; }
+        .car-need { font-size:0.9rem; color:var(--muted); }
+
+        /* Step log */
+        .step-log { max-height:160px; overflow-y:auto; margin-top:12px; }
+        .step-item { padding:5px 0; border-bottom:1px solid rgba(255,255,255,0.04); font-size:0.83rem; color:var(--muted); }
+        .step-item:last-child { color:#fff; }
+
+        /* Controls */
+        .controls { display:flex; justify-content:center; gap:12px; flex-wrap:wrap; margin-top:16px; }
+        .btn { padding:10px 26px; border-radius:10px; font-family:'Noto Sans SC',sans-serif; font-size:0.92rem; font-weight:700; cursor:pointer; transition:all 0.3s; border:none; }
+        .btn-green { background:#22c55e; color:#052e16; }
+        .btn-green:hover { background:#16a34a; }
+        .btn-secondary { background:transparent; border:2px solid var(--border); color:var(--muted); }
+        .btn-secondary:hover { border-color:var(--accent); color:#fff; }
+
+        /* Compare */
+        .compare-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:16px; }
+        .cmp-card { background:#111827; border:2px solid var(--border); border-radius:14px; padding:20px; }
+        .cmp-title { font-weight:700; margin-bottom:12px; font-size:0.95rem; }
+        .cmp-body { font-size:0.83rem; color:var(--muted); line-height:1.8; }
+
+        /* Knowledge */
+        .knowledge-section { margin-top:28px; }
+        .knowledge-title { font-size:1.1rem; font-weight:700; color:var(--accent); margin-bottom:14px; }
+        .knowledge-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:14px; }
+        .kc { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:18px; }
+        .kc-t { color:#22c55e; font-weight:700; font-size:0.88rem; margin-bottom:8px; }
+        .kc-b { font-size:0.82rem; color:var(--muted); line-height:1.7; }
+    </style>
+</head>
+<body>
+<div class="bg-layer"><div class="bg-gradient"></div><div class="bg-grid"></div></div>
+<div class="wrap">
+    <a href="index.html" class="back-btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>返回算法列表</a>
+    <div class="page-header">
+        <h1 class="page-title">🅿️ 内存连续分配算法</h1>
+        <p class="page-subtitle">停车场的智能停车调度 · First Fit · Best Fit · Worst Fit</p>
+    </div>
+
+    <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab('ff')">① 首次适应（First Fit）</button>
+        <button class="tab-btn" onclick="switchTab('bf')">② 最佳适应（Best Fit）</button>
+        <button class="tab-btn" onclick="switchTab('wf')">③ 最坏适应（Worst Fit）</button>
+        <button class="tab-btn" onclick="switchTab('cmp')">④ 全景对比</button>
+    </div>
+
+    <!-- First Fit -->
+    <div id="tab-ff">
+        <div class="stage">
+            <div class="stage-title">🚀 首次适应算法（First Fit）——图省事的随性管理员</div>
+            <div style="display:flex; gap:20px; flex-wrap:wrap;">
+                <div style="flex:2; min-width:280px">
+                    <div class="car-display">
+                        <div class="car-icon">🚗</div>
+                        <div class="car-need">新进程需要 <strong style="color:#22c55e">30KB</strong> 内存</div>
+                    </div>
+                    <div class="mem-bar-container">
+                        <div class="mem-header"><span>地址 0</span><span>← 物理内存 →</span><span>200KB</span></div>
+                        <div class="mem-bar" id="ff-membar"></div>
+                    </div>
+                    <div class="scan-arrow" id="ff-scan" style="display:none">
+                        <div class="scan-line" id="ff-scan-line"></div>
+                        <div class="scan-head"></div>
+                    </div>
+                    <div class="step-log" id="ff-log"></div>
+                </div>
+                <div style="flex:1; min-width:220px">
+                    <div class="info-box">
+                        <div class="ib-label">当前步骤</div>
+                        <div class="ib-val" id="ff-step">点击「下一步」开始</div>
+                    </div>
+                    <div class="info-box" style="background:rgba(34,197,94,0.05); border-color:rgba(34,197,94,0.2)">
+                        <div class="ib-label">算法规则</div>
+                        <div class="ib-val" style="font-size:0.83rem; line-height:1.8">从地址 <strong class="text-orange">最低处</strong> 开始扫描，<br>找到<strong class="text-green">第一个</strong>能满足需求的空闲分区立即分配，<strong>不再继续</strong>搜索。</div>
+                    </div>
+                    <div class="info-box">
+                        <div class="ib-label">特点</div>
+                        <div class="ib-val" style="font-size:0.83rem; line-height:1.8"><span class="text-green">✓ 速度最快，开销极低</span><br><span class="text-orange">✗ 低地址积累小碎片</span></div>
+                    </div>
+                </div>
+            </div>
+            <div class="controls">
+                <button class="btn btn-green" onclick="ffNext()">▶ 下一步</button>
+                <button class="btn btn-secondary" onclick="ffReset()">↺ 重置</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Best Fit -->
+    <div id="tab-bf" style="display:none">
+        <div class="stage">
+            <div class="stage-title">🎯 最佳适应算法（Best Fit）——精打细算的完美管理员</div>
+            <div style="display:flex; gap:20px; flex-wrap:wrap;">
+                <div style="flex:2; min-width:280px">
+                    <div class="car-display">
+                        <div class="car-icon">🚗</div>
+                        <div class="car-need">新进程需要 <strong style="color:#22c55e">30KB</strong> 内存</div>
+                    </div>
+                    <div class="mem-bar-container">
+                        <div class="mem-header"><span>地址 0</span><span>← 物理内存 →</span><span>200KB</span></div>
+                        <div class="mem-bar" id="bf-membar"></div>
+                    </div>
+                    <div class="step-log" id="bf-log"></div>
+                </div>
+                <div style="flex:1; min-width:220px">
+                    <div class="info-box">
+                        <div class="ib-label">当前步骤</div>
+                        <div class="ib-val" id="bf-step">点击「下一步」开始</div>
+                    </div>
+                    <div class="info-box" style="background:rgba(96,165,250,0.05); border-color:rgba(96,165,250,0.2)">
+                        <div class="ib-label">算法规则</div>
+                        <div class="ib-val" style="font-size:0.83rem; line-height:1.8"><strong>遍历所有空闲分区</strong>，选择<strong class="text-green">最接近进程大小</strong>的分区分配，剩余碎片最小。</div>
+                    </div>
+                    <div class="info-box">
+                        <div class="ib-label">特点</div>
+                        <div class="ib-val" style="font-size:0.83rem; line-height:1.8"><span class="text-green">✓ 初期空间利用率高</span><br><span class="text-orange">✗ 产生大量微小碎片</span><br><span class="text-red">✗ 速度慢（需全扫描）</span></div>
+                    </div>
+                </div>
+            </div>
+            <div class="controls">
+                <button class="btn btn-green" onclick="bfNext()">▶ 下一步</button>
+                <button class="btn btn-secondary" onclick="bfReset()">↺ 重置</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Worst Fit -->
+    <div id="tab-wf" style="display:none">
+        <div class="stage">
+            <div class="stage-title">💪 最坏适应算法（Worst Fit）——果断选大的豪迈管理员</div>
+            <div style="display:flex; gap:20px; flex-wrap:wrap;">
+                <div style="flex:2; min-width:280px">
+                    <div class="car-display">
+                        <div class="car-icon">🚗</div>
+                        <div class="car-need">新进程需要 <strong style="color:#22c55e">30KB</strong> 内存</div>
+                    </div>
+                    <div class="mem-bar-container">
+                        <div class="mem-header"><span>地址 0</span><span>← 物理内存 →</span><span>200KB</span></div>
+                        <div class="mem-bar" id="wf-membar"></div>
+                    </div>
+                    <div class="step-log" id="wf-log"></div>
+                </div>
+                <div style="flex:1; min-width:220px">
+                    <div class="info-box">
+                        <div class="ib-label">当前步骤</div>
+                        <div class="ib-val" id="wf-step">点击「下一步」开始</div>
+                    </div>
+                    <div class="info-box" style="background:rgba(239,68,68,0.05); border-color:rgba(239,68,68,0.2)">
+                        <div class="ib-label">算法规则</div>
+                        <div class="ib-val" style="font-size:0.83rem; line-height:1.8"><strong>遍历所有空闲分区</strong>，选择<strong class="text-red">最大</strong>的分区分配，剩余大块仍可再用。</div>
+                    </div>
+                    <div class="info-box">
+                        <div class="ib-label">特点</div>
+                        <div class="ib-val" style="font-size:0.83rem; line-height:1.8"><span class="text-green">✓ 剩余分区仍为大块</span><br><span class="text-orange">✗ 大块用完后效率骤降</span><br><span class="text-red">✗ 速度慢（需全扫描）</span></div>
+                    </div>
+                </div>
+            </div>
+            <div class="controls">
+                <button class="btn btn-green" onclick="wfNext()">▶ 下一步</button>
+                <button class="btn btn-secondary" onclick="wfReset()">↺ 重置</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Compare -->
+    <div id="tab-cmp" style="display:none">
+        <div class="stage">
+            <div class="stage-title">📊 三种算法最终状态对比</div>
+            <div style="color:var(--muted); text-align:center; margin-bottom:20px; font-size:0.88rem">初始空闲区：20KB + 50KB + 30KB，进程需求 30KB</div>
+            <div class="compare-grid">
+                <div class="cmp-card" style="border-color:rgba(34,197,94,0.4)">
+                    <div class="cmp-title" style="color:#22c55e">① 首次适应（First Fit）</div>
+                    <div class="mem-bar" style="height:48px; border-radius:6px; overflow:hidden; margin-bottom:12px">
+                        <div class="mem-seg seg-allocated" style="width:15%"><span class="seg-size">30</span></div>
+                        <div class="mem-seg seg-frag" style="width:7%"><span class="seg-size">碎</span></div>
+                        <div class="mem-seg" style="width:5%; background:rgba(59,130,246,0.2)"></div>
+                        <div class="mem-seg seg-free" style="width:20%"><span class="seg-size">50</span></div>
+                        <div class="mem-seg seg-allocated" style="width:13%"><span class="seg-size">30</span></div>
+                        <div class="mem-seg" style="width:40%; background:rgba(255,255,255,0.03)"></div>
+                    </div>
+                    <div class="cmp-body">选了第一个合适的空闲区（20KB空间里放30KB时本来不够，找到50KB放入）<br><span style="color:#f59e0b">↓ 低地址产生小碎片 20KB</span></div>
+                </div>
+                <div class="cmp-card" style="border-color:rgba(96,165,250,0.4)">
+                    <div class="cmp-title" style="color:#60a5fa">② 最佳适应（Best Fit）</div>
+                    <div class="mem-bar" style="height:48px; border-radius:6px; overflow:hidden; margin-bottom:12px">
+                        <div class="mem-seg seg-free" style="width:8%"><span class="seg-size">20</span></div>
+                        <div class="mem-seg" style="width:5%; background:rgba(59,130,246,0.2)"></div>
+                        <div class="mem-seg seg-free" style="width:20%"><span class="seg-size">50</span></div>
+                        <div class="mem-seg seg-allocated" style="width:12%"><span class="seg-size">30</span></div>
+                        <div class="mem-seg seg-frag" style="width:2%"><span style="font-size:0.6rem">0</span></div>
+                        <div class="mem-seg" style="width:53%; background:rgba(255,255,255,0.03)"></div>
+                    </div>
+                    <div class="cmp-body">精准找到30KB空间完美匹配，<span style="color:#22c55e">零碎片！</span><br><span style="color:#f59e0b">↓ 但长期会产生大量微小碎片</span></div>
+                </div>
+                <div class="cmp-card" style="border-color:rgba(239,68,68,0.4)">
+                    <div class="cmp-title" style="color:#ef4444">③ 最坏适应（Worst Fit）</div>
+                    <div class="mem-bar" style="height:48px; border-radius:6px; overflow:hidden; margin-bottom:12px">
+                        <div class="mem-seg seg-free" style="width:8%"><span class="seg-size">20</span></div>
+                        <div class="mem-seg" style="width:5%; background:rgba(59,130,246,0.2)"></div>
+                        <div class="mem-seg seg-allocated" style="width:12%"><span class="seg-size">30</span></div>
+                        <div class="mem-seg seg-free" style="width:8%"><span class="seg-size">20</span></div>
+                        <div class="mem-seg seg-allocated" style="width:12%"><span class="seg-size">30</span></div>
+                        <div class="mem-seg" style="width:55%; background:rgba(255,255,255,0.03)"></div>
+                    </div>
+                    <div class="cmp-body">选最大的50KB空间，剩余20KB仍为可用大块<br><span style="color:#22c55e">↓ 剩余分区较大，可继续分配</span></div>
+                </div>
+            </div>
+            <div style="margin-top:20px; background:#111827; border:1px solid var(--border); border-radius:12px; padding:20px">
+                <div style="font-size:0.9rem; font-weight:700; color:#f59e0b; margin-bottom:10px">📌 核心结论</div>
+                <div style="font-size:0.85rem; color:var(--muted); line-height:1.8">
+                    连续分配无论哪种算法，都<strong style="color:#ef4444">无法彻底解决内存碎片问题</strong>。<br>
+                    这正是操作系统后来采用<strong style="color:#22c55e">分页内存管理（离散分配）</strong>的核心原因——把内存切成固定大小的页，彻底消除外部碎片。
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="knowledge-section">
+        <div class="knowledge-title">📚 核心知识点</div>
+        <div class="knowledge-grid">
+            <div class="kc"><div class="kc-t">首次适应（First Fit）</div><div class="kc-b">从<strong>最低地址</strong>开始，找到第一个满足条件的分区立即分配。速度最快，但低地址堆积小碎片。</div></div>
+            <div class="kc"><div class="kc-t">最佳适应（Best Fit）</div><div class="kc-b">遍历所有空闲区，选<strong>最接近进程大小</strong>的分区。初期利用率高，但长期产生大量无法使用的微小碎片。</div></div>
+            <div class="kc"><div class="kc-t">最坏适应（Worst Fit）</div><div class="kc-b">遍历所有空闲区，选<strong>最大</strong>的分区分配。剩余分区仍较大可继续使用，但大块用完后效率骤降。</div></div>
+            <div class="kc"><div class="kc-t">内存碎片问题</div><div class="kc-b">外部碎片：空闲区太分散，总空间足够但无法分配连续内存。连续分配的本质缺陷，催生了分页式离散内存管理。</div></div>
+        </div>
+    </div>
+</div>
+
+<script>
+// ====== Memory State ======
+function makeInitialState() {
+    // [size, type, label]  type: 'alloc'|'free'
+    return [
+        { size:15, type:'alloc', label:'进程A 15KB' },
+        { size:20, type:'free', label:'20KB 空闲' },
+        { size:10, type:'alloc', label:'进程B 10KB' },
+        { size:50, type:'free', label:'50KB 空闲' },
+        { size:30, type:'free', label:'30KB 空闲' },
+        { size:75, type:'alloc', label:'进程C 75KB' },
+    ];
+}
+
+function renderBar(containerId, segs) {
+    const total = segs.reduce((s, x) => s + x.size, 0);
+    const bar = document.getElementById(containerId);
+    bar.innerHTML = '';
+    segs.forEach((seg, i) => {
+        const div = document.createElement('div');
+        div.className = 'mem-seg ' + (seg.type === 'alloc' ? 'seg-allocated' : seg.type === 'free' ? 'seg-free' : 'seg-frag');
+        if (seg.scanning) div.classList.add('seg-scanning');
+        if (seg.target) div.classList.add('seg-target');
+        div.style.width = (seg.size / total * 100) + '%';
+        div.innerHTML = `<span class="seg-size">${seg.size}KB</span><span class="seg-label">${seg.type === 'free' ? '空闲' : seg.type === 'frag' ? '碎片' : '占用'}</span>`;
+        div.id = containerId + '-seg' + i;
+        bar.appendChild(div);
+    });
+}
+
+function addLog(id, text) {
+    const log = document.getElementById(id);
+    const d = document.createElement('div');
+    d.className = 'step-item';
+    d.textContent = text;
+    log.appendChild(d);
+    log.scrollTop = log.scrollHeight;
+}
+
+// ====== First Fit ======
+let ffState = makeInitialState();
+let ffStep = 0;
+let ffDone = false;
+
+function ffReset() {
+    ffState = makeInitialState();
+    ffStep = 0; ffDone = false;
+    document.getElementById('ff-step').textContent = '点击「下一步」开始';
+    document.getElementById('ff-log').innerHTML = '';
+    document.getElementById('ff-scan').style.display = 'none';
+    renderBar('ff-membar', ffState);
+}
+
+function ffNext() {
+    if (ffDone) { ffReset(); return; }
+    const NEED = 30;
+    // Find free segments
+    const freeSegs = ffState.map((s, i) => ({ ...s, i })).filter(s => s.type === 'free');
+
+    if (ffStep < freeSegs.length) {
+        const seg = freeSegs[ffStep];
+        ffState.forEach((s, i) => { delete s.scanning; delete s.target; });
+        ffState[seg.i].scanning = true;
+        renderBar('ff-membar', ffState);
+
+        if (seg.size >= NEED) {
+            // Allocate
+            ffState[seg.i].scanning = false;
+            ffState[seg.i].target = true;
+            const remaining = seg.size - NEED;
+            ffState[seg.i] = { size: NEED, type:'alloc', label:'进程D 30KB' };
+            if (remaining > 0) {
+                ffState.splice(seg.i + 1, 0, { size: remaining, type:'frag', label:`碎片 ${remaining}KB` });
+            }
+            addLog('ff-log', `✅ 找到 ${seg.size}KB 空闲区 → 分配 30KB，剩余 ${remaining}KB 碎片`);
+            document.getElementById('ff-step').textContent = `分配完成！${remaining > 0 ? '产生' + remaining + 'KB碎片' : '无碎片'}`;
+            renderBar('ff-membar', ffState);
+            ffDone = true;
+        } else {
+            addLog('ff-log', `⏭ ${seg.size}KB 空闲区不足 30KB，跳过`);
+            document.getElementById('ff-step').textContent = `${seg.size}KB 空间不足，继续向右扫描...`;
+            ffStep++;
+        }
+    }
+}
+
+// ====== Best Fit ======
+let bfState = makeInitialState();
+let bfStep = 0; let bfDone = false; let bfBestIdx = -1;
+
+function bfReset() {
+    bfState = makeInitialState();
+    bfStep = 0; bfDone = false; bfBestIdx = -1;
+    document.getElementById('bf-step').textContent = '点击「下一步」开始';
+    document.getElementById('bf-log').innerHTML = '';
+    renderBar('bf-membar', bfState);
+}
+
+function bfNext() {
+    if (bfDone) { bfReset(); return; }
+    const NEED = 30;
+    const freeSegs = bfState.map((s, i) => ({ ...s, i })).filter(s => s.type === 'free');
+
+    if (bfStep < freeSegs.length) {
+        const seg = freeSegs[bfStep];
+        bfState[seg.i].scanning = true;
+        renderBar('bf-membar', bfState);
+        if (seg.size >= NEED) {
+            addLog('bf-log', `📋 ${seg.size}KB 空闲区满足需求，记录候选`);
+            if (bfBestIdx === -1 || seg.size < bfState[bfBestIdx].size) bfBestIdx = seg.i;
+        } else {
+            addLog('bf-log', `⏭ ${seg.size}KB 不足 30KB，跳过`);
+        }
+        bfStep++;
+        setTimeout(() => { bfState[seg.i].scanning = false; renderBar('bf-membar', bfState); }, 400);
+    } else if (bfBestIdx >= 0) {
+        const remaining = bfState[bfBestIdx].size - NEED;
+        bfState[bfBestIdx] = { size: NEED, type:'alloc', label:'进程D 30KB' };
+        if (remaining > 0) bfState.splice(bfBestIdx + 1, 0, { size: remaining, type:'frag', label:`碎片 ${remaining}KB` });
+        addLog('bf-log', `✅ 最佳匹配分配完成！剩余碎片 ${remaining}KB`);
+        document.getElementById('bf-step').textContent = `最佳适应完成！${remaining > 0 ? remaining + 'KB 微小碎片' : '完美匹配，零碎片'}`;
+        renderBar('bf-membar', bfState);
+        bfDone = true;
+    }
+}
+
+// ====== Worst Fit ======
+let wfState = makeInitialState();
+let wfStep = 0; let wfDone = false; let wfWorstIdx = -1;
+
+function wfReset() {
+    wfState = makeInitialState();
+    wfStep = 0; wfDone = false; wfWorstIdx = -1;
+    document.getElementById('wf-step').textContent = '点击「下一步」开始';
+    document.getElementById('wf-log').innerHTML = '';
+    renderBar('wf-membar', wfState);
+}
+
+function wfNext() {
+    if (wfDone) { wfReset(); return; }
+    const NEED = 30;
+    const freeSegs = wfState.map((s, i) => ({ ...s, i })).filter(s => s.type === 'free');
+
+    if (wfStep < freeSegs.length) {
+        const seg = freeSegs[wfStep];
+        wfState[seg.i].scanning = true;
+        renderBar('wf-membar', wfState);
+        if (seg.size >= NEED) {
+            addLog('wf-log', `📋 ${seg.size}KB 空闲区满足需求，记录候选`);
+            if (wfWorstIdx === -1 || seg.size > wfState[wfWorstIdx].size) wfWorstIdx = seg.i;
+        } else {
+            addLog('wf-log', `⏭ ${seg.size}KB 不足，跳过`);
+        }
+        wfStep++;
+        setTimeout(() => { wfState[seg.i].scanning = false; renderBar('wf-membar', wfState); }, 400);
+    } else if (wfWorstIdx >= 0) {
+        const remaining = wfState[wfWorstIdx].size - NEED;
+        wfState[wfWorstIdx] = { size: NEED, type:'alloc', label:'进程D 30KB' };
+        if (remaining > 0) wfState.splice(wfWorstIdx + 1, 0, { size: remaining, type:'free', label:`${remaining}KB 空闲` });
+        addLog('wf-log', `✅ 选择最大空闲区分配！剩余 ${remaining}KB 仍为大块可用空间`);
+        document.getElementById('wf-step').textContent = `最坏适应完成！剩余 ${remaining}KB 大块可继续分配`;
+        renderBar('wf-membar', wfState);
+        wfDone = true;
+    }
+}
+
+function switchTab(name) {
+    ['ff','bf','wf','cmp'].forEach(t => {
+        document.getElementById('tab-' + t).style.display = t === name ? '' : 'none';
+    });
+    document.querySelectorAll('.tab-btn').forEach((btn, i) => {
+        btn.classList.toggle('active', ['ff','bf','wf','cmp'][i] === name);
+    });
+}
+
+// Init
+ffReset(); bfReset(); wfReset();
+</script>
+</body>
+</html>

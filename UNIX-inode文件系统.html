@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UNIX inode 文件系统——索引式文件存储与软硬链接</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root { --bg:#0a0e14; --fg:#ffffff; --muted:#9ca3af; --accent:#f59e0b; --card:#1a1f2e; --border:#3b4252; }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family:'Noto Sans SC',sans-serif; background:var(--bg); color:var(--fg); min-height:100vh; }
+        .bg-layer { position:fixed; inset:0; z-index:0; }
+        .bg-gradient { position:absolute; inset:0; background:radial-gradient(ellipse 60% 40% at 50% 0%, rgba(245,158,11,0.08) 0%, transparent 60%), radial-gradient(ellipse 40% 30% at 80% 80%, rgba(96,165,250,0.06) 0%, transparent 50%); }
+        .bg-grid { position:absolute; inset:0; background-image:linear-gradient(rgba(255,255,255,0.02) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.02) 1px,transparent 1px); background-size:50px 50px; }
+        .wrap { position:relative; z-index:1; padding:30px 20px; max-width:1200px; margin:0 auto; }
+        .back-btn { display:inline-flex; align-items:center; gap:8px; color:var(--muted); text-decoration:none; font-size:0.9rem; padding:8px 16px; border:1px solid var(--border); border-radius:8px; transition:all 0.2s; margin-bottom:24px; }
+        .back-btn:hover { color:var(--fg); border-color:var(--accent); }
+        .page-header { text-align:center; margin-bottom:36px; }
+        .page-title { font-size:clamp(1.6rem,4vw,2.4rem); font-weight:900; margin-bottom:8px; background:linear-gradient(135deg,#fff,#f59e0b); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+        .page-subtitle { color:var(--muted); }
+
+        .progress-bar { display:flex; justify-content:center; gap:0; margin-bottom:32px; flex-wrap:wrap; }
+        .progress-step { padding:7px 16px; font-size:0.78rem; border:1px solid var(--border); color:var(--muted); cursor:default; }
+        .progress-step:first-child { border-radius:10px 0 0 10px; }
+        .progress-step:last-child { border-radius:0 10px 10px 0; }
+        .progress-step.active { background:rgba(245,158,11,0.2); border-color:#f59e0b; color:#f59e0b; font-weight:700; }
+        .progress-step.done { background:rgba(34,197,94,0.1); border-color:rgba(34,197,94,0.4); color:#22c55e; }
+
+        .stage { background:var(--card); border:2px solid var(--border); border-radius:20px; padding:28px; margin-bottom:20px; }
+        .scene { display:none; } .scene.active { display:block; animation:fadeIn 0.5s ease; }
+        @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+        .scene-title { font-size:1.05rem; font-weight:700; color:var(--accent); margin-bottom:20px; text-align:center; }
+
+        /* Filesystem layout */
+        .fs-layout { display:grid; grid-template-columns:1fr 1.2fr 1fr; gap:16px; }
+        @media(max-width:768px) { .fs-layout { grid-template-columns:1fr; } }
+
+        .fs-zone { background:#111827; border:2px solid var(--border); border-radius:14px; padding:16px; }
+        .fs-zone-title { font-size:0.78rem; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:12px; text-align:center; padding:3px 12px; border-radius:12px; display:inline-block; }
+        .fzt-dir { background:rgba(245,158,11,0.15); color:#f59e0b; }
+        .fzt-inode { background:rgba(96,165,250,0.15); color:#60a5fa; }
+        .fzt-data { background:rgba(34,197,94,0.15); color:#22c55e; }
+
+        /* Directory entry */
+        .dir-entry { display:flex; align-items:center; gap:10px; padding:8px 10px; border:1px solid var(--border); border-radius:8px; margin-bottom:8px; cursor:default; transition:all 0.3s; background:#1a1a1a; }
+        .dir-entry.active { border-color:#f59e0b; background:rgba(245,158,11,0.1); }
+        .dir-entry.hard-link { border-color:#fb923c; background:rgba(251,146,60,0.1); }
+        .dir-entry.soft-link { border-color:#a78bfa; background:rgba(167,139,250,0.1); }
+        .dir-entry .de-name { font-family:'JetBrains Mono',monospace; font-size:0.88rem; color:#fff; font-weight:700; }
+        .dir-entry .de-inode { font-size:0.75rem; color:var(--muted); }
+        .de-arrow { font-size:0.9rem; color:var(--muted); margin:0 auto 0 8px; }
+
+        /* iNode card */
+        .inode-card { background:#1a2040; border:2px solid rgba(96,165,250,0.3); border-radius:10px; padding:14px; margin-bottom:10px; transition:all 0.3s; }
+        .inode-card.active { border-color:#60a5fa; box-shadow:0 0 16px rgba(96,165,250,0.2); }
+        .inode-card.deleted { opacity:0.3; text-decoration:line-through; }
+        .inode-num { font-size:0.75rem; color:#60a5fa; font-weight:700; margin-bottom:6px; }
+        .inode-meta { font-size:0.78rem; color:var(--muted); line-height:1.7; }
+        .inode-nlink { display:inline-block; padding:2px 10px; background:rgba(245,158,11,0.15); color:#f59e0b; border-radius:10px; font-weight:700; font-family:'JetBrains Mono',monospace; }
+        .inode-card.soft { background:#1a1a40; border-color:rgba(167,139,250,0.4); }
+        .inode-card.soft .inode-num { color:#a78bfa; }
+
+        /* Data block */
+        .data-block { background:#1a2a1a; border:1px solid rgba(34,197,94,0.3); border-radius:8px; padding:10px; margin-bottom:8px; }
+        .data-block.soft-data { background:#1a1a2a; border-color:rgba(167,139,250,0.3); }
+        .data-block.deleted { opacity:0.3; }
+        .db-label { font-size:0.72rem; color:var(--muted); margin-bottom:4px; }
+        .db-content { font-size:0.82rem; color:#22c55e; font-family:'JetBrains Mono',monospace; }
+
+        /* Arrows connecting elements */
+        .arrow-row { display:flex; justify-content:center; align-items:center; gap:8px; margin:6px 0; }
+        .arrow-connector { display:flex; align-items:center; gap:4px; font-size:0.8rem; color:var(--muted); }
+
+        /* Info panel */
+        .info-box { background:#111827; border:1px solid var(--border); border-radius:12px; padding:16px 20px; margin:14px 0; }
+        .ib-label { font-size:0.78rem; color:var(--muted); margin-bottom:6px; }
+        .ib-val { font-size:0.9rem; color:#fff; line-height:1.6; }
+
+        /* Compare table */
+        .cmp-table { width:100%; border-collapse:collapse; font-size:0.85rem; }
+        .cmp-table th { padding:10px 14px; background:rgba(255,255,255,0.05); color:var(--muted); text-align:left; }
+        .cmp-table td { padding:10px 14px; border-top:1px solid rgba(255,255,255,0.06); }
+        .cmp-table tr:hover td { background:rgba(255,255,255,0.02); }
+        .text-orange { color:#fb923c; } .text-purple { color:#a78bfa; } .text-green { color:#22c55e; } .text-red { color:#ef4444; }
+
+        .controls { display:flex; justify-content:center; gap:12px; flex-wrap:wrap; margin-top:20px; }
+        .btn { padding:10px 26px; border-radius:10px; font-family:'Noto Sans SC',sans-serif; font-size:0.92rem; font-weight:700; cursor:pointer; transition:all 0.3s; border:none; }
+        .btn-amber { background:#f59e0b; color:#1a0a00; }
+        .btn-amber:hover { background:#d97706; }
+        .btn-secondary { background:transparent; border:2px solid var(--border); color:var(--muted); }
+        .btn-secondary:hover { border-color:var(--accent); color:#fff; }
+
+        .knowledge-section { margin-top:28px; }
+        .knowledge-title { font-size:1.1rem; font-weight:700; color:var(--accent); margin-bottom:14px; }
+        .knowledge-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:14px; }
+        .kc { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:18px; }
+        .kc-t { color:#f59e0b; font-weight:700; font-size:0.88rem; margin-bottom:8px; }
+        .kc-b { font-size:0.82rem; color:var(--muted); line-height:1.7; }
+    </style>
+</head>
+<body>
+<div class="bg-layer"><div class="bg-gradient"></div><div class="bg-grid"></div></div>
+<div class="wrap">
+    <a href="index.html" class="back-btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>返回算法列表</a>
+    <div class="page-header">
+        <h1 class="page-title">🗄️ UNIX inode 文件系统</h1>
+        <p class="page-subtitle">索引式文件存储 · 硬链接 · 软链接 · 链接计数 · 文件删除机制</p>
+    </div>
+
+    <div class="progress-bar">
+        <div class="progress-step active" id="ips0">① inode 基础</div>
+        <div class="progress-step" id="ips1">② 硬链接</div>
+        <div class="progress-step" id="ips2">③ 软链接</div>
+        <div class="progress-step" id="ips3">④ 删除机制</div>
+        <div class="progress-step" id="ips4">⑤ 对比总结</div>
+    </div>
+
+    <div class="stage">
+        <!-- Scene 0: inode Basics -->
+        <div class="scene active" id="iscene0">
+            <div class="scene-title">📋 场景一：inode 索引节点——文件系统的档案管理系统</div>
+            <div class="fs-layout">
+                <div class="fs-zone">
+                    <div style="text-align:center"><span class="fs-zone-title fzt-dir">目录区（用户可见）</span></div>
+                    <div class="dir-entry active">
+                        <span class="dir-entry">
+                            <span class="de-name">📄 file1</span>
+                            <span class="de-inode">→ inode #1001</span>
+                        </span>
+                    </div>
+                    <div class="dir-entry">
+                        <span class="de-name">📁 docs/</span>
+                        <span class="de-inode">→ inode #1005</span>
+                    </div>
+                    <div style="font-size:0.75rem; color:var(--muted); margin-top:12px; line-height:1.7">
+                        目录项只存储：<br>
+                        • <strong style="color:#fff">文件名</strong>（用户看到的名字）<br>
+                        • <strong style="color:#f59e0b">inode 号</strong>（指向 inode 表）<br>
+                        不存储文件内容！
+                    </div>
+                </div>
+                <div class="fs-zone">
+                    <div style="text-align:center"><span class="fs-zone-title fzt-inode">inode 表（文件档案）</span></div>
+                    <div class="inode-card active">
+                        <div class="inode-num">inode #1001（file1）</div>
+                        <div class="inode-meta">
+                            权限：rw-r--r--<br>
+                            大小：4096 bytes<br>
+                            链接计数：<span class="inode-nlink">1</span><br>
+                            数据块指针：→ Block[0]
+                        </div>
+                    </div>
+                    <div style="font-size:0.75rem; color:var(--muted); margin-top:10px; line-height:1.7">
+                        inode 存储：权限、大小、时间戳、链接计数、数据块地址<br>
+                        <strong style="color:#ef4444">不存文件名！</strong>
+                    </div>
+                </div>
+                <div class="fs-zone">
+                    <div style="text-align:center"><span class="fs-zone-title fzt-data">数据块区（文件内容）</span></div>
+                    <div class="data-block">
+                        <div class="db-label">Block[0] ← inode#1001</div>
+                        <div class="db-content">"Hello, inode!"<br>文件实际内容...</div>
+                    </div>
+                    <div style="font-size:0.75rem; color:var(--muted); margin-top:10px; line-height:1.7">
+                        数据块存储文件的<br>实际内容，由 inode<br>中的指针索引。
+                    </div>
+                </div>
+            </div>
+            <div class="info-box" style="margin-top:16px">
+                <div class="ib-label">寻址流程</div>
+                <div class="ib-val" style="font-size:0.85rem; line-height:2">
+                    用户访问 <strong style="color:#f59e0b">"file1"</strong>
+                    → 目录区找到 inode #1001
+                    → inode 中读取数据块地址
+                    → 访问 Block[0]
+                    → 读取文件内容 ✅
+                </div>
+            </div>
+        </div>
+
+        <!-- Scene 1: Hard Link -->
+        <div class="scene" id="iscene1">
+            <div class="scene-title">🔗 场景二：硬链接（Hard Link）——多个名字指向同一档案</div>
+            <div class="fs-layout">
+                <div class="fs-zone">
+                    <div style="text-align:center"><span class="fs-zone-title fzt-dir">目录区</span></div>
+                    <div class="dir-entry active">
+                        <span class="de-name">📄 file1</span>
+                        <span class="de-inode" style="margin-left:auto">→ inode #1001</span>
+                    </div>
+                    <div class="dir-entry hard-link">
+                        <span class="de-name" style="color:#fb923c">📄 file_hard</span>
+                        <span class="de-inode" style="margin-left:auto; color:#fb923c">→ inode #1001 ✓</span>
+                    </div>
+                    <div style="font-size:0.75rem; color:var(--muted); margin-top:12px; line-height:1.7; background:rgba(251,146,60,0.05); border:1px solid rgba(251,146,60,0.2); border-radius:8px; padding:10px">
+                        <strong style="color:#fb923c">硬链接</strong>：新文件名指向<strong>同一个 inode</strong>，无新 inode，无新数据块！
+                    </div>
+                </div>
+                <div class="fs-zone">
+                    <div style="text-align:center"><span class="fs-zone-title fzt-inode">inode 表</span></div>
+                    <div class="inode-card active">
+                        <div class="inode-num">inode #1001（共享）</div>
+                        <div class="inode-meta">
+                            权限：rw-r--r--<br>
+                            大小：4096 bytes<br>
+                            链接计数：<span class="inode-nlink" style="background:rgba(251,146,60,0.2); color:#fb923c">2 ↑ 增加了！</span><br>
+                            数据块指针：→ Block[0]
+                        </div>
+                    </div>
+                    <div style="font-size:0.75rem; color:#fb923c; margin-top:8px; text-align:center">链接计数 = 指向该 inode 的目录项数量</div>
+                </div>
+                <div class="fs-zone">
+                    <div style="text-align:center"><span class="fs-zone-title fzt-data">数据块区</span></div>
+                    <div class="data-block">
+                        <div class="db-label">Block[0] ← file1 和 file_hard 共用</div>
+                        <div class="db-content">"Hello, inode!"<br>两个名字，同一内容</div>
+                    </div>
+                    <div style="font-size:0.75rem; color:var(--muted); margin-top:10px; line-height:1.7">
+                        硬链接不会占用<br>额外数据块空间！
+                    </div>
+                </div>
+            </div>
+            <div class="info-box" style="margin-top:14px; border-color:rgba(251,146,60,0.3)">
+                <div class="ib-label">硬链接限制</div>
+                <div class="ib-val" style="font-size:0.85rem; line-height:1.8">
+                    ❌ 不能跨分区（inode 号在同一文件系统内唯一）<br>
+                    ❌ 不能指向目录（防止目录树循环）<br>
+                    ✅ 仅适用于普通文件
+                </div>
+            </div>
+        </div>
+
+        <!-- Scene 2: Soft Link -->
+        <div class="scene" id="iscene2">
+            <div class="scene-title">🔀 场景三：软链接（Symbolic Link）——独立的快捷方式</div>
+            <div class="fs-layout">
+                <div class="fs-zone">
+                    <div style="text-align:center"><span class="fs-zone-title fzt-dir">目录区</span></div>
+                    <div class="dir-entry active">
+                        <span class="de-name">📄 file1</span>
+                        <span class="de-inode" style="margin-left:auto">→ inode #1001</span>
+                    </div>
+                    <div class="dir-entry soft-link">
+                        <span class="de-name" style="color:#a78bfa">🔗 file_soft</span>
+                        <span class="de-inode" style="margin-left:auto; color:#a78bfa">→ inode #1002</span>
+                    </div>
+                    <div style="font-size:0.75rem; color:var(--muted); margin-top:12px; line-height:1.7; background:rgba(167,139,250,0.05); border:1px solid rgba(167,139,250,0.2); border-radius:8px; padding:10px">
+                        <strong style="color:#a78bfa">软链接</strong>是独立文件，有自己的 inode，数据块内容只是目标路径字符串
+                    </div>
+                </div>
+                <div class="fs-zone">
+                    <div style="text-align:center"><span class="fs-zone-title fzt-inode">inode 表</span></div>
+                    <div class="inode-card active">
+                        <div class="inode-num">inode #1001（file1）</div>
+                        <div class="inode-meta">
+                            链接计数：<span class="inode-nlink">1</span>（软链接不增加）<br>
+                            数据块：→ Block[0]
+                        </div>
+                    </div>
+                    <div class="inode-card soft" style="margin-top:8px">
+                        <div class="inode-num" style="color:#a78bfa">inode #1002（file_soft，独立）</div>
+                        <div class="inode-meta">
+                            大小：10 bytes（路径长度）<br>
+                            链接计数：<span class="inode-nlink" style="background:rgba(167,139,250,0.2); color:#a78bfa">1</span><br>
+                            数据块：→ Block[99]（存路径）
+                        </div>
+                    </div>
+                </div>
+                <div class="fs-zone">
+                    <div style="text-align:center"><span class="fs-zone-title fzt-data">数据块区</span></div>
+                    <div class="data-block">
+                        <div class="db-label">Block[0] ← inode#1001</div>
+                        <div class="db-content">"Hello, inode!"<br>原文件内容</div>
+                    </div>
+                    <div class="data-block soft-data" style="margin-top:8px">
+                        <div class="db-label">Block[99] ← inode#1002（软链接）</div>
+                        <div class="db-content" style="color:#a78bfa">"/path/to/file1"<br>← 仅存路径字符串！</div>
+                    </div>
+                </div>
+            </div>
+            <div class="info-box" style="border-color:rgba(167,139,250,0.3); margin-top:12px">
+                <div class="ib-label">软链接断链：删除 file1 后</div>
+                <div class="ib-val" style="font-size:0.85rem; line-height:1.8; color:#ef4444">
+                    ❌ file_soft 变成悬挂链接（dangling link），指向的路径不存在，访问失败<br>
+                    <span style="color:var(--muted)">→ 这是软链接与硬链接最关键的区别：软链接依赖原文件存在</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Scene 3: Delete Mechanism -->
+        <div class="scene" id="iscene3">
+            <div class="scene-title">🗑️ 场景四：删除机制——链接计数归零才真正释放</div>
+            <div style="background:#111827; border:1px solid var(--border); border-radius:14px; padding:20px; margin-bottom:16px">
+                <div style="font-size:0.95rem; font-weight:700; color:#f59e0b; margin-bottom:16px">演示：先有 file1 + file_hard（链接计数=2）</div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px">
+                    <div>
+                        <div style="font-size:0.85rem; color:var(--muted); margin-bottom:10px">步骤一：删除 file1</div>
+                        <div class="dir-entry" style="border-color:rgba(239,68,68,0.3); text-decoration:line-through; opacity:0.5">
+                            <span class="de-name" style="color:#9ca3af">📄 file1</span>
+                            <span class="de-inode" style="margin-left:auto">→ inode #1001 ← 删除</span>
+                        </div>
+                        <div class="dir-entry hard-link">
+                            <span class="de-name">📄 file_hard</span>
+                            <span class="de-inode" style="margin-left:auto; color:#fb923c">→ inode #1001 ✓</span>
+                        </div>
+                        <div style="margin-top:10px; padding:10px; background:rgba(245,158,11,0.05); border:1px solid rgba(245,158,11,0.2); border-radius:8px; font-size:0.82rem; color:var(--muted)">
+                            inode#1001 链接计数：<strong style="color:#f59e0b">2 → 1</strong><br>
+                            数据块仍然保留！<br>
+                            <span style="color:#22c55e">file_hard 可正常访问</span>
+                        </div>
+                    </div>
+                    <div>
+                        <div style="font-size:0.85rem; color:var(--muted); margin-bottom:10px">步骤二：再删除 file_hard</div>
+                        <div class="dir-entry" style="border-color:rgba(239,68,68,0.3); text-decoration:line-through; opacity:0.5">
+                            <span class="de-name" style="color:#9ca3af">📄 file_hard</span>
+                            <span class="de-inode" style="margin-left:auto">← 删除</span>
+                        </div>
+                        <div style="margin-top:10px; padding:10px; background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.3); border-radius:8px; font-size:0.82rem; color:var(--muted)">
+                            inode#1001 链接计数：<strong style="color:#ef4444">1 → 0</strong><br>
+                            <strong style="color:#ef4444">inode 释放！数据块释放！</strong><br>
+                            文件彻底从磁盘删除 ✓
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="info-box" style="border-color:rgba(167,139,250,0.3)">
+                <div class="ib-label">软链接删除对比</div>
+                <div class="ib-val" style="font-size:0.85rem; line-height:1.8">
+                    删除软链接（file_soft）：inode#1002 计数归0，仅释放软链接自身的 inode 和小数据块（路径字符串），<strong style="color:#22c55e">原文件 file1 完全不受影响</strong>
+                </div>
+            </div>
+        </div>
+
+        <!-- Scene 4: Compare -->
+        <div class="scene" id="iscene4">
+            <div class="scene-title">📊 场景五：硬链接 vs 软链接核心对比</div>
+            <table class="cmp-table">
+                <tr><th>对比项</th><th class="text-orange">硬链接（Hard Link）</th><th class="text-purple">软链接（Symbolic Link）</th></tr>
+                <tr><td>独立 inode</td><td class="text-red">❌ 共用原 inode</td><td class="text-green">✅ 有独立 inode</td></tr>
+                <tr><td>独立数据块</td><td class="text-red">❌ 共用原数据块</td><td class="text-green">✅ 有独立数据块（仅存路径）</td></tr>
+                <tr><td>链接计数</td><td class="text-orange">增加原 inode 链接计数</td><td>不影响原 inode 计数</td></tr>
+                <tr><td>跨文件系统</td><td class="text-red">❌ 不能跨分区</td><td class="text-green">✅ 可以跨分区</td></tr>
+                <tr><td>指向目录</td><td class="text-red">❌ 不支持</td><td class="text-green">✅ 可以</td></tr>
+                <tr><td>原文件删除后</td><td class="text-green">✅ 仍可访问（计数>0）</td><td class="text-red">❌ 断链失效</td></tr>
+                <tr><td>类比</td><td class="text-orange">多个门牌指向同一房子</td><td class="text-purple">指路纸条，指向另一地址</td></tr>
+            </table>
+            <div style="background:rgba(245,158,11,0.08); border:2px solid rgba(245,158,11,0.2); border-radius:12px; padding:16px; margin-top:16px; text-align:center; font-size:0.9rem; color:#f59e0b">
+                💡 核心本质：硬链接指向文件本体（inode），软链接指向文件路径（字符串）
+            </div>
+        </div>
+    </div>
+
+    <div class="controls">
+        <button class="btn btn-secondary" id="iprevBtn" onclick="iprev()" disabled>◀ 上一步</button>
+        <button class="btn btn-amber" id="inextBtn" onclick="inext()">下一步 ▶</button>
+    </div>
+
+    <div class="knowledge-section">
+        <div class="knowledge-title">📚 核心知识点</div>
+        <div class="knowledge-grid">
+            <div class="kc"><div class="kc-t">inode 存储什么？</div><div class="kc-b">存储文件元数据：权限、大小、时间戳、链接计数、数据块指针。<strong>不存储文件名！</strong>文件名存在目录项中。</div></div>
+            <div class="kc"><div class="kc-t">为什么 inode 不存文件名？</div><div class="kc-b">支持硬链接（多个文件名指向同一 inode）。实现文件重命名只需修改目录项，不需要移动文件数据。</div></div>
+            <div class="kc"><div class="kc-t">链接计数（nlink）</div><div class="kc-b">记录指向该 inode 的目录项数量。只有 nlink 归零时，文件数据才会被真正释放。软链接不影响原文件的 nlink。</div></div>
+            <div class="kc"><div class="kc-t">inode 的直接/间接寻址</div><div class="kc-b">小文件：直接指针指向数据块。大文件：通过一级、二级、三级间接指针扩展寻址空间，支持超大文件存储。</div></div>
+        </div>
+    </div>
+</div>
+
+<script>
+let iCurrent = 0;
+const iTotal = 5;
+function ishowScene(n) {
+    document.querySelectorAll('.scene').forEach((s, i) => s.classList.toggle('active', i === n));
+    document.querySelectorAll('.progress-step').forEach((p, i) => {
+        p.classList.remove('active','done');
+        if (i === n) p.classList.add('active');
+        else if (i < n) p.classList.add('done');
+    });
+    document.getElementById('iprevBtn').disabled = n === 0;
+    document.getElementById('inextBtn').textContent = n === iTotal - 1 ? '↺ 重新开始' : '下一步 ▶';
+}
+function inext() {
+    if (iCurrent < iTotal - 1) { iCurrent++; ishowScene(iCurrent); }
+    else { iCurrent = 0; ishowScene(0); }
+}
+function iprev() {
+    if (iCurrent > 0) { iCurrent--; ishowScene(iCurrent); }
+}
+ishowScene(0);
+</script>
+</body>
+</html>

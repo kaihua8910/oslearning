@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>虚拟内存——请求调页的"时空传送"</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root { --bg:#0a0e14; --fg:#ffffff; --muted:#9ca3af; --accent:#60a5fa; --card:#1a1f2e; --border:#3b4252; }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family:'Noto Sans SC',sans-serif; background:var(--bg); color:var(--fg); min-height:100vh; }
+        .bg-layer { position:fixed; inset:0; z-index:0; }
+        .bg-gradient { position:absolute; inset:0; background:radial-gradient(ellipse 60% 40% at 30% 0%, rgba(96,165,250,0.1) 0%, transparent 60%), radial-gradient(ellipse 40% 30% at 80% 80%, rgba(34,197,94,0.06) 0%, transparent 50%); }
+        .bg-grid { position:absolute; inset:0; background-image:linear-gradient(rgba(255,255,255,0.02) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.02) 1px,transparent 1px); background-size:50px 50px; }
+        .wrap { position:relative; z-index:1; padding:30px 20px; max-width:1200px; margin:0 auto; }
+        .back-btn { display:inline-flex; align-items:center; gap:8px; color:var(--muted); text-decoration:none; font-size:0.9rem; padding:8px 16px; border:1px solid var(--border); border-radius:8px; transition:all 0.2s; margin-bottom:24px; }
+        .back-btn:hover { color:var(--fg); border-color:var(--accent); }
+        .page-header { text-align:center; margin-bottom:36px; }
+        .page-title { font-size:clamp(1.6rem,4vw,2.4rem); font-weight:900; margin-bottom:8px; background:linear-gradient(135deg,#fff,#60a5fa); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+        .page-subtitle { color:var(--muted); }
+
+        /* Progress */
+        .progress-bar { display:flex; justify-content:center; gap:0; margin-bottom:32px; flex-wrap:wrap; }
+        .progress-step { padding:7px 16px; font-size:0.78rem; border:1px solid var(--border); background:transparent; color:var(--muted); cursor:default; }
+        .progress-step:first-child { border-radius:10px 0 0 10px; }
+        .progress-step:last-child { border-radius:0 10px 10px 0; }
+        .progress-step.active { background:rgba(96,165,250,0.2); border-color:#60a5fa; color:#60a5fa; font-weight:700; }
+        .progress-step.done { background:rgba(34,197,94,0.1); border-color:rgba(34,197,94,0.4); color:#22c55e; }
+
+        /* Stage */
+        .stage { background:var(--card); border:2px solid var(--border); border-radius:20px; padding:28px; margin-bottom:20px; }
+        .scene { display:none; } .scene.active { display:block; animation:fadeIn 0.5s ease; }
+        @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+        .scene-title { font-size:1.05rem; font-weight:700; color:var(--accent); margin-bottom:20px; text-align:center; }
+
+        /* Three-panel layout */
+        .three-panel { display:grid; grid-template-columns:1fr 1.2fr 1fr; gap:16px; margin-bottom:16px; }
+        @media(max-width:768px) { .three-panel { grid-template-columns:1fr; } }
+        .panel { background:#111827; border:2px solid var(--border); border-radius:14px; padding:16px; }
+        .panel-title { font-size:0.78rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:12px; text-align:center; }
+        .panel-title span { padding:3px 12px; border-radius:12px; }
+        .pt-cpu { background:rgba(96,165,250,0.15); color:#60a5fa; }
+        .pt-mem { background:rgba(34,197,94,0.15); color:#22c55e; }
+        .pt-disk { background:rgba(107,114,128,0.2); color:#9ca3af; }
+
+        /* CPU panel */
+        .cpu-icon { text-align:center; font-size:2.5rem; margin:8px 0; }
+        .cpu-mode { text-align:center; padding:4px 12px; border-radius:20px; font-size:0.78rem; font-weight:700; display:inline-block; }
+        .cpu-mode.user { background:rgba(96,165,250,0.15); color:#60a5fa; }
+        .cpu-mode.kernel { background:rgba(245,158,11,0.15); color:#f59e0b; }
+        .cpu-req { text-align:center; font-size:0.88rem; margin-top:8px; }
+
+        /* Page table */
+        .ptable { width:100%; border-collapse:collapse; font-size:0.78rem; }
+        .ptable th { padding:6px 8px; background:rgba(255,255,255,0.04); color:var(--muted); text-align:center; }
+        .ptable td { padding:5px 8px; border-top:1px solid rgba(255,255,255,0.04); text-align:center; font-family:'JetBrains Mono',monospace; }
+        .ptable tr.hit td { background:rgba(34,197,94,0.1); color:#22c55e; font-weight:700; }
+        .ptable tr.miss td { background:rgba(239,68,68,0.1); color:#ef4444; font-weight:700; }
+
+        /* Memory grid */
+        .mem-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
+        .mem-cell { background:#1a2a1a; border:1px solid #3b4252; border-radius:6px; padding:8px 4px; text-align:center; font-family:'JetBrains Mono',monospace; font-size:0.75rem; transition:all 0.4s; }
+        .mem-cell.used { background:rgba(34,197,94,0.12); border-color:rgba(34,197,94,0.4); color:#22c55e; }
+        .mem-cell.full { background:rgba(239,68,68,0.12); border-color:rgba(239,68,68,0.4); color:#ef4444; }
+        .mem-cell.new-page { background:rgba(96,165,250,0.2); border-color:#60a5fa; color:#60a5fa; box-shadow:0 0 12px rgba(96,165,250,0.3); }
+
+        /* Disk grid */
+        .disk-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:4px; }
+        .disk-cell { background:#1a1a1a; border:1px solid #374151; border-radius:4px; padding:6px 2px; text-align:center; font-family:'JetBrains Mono',monospace; font-size:0.7rem; color:#6b7280; transition:all 0.4s; }
+        .disk-cell.target { background:rgba(245,158,11,0.2); border-color:#f59e0b; color:#f59e0b; box-shadow:0 0 10px rgba(245,158,11,0.3); }
+        .disk-cell.sending { background:rgba(96,165,250,0.15); border-color:#60a5fa; color:#60a5fa; }
+
+        /* Alert */
+        .page-fault-alert { background:rgba(245,158,11,0.1); border:2px solid #f59e0b; border-radius:12px; padding:14px; text-align:center; margin:14px 0; }
+        .pf-title { font-size:1.1rem; font-weight:900; color:#f59e0b; margin-bottom:4px; }
+        .pf-sub { font-size:0.83rem; color:var(--muted); }
+
+        /* Transfer animation */
+        .transfer-area { display:flex; align-items:center; gap:12px; justify-content:center; margin:16px 0; }
+        .transfer-block { width:56px; height:40px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:0.78rem; font-weight:700; border:2px solid; }
+        .transfer-arrow { font-size:1.5rem; color:#60a5fa; }
+        .t-disk { background:rgba(245,158,11,0.15); border-color:#f59e0b; color:#f59e0b; }
+        .t-mem { background:rgba(34,197,94,0.15); border-color:#22c55e; color:#22c55e; }
+
+        /* 6-step summary */
+        .step-summary { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:10px; }
+        .step-box { background:#111827; border:1px solid var(--border); border-radius:10px; padding:12px; }
+        .step-num { width:28px; height:28px; border-radius:50%; background:rgba(96,165,250,0.2); color:#60a5fa; font-weight:900; text-align:center; line-height:28px; font-size:0.85rem; margin-bottom:8px; }
+        .step-desc { font-size:0.82rem; color:var(--muted); line-height:1.6; }
+
+        /* Controls */
+        .controls { display:flex; justify-content:center; gap:12px; flex-wrap:wrap; margin-top:20px; }
+        .btn { padding:10px 26px; border-radius:10px; font-family:'Noto Sans SC',sans-serif; font-size:0.92rem; font-weight:700; cursor:pointer; transition:all 0.3s; border:none; }
+        .btn-blue { background:#60a5fa; color:#0c1a3a; }
+        .btn-blue:hover { background:#3b82f6; }
+        .btn-secondary { background:transparent; border:2px solid var(--border); color:var(--muted); }
+        .btn-secondary:hover { border-color:var(--accent); color:#fff; }
+
+        /* Knowledge */
+        .knowledge-section { margin-top:28px; }
+        .knowledge-title { font-size:1.1rem; font-weight:700; color:var(--accent); margin-bottom:14px; }
+        .knowledge-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:14px; }
+        .kc { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:18px; }
+        .kc-t { color:#60a5fa; font-weight:700; font-size:0.88rem; margin-bottom:8px; }
+        .kc-b { font-size:0.82rem; color:var(--muted); line-height:1.7; }
+    </style>
+</head>
+<body>
+<div class="bg-layer"><div class="bg-gradient"></div><div class="bg-grid"></div></div>
+<div class="wrap">
+    <a href="index.html" class="back-btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>返回算法列表</a>
+    <div class="page-header">
+        <h1 class="page-title">🌐 虚拟内存管理</h1>
+        <p class="page-subtitle">请求调页的"时空传送" · Page Fault · 缺页中断 · 页面置换</p>
+    </div>
+
+    <div class="progress-bar">
+        <div class="progress-step active" id="vps0">① 页表结构</div>
+        <div class="progress-step" id="vps1">② 触发缺页</div>
+        <div class="progress-step" id="vps2">③ 磁盘调页</div>
+        <div class="progress-step" id="vps3">④ 页表更新</div>
+        <div class="progress-step" id="vps4">⑤ 内存满载</div>
+        <div class="progress-step" id="vps5">⑥ 总结</div>
+    </div>
+
+    <div class="stage">
+        <!-- Scene 0: Page Table Structure -->
+        <div class="scene active" id="vscene0">
+            <div class="scene-title">📋 场景一：带状态位的虚拟内存页表</div>
+            <div class="three-panel">
+                <div class="panel">
+                    <div class="panel-title"><span class="pt-cpu">CPU 工作区</span></div>
+                    <div class="cpu-icon">💻</div>
+                    <div style="text-align:center"><span class="cpu-mode user">用户模式</span></div>
+                    <div class="cpu-req" style="margin-top:12px; color:var(--muted)">等待 CPU 发出访问请求...</div>
+                </div>
+                <div class="panel">
+                    <div class="panel-title"><span class="pt-mem">物理内存（有限工位）</span></div>
+                    <div style="margin-bottom:10px">
+                        <table class="ptable">
+                            <tr><th>页号</th><th>物理块号</th><th>状态位</th><th>备注</th></tr>
+                            <tr class="hit"><td>0</td><td>5</td><td style="color:#22c55e">1 ✓</td><td>在内存</td></tr>
+                            <tr class="miss"><td>1</td><td>—</td><td style="color:#ef4444">0 ✗</td><td>在磁盘</td></tr>
+                            <tr class="hit"><td>2</td><td>8</td><td style="color:#22c55e">1 ✓</td><td>在内存</td></tr>
+                            <tr class="hit"><td>3</td><td>2</td><td style="color:#22c55e">1 ✓</td><td>在内存</td></tr>
+                        </table>
+                    </div>
+                    <div style="font-size:0.75rem; color:var(--muted); text-align:center">状态位 1=在内存，0=在磁盘</div>
+                </div>
+                <div class="panel">
+                    <div class="panel-title"><span class="pt-disk">磁盘仓库（无限存储）</span></div>
+                    <div class="disk-grid">
+                        <div class="disk-cell target">P1<br>Block_A</div>
+                        <div class="disk-cell">P5</div>
+                        <div class="disk-cell">P6</div>
+                        <div class="disk-cell">P7</div>
+                        <div class="disk-cell">P8</div>
+                        <div class="disk-cell">P9</div>
+                        <div class="disk-cell">P10</div>
+                        <div class="disk-cell">...</div>
+                    </div>
+                    <div style="font-size:0.75rem; color:var(--muted); text-align:center; margin-top:8px">页号1的数据在 Block_A</div>
+                </div>
+            </div>
+            <div style="background:#111827; border:1px solid rgba(96,165,250,0.2); border-radius:10px; padding:16px; text-align:center; font-size:0.88rem; color:var(--muted); line-height:1.8">
+                虚拟内存的核心是<strong style="color:#60a5fa">升级版页表</strong>，比基础分页多了一列<strong style="color:#22c55e">状态位</strong>。<br>
+                状态位=1：页面在内存，可直接访问；状态位=0：页面在磁盘，需要调入。<br>
+                这让操作系统能用<strong style="color:#f59e0b">小内存运行远超内存大小的程序</strong>。
+            </div>
+        </div>
+
+        <!-- Scene 1: Page Fault Triggered -->
+        <div class="scene" id="vscene1">
+            <div class="scene-title">⚠️ 场景二：触发缺页中断（Page Fault）</div>
+            <div class="three-panel">
+                <div class="panel">
+                    <div class="panel-title"><span class="pt-cpu">CPU 工作区</span></div>
+                    <div class="cpu-icon">💻</div>
+                    <div style="text-align:center"><span class="cpu-mode kernel">内核模式</span></div>
+                    <div class="cpu-req" style="margin-top:8px; color:#60a5fa">请求访问页号 <strong>1</strong>...</div>
+                    <div class="cpu-req" style="color:#f59e0b; font-weight:700">发现状态位 = 0！</div>
+                </div>
+                <div class="panel">
+                    <div class="panel-title"><span class="pt-mem">页表查询结果</span></div>
+                    <table class="ptable">
+                        <tr><th>页号</th><th>物理块号</th><th>状态位</th></tr>
+                        <tr><td>0</td><td>5</td><td style="color:#22c55e">1 ✓</td></tr>
+                        <tr class="miss"><td style="color:#ef4444; font-weight:900">1 ← 目标</td><td>—</td><td style="color:#ef4444; font-weight:900">0 ✗ 缺页!</td></tr>
+                        <tr><td>2</td><td>8</td><td style="color:#22c55e">1 ✓</td></tr>
+                        <tr><td>3</td><td>2</td><td style="color:#22c55e">1 ✓</td></tr>
+                    </table>
+                </div>
+                <div class="panel">
+                    <div class="panel-title"><span class="pt-disk">磁盘仓库</span></div>
+                    <div class="disk-grid">
+                        <div class="disk-cell target" style="animation:targetPulse 1s infinite">P1<br>Block_A</div>
+                        <div class="disk-cell">P5</div><div class="disk-cell">P6</div><div class="disk-cell">P7</div>
+                        <div class="disk-cell">P8</div><div class="disk-cell">P9</div><div class="disk-cell">P10</div><div class="disk-cell">...</div>
+                    </div>
+                </div>
+            </div>
+            <div class="page-fault-alert">
+                <div class="pf-title">⚡ Page Fault — 缺页中断触发！</div>
+                <div class="pf-sub">CPU 切换为内核态，暂停当前工作，操作系统接管调度流程</div>
+            </div>
+        </div>
+
+        <!-- Scene 2: Load from Disk -->
+        <div class="scene" id="vscene2">
+            <div class="scene-title">🚀 场景三：从磁盘仓库调入页面</div>
+            <div class="three-panel">
+                <div class="panel">
+                    <div class="panel-title"><span class="pt-cpu">CPU（内核态）</span></div>
+                    <div class="cpu-icon">⚙️</div>
+                    <div style="text-align:center"><span class="cpu-mode kernel">内核接管</span></div>
+                    <div style="font-size:0.83rem; color:var(--muted); margin-top:12px; line-height:1.8">
+                        ① 定位磁盘 Block_A<br>
+                        ② 扫描物理内存空闲块<br>
+                        ③ 发起磁盘 I/O 传输
+                    </div>
+                </div>
+                <div class="panel">
+                    <div class="panel-title"><span class="pt-mem">物理内存（找到空闲块）</span></div>
+                    <div class="mem-grid">
+                        <div class="mem-cell used">块5<br>页0</div>
+                        <div class="mem-cell">块6<br>空闲</div>
+                        <div class="mem-cell used">块7<br>已用</div>
+                        <div class="mem-cell used">块8<br>页2</div>
+                        <div class="mem-cell new-page" id="targetMemCell">块9<br>←空闲</div>
+                        <div class="mem-cell used">块2<br>页3</div>
+                    </div>
+                    <div style="font-size:0.75rem; color:#60a5fa; margin-top:8px; text-align:center">块9 为目标空闲块</div>
+                </div>
+                <div class="panel">
+                    <div class="panel-title"><span class="pt-disk">磁盘仓库（数据发送中）</span></div>
+                    <div class="disk-grid">
+                        <div class="disk-cell sending">P1<br>→传送</div>
+                        <div class="disk-cell">P5</div><div class="disk-cell">P6</div><div class="disk-cell">P7</div>
+                        <div class="disk-cell">P8</div><div class="disk-cell">P9</div><div class="disk-cell">P10</div><div class="disk-cell">...</div>
+                    </div>
+                </div>
+            </div>
+            <div class="transfer-area">
+                <div class="transfer-block t-disk">磁盘<br>Block_A</div>
+                <div class="transfer-arrow">→ 磁盘I/O →</div>
+                <div class="transfer-block t-mem">内存<br>块9</div>
+            </div>
+            <div style="background:#111827; border:1px solid rgba(96,165,250,0.2); border-radius:10px; padding:14px; text-align:center; font-size:0.85rem; color:var(--muted)">
+                磁盘 I/O 传输是虚拟内存的主要延迟来源，但对上层程序<strong style="color:#60a5fa">完全透明，无感知</strong>
+            </div>
+        </div>
+
+        <!-- Scene 3: Update Page Table -->
+        <div class="scene" id="vscene3">
+            <div class="scene-title">✅ 场景四：更新页表，重试指令</div>
+            <div class="three-panel">
+                <div class="panel">
+                    <div class="panel-title"><span class="pt-cpu">CPU（恢复用户态）</span></div>
+                    <div class="cpu-icon">💻</div>
+                    <div style="text-align:center"><span class="cpu-mode user">用户模式</span></div>
+                    <div style="font-size:0.83rem; color:#22c55e; margin-top:12px; text-align:center; font-weight:700">
+                        重试页号1访问 ✓<br>直接从内存读取
+                    </div>
+                </div>
+                <div class="panel">
+                    <div class="panel-title"><span class="pt-mem">页表已更新</span></div>
+                    <table class="ptable">
+                        <tr><th>页号</th><th>物理块号</th><th>状态位</th></tr>
+                        <tr class="hit"><td>0</td><td>5</td><td style="color:#22c55e">1 ✓</td></tr>
+                        <tr class="hit"><td style="color:#22c55e; font-weight:900">1 ✓ 更新</td><td style="color:#22c55e; font-weight:900">9</td><td style="color:#22c55e; font-weight:900">1 ✓</td></tr>
+                        <tr class="hit"><td>2</td><td>8</td><td style="color:#22c55e">1 ✓</td></tr>
+                        <tr class="hit"><td>3</td><td>2</td><td style="color:#22c55e">1 ✓</td></tr>
+                    </table>
+                </div>
+                <div class="panel">
+                    <div class="panel-title"><span class="pt-mem">物理内存（页面已就位）</span></div>
+                    <div class="mem-grid">
+                        <div class="mem-cell used">块5<br>页0</div>
+                        <div class="mem-cell">块6<br>空闲</div>
+                        <div class="mem-cell used">块7<br>已用</div>
+                        <div class="mem-cell used">块8<br>页2</div>
+                        <div class="mem-cell new-page">块9<br><strong>页1 ✓</strong></div>
+                        <div class="mem-cell used">块2<br>页3</div>
+                    </div>
+                </div>
+            </div>
+            <div style="background:rgba(34,197,94,0.08); border:2px solid rgba(34,197,94,0.3); border-radius:12px; padding:16px; text-align:center; font-size:0.9rem; color:#22c55e; font-weight:700; margin-top:12px">
+                ✅ 页表更新完成！CPU 重新执行失败的指令，这次状态位=1，直接从内存块9读取数据，访问成功！
+            </div>
+        </div>
+
+        <!-- Scene 4: Memory Full -->
+        <div class="scene" id="vscene4">
+            <div class="scene-title">🔄 场景五：内存满员——LRU 页面置换</div>
+            <div class="three-panel">
+                <div class="panel">
+                    <div class="panel-title"><span class="pt-cpu">CPU（触发置换）</span></div>
+                    <div class="cpu-icon">⚙️</div>
+                    <div style="text-align:center"><span class="cpu-mode kernel">内核接管</span></div>
+                    <div style="font-size:0.83rem; color:#f59e0b; margin-top:12px; text-align:center">
+                        内存已满！<br>启动 LRU 置换算法<br>踢走最久未使用的页面
+                    </div>
+                </div>
+                <div class="panel">
+                    <div class="panel-title"><span class="pt-mem">物理内存（全满！）</span></div>
+                    <div class="mem-grid">
+                        <div class="mem-cell full">块5<br>页0</div>
+                        <div class="mem-cell full" style="border-color:#f59e0b; background:rgba(245,158,11,0.1)">块6<br>页4<br><span style="font-size:0.65rem; color:#f59e0b">← LRU 淘汰</span></div>
+                        <div class="mem-cell full">块7<br>页5</div>
+                        <div class="mem-cell full">块8<br>页2</div>
+                        <div class="mem-cell full">块9<br>页1</div>
+                        <div class="mem-cell full">块2<br>页3</div>
+                    </div>
+                </div>
+                <div class="panel">
+                    <div class="panel-title"><span class="pt-disk">磁盘（接收置换页）</span></div>
+                    <div class="disk-grid">
+                        <div class="disk-cell">P1</div>
+                        <div class="disk-cell target">P4<br>←写回</div>
+                        <div class="disk-cell">P5</div><div class="disk-cell">P6</div>
+                        <div class="disk-cell">P7</div><div class="disk-cell">P8</div>
+                        <div class="disk-cell sending">P新<br>→调入</div>
+                        <div class="disk-cell">...</div>
+                    </div>
+                </div>
+            </div>
+            <div style="background:#111827; border:1px solid var(--border); border-radius:10px; padding:14px; font-size:0.85rem; color:var(--muted); margin-top:12px; line-height:1.8">
+                🔄 LRU 算法踢走"最久未使用"的页4（写回磁盘），腾出块6 → 新页面调入块6<br>
+                这就是虚拟内存的核心魔法：<strong style="color:#60a5fa">用小内存，运行远比内存大的程序</strong>。
+            </div>
+        </div>
+
+        <!-- Scene 5: Summary -->
+        <div class="scene" id="vscene5">
+            <div class="scene-title">📌 请求调页 6 步走总结</div>
+            <div class="step-summary">
+                <div class="step-box">
+                    <div class="step-num">1</div>
+                    <div style="font-weight:700; color:#fff; margin-bottom:4px">查页表</div>
+                    <div class="step-desc">CPU 访问虚拟页，查询页表发现<strong style="color:#ef4444">状态位=0</strong>，判定缺页</div>
+                </div>
+                <div class="step-box">
+                    <div class="step-num">2</div>
+                    <div style="font-weight:700; color:#fff; margin-bottom:4px">发中断</div>
+                    <div class="step-desc">触发 <strong style="color:#f59e0b">Page Fault 缺页异常</strong>，CPU 切换至内核态</div>
+                </div>
+                <div class="step-box">
+                    <div class="step-num">3</div>
+                    <div style="font-weight:700; color:#fff; margin-bottom:4px">找位置</div>
+                    <div class="step-desc">操作系统在磁盘中<strong style="color:#60a5fa">精准定位</strong>目标虚拟页</div>
+                </div>
+                <div class="step-box">
+                    <div class="step-num">4</div>
+                    <div style="font-weight:700; color:#fff; margin-bottom:4px">分空间</div>
+                    <div class="step-desc">扫描物理内存找空闲块，<strong style="color:#f59e0b">无空闲则执行页面置换</strong></div>
+                </div>
+                <div class="step-box">
+                    <div class="step-num">5</div>
+                    <div style="font-weight:700; color:#fff; margin-bottom:4px">传数据</div>
+                    <div class="step-desc">启动磁盘 I/O，将目标页从磁盘 <strong style="color:#22c55e">Swap-in 到内存</strong></div>
+                </div>
+                <div class="step-box">
+                    <div class="step-num">6</div>
+                    <div style="font-weight:700; color:#fff; margin-bottom:4px">重执行</div>
+                    <div class="step-desc">更新页表状态位+物理块号，CPU 重试指令，<strong style="color:#22c55e">访问成功</strong></div>
+                </div>
+            </div>
+            <div style="background:rgba(96,165,250,0.08); border:2px solid rgba(96,165,250,0.3); border-radius:12px; padding:16px; margin-top:16px; text-align:center; font-size:0.9rem; color:#60a5fa">
+                💡 虚拟内存的本质：将磁盘作为内存的延伸，实现"按需调页"，让每个进程都以为自己拥有完整的内存空间
+            </div>
+        </div>
+    </div>
+
+    <div class="controls">
+        <button class="btn btn-secondary" id="vprevBtn" onclick="vprev()" disabled>◀ 上一步</button>
+        <button class="btn btn-blue" id="vnextBtn" onclick="vnext()">下一步 ▶</button>
+    </div>
+
+    <div class="knowledge-section">
+        <div class="knowledge-title">📚 核心知识点</div>
+        <div class="knowledge-grid">
+            <div class="kc"><div class="kc-t">虚拟内存的核心思想</div><div class="kc-b">进程不必全部装入内存，只需将当前需要的页面调入，其余留在磁盘。通过状态位区分"在内存"和"在磁盘"。</div></div>
+            <div class="kc"><div class="kc-t">Page Fault（缺页中断）</div><div class="kc-b">访问的页面状态位=0时触发，CPU切换内核态，由OS负责从磁盘调入缺失页面，对用户程序完全透明。</div></div>
+            <div class="kc"><div class="kc-t">请求调页 vs 预调页</div><div class="kc-b">请求调页：缺页才调入，节省内存但缺页率高。预调页：提前预测并加载，减少缺页但可能浪费内存。</div></div>
+            <div class="kc"><div class="kc-t">抖动（Thrashing）</div><div class="kc-b">进程过多，每个进程可用帧太少，频繁缺页置换，CPU大部分时间用于页面交换而非执行程序。</div></div>
+        </div>
+    </div>
+</div>
+
+<script>
+let vCurrent = 0;
+const vTotal = 6;
+
+function vshowScene(n) {
+    document.querySelectorAll('.scene').forEach((s, i) => s.classList.toggle('active', i === n));
+    document.querySelectorAll('.progress-step').forEach((p, i) => {
+        p.classList.remove('active','done');
+        if (i === n) p.classList.add('active');
+        else if (i < n) p.classList.add('done');
+    });
+    document.getElementById('vprevBtn').disabled = n === 0;
+    document.getElementById('vnextBtn').textContent = n === vTotal - 1 ? '↺ 重新开始' : '下一步 ▶';
+}
+function vnext() {
+    if (vCurrent < vTotal - 1) { vCurrent++; vshowScene(vCurrent); }
+    else { vCurrent = 0; vshowScene(0); }
+}
+function vprev() {
+    if (vCurrent > 0) { vCurrent--; vshowScene(vCurrent); }
+}
+vshowScene(0);
+</script>
+</body>
+</html>
