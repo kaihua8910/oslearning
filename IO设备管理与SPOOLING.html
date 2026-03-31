@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IO设备管理与SPOOLING - OS动画学习</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Microsoft YaHei',sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+header{background:linear-gradient(135deg,#1a1a0a,#0a1a2a);padding:20px 40px;display:flex;align-items:center;gap:16px;border-bottom:2px solid #fbbf24}
+header h1{font-size:1.6rem;color:#fbbf24}
+header p{color:#94a3b8;font-size:.9rem;margin-top:4px}
+.back-btn{background:#1e40af;color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:.85rem;text-decoration:none}
+.back-btn:hover{background:#2563eb}
+.container{max-width:1200px;margin:0 auto;padding:30px 20px}
+.desc-box{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px;margin-bottom:20px;border-left:4px solid #fbbf24}
+.desc-box h3{color:#fbbf24;margin-bottom:8px}
+.desc-box p{color:#94a3b8;line-height:1.7;font-size:.92rem}
+.canvas-area{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px;margin-bottom:20px}
+.canvas-area h3{color:#e2e8f0;margin-bottom:16px}
+canvas{display:block;margin:0 auto;border-radius:8px;background:#0a0f1e}
+.controls{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;justify-content:center}
+.btn{padding:9px 20px;border:none;border-radius:8px;cursor:pointer;font-size:.85rem;font-weight:600;transition:all .2s}
+.btn-primary{background:#92400e;color:#fff}.btn-primary:hover{background:#78350f}
+.btn-success{background:#16a34a;color:#fff}.btn-success:hover{background:#15803d}
+.btn-info{background:#0284c7;color:#fff}.btn-info:hover{background:#0369a1}
+.btn-warning{background:#7c3aed;color:#fff}.btn-warning:hover{background:#6d28d9}
+.btn-reset{background:#475569;color:#fff}.btn-reset:hover{background:#334155}
+.info-panel{background:#0f172a;border:1px solid #334155;border-radius:10px;padding:14px;margin-top:16px;min-height:56px;font-size:.88rem;line-height:1.7;color:#94a3b8}
+.info-panel .step{color:#fbbf24;font-weight:600}
+.tabs{display:flex;gap:8px;margin-bottom:24px;flex-wrap:wrap}
+.tab{padding:10px 22px;border:2px solid #334155;border-radius:10px;cursor:pointer;background:transparent;color:#94a3b8;font-size:.9rem;transition:all .2s}
+.tab.active{background:#451a03;border-color:#fbbf24;color:#fff}
+.tab:hover:not(.active){border-color:#64748b;color:#e2e8f0}
+.section{display:none}.section.active{display:block}
+</style>
+</head>
+<body>
+<header>
+  <a href="index.html" class="back-btn">← 返回首页</a>
+  <div>
+    <h1>🖨️ IO设备管理 & SPOOLING</h1>
+    <p>IO控制方式 · 缓冲技术 · SPOOLING假脱机系统 · 设备分配</p>
+  </div>
+</header>
+<div class="container">
+  <div class="tabs">
+    <button class="tab active" onclick="activateTab('io')">IO控制方式</button>
+    <button class="tab" onclick="activateTab('buffer')">缓冲技术</button>
+    <button class="tab" onclick="activateTab('spool')">SPOOLING系统</button>
+    <button class="tab" onclick="activateTab('dma')">DMA控制器</button>
+  </div>
+
+  <div id="tab-io" class="section active">
+    <div class="desc-box">
+      <h3>IO控制方式演进</h3>
+      <p>从最原始的程序查询到现代DMA和通道方式，IO控制技术不断演进以提高CPU效率：<strong style="color:#fbbf24">程序查询→中断驱动→DMA→通道控制</strong>，CPU介入程度逐渐降低。</p>
+    </div>
+    <div class="canvas-area">
+      <h3>🎬 四种IO控制方式演进动画</h3>
+      <canvas id="ioCanvas" width="820" height="380"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="showIO(0)">程序查询</button>
+        <button class="btn btn-success" onclick="showIO(1)">中断驱动</button>
+        <button class="btn btn-info" onclick="showIO(2)">DMA方式</button>
+        <button class="btn btn-warning" onclick="showIO(3)">通道方式</button>
+        <button class="btn btn-reset" onclick="ioCtx.clearRect(0,0,820,380)">清空</button>
+      </div>
+      <div class="info-panel" id="ioInfo">选择一种IO控制方式查看工作原理动画</div>
+    </div>
+  </div>
+
+  <div id="tab-buffer" class="section">
+    <div class="desc-box">
+      <h3>IO缓冲技术</h3>
+      <p>在设备和处理机之间设置<strong style="color:#fbbf24">缓冲区</strong>，减少CPU等待IO的时间。分为：单缓冲、双缓冲、循环缓冲（环形缓冲）、缓冲池。双缓冲允许设备和CPU同时工作，循环缓冲进一步提高并发度。</p>
+    </div>
+    <div class="canvas-area">
+      <h3>🎬 单/双/循环缓冲动画对比</h3>
+      <canvas id="bufCanvas" width="820" height="380"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="showBuffer('single')">单缓冲</button>
+        <button class="btn btn-success" onclick="showBuffer('double')">双缓冲</button>
+        <button class="btn btn-info" onclick="showBuffer('circular')">循环缓冲</button>
+        <button class="btn btn-reset" onclick="bufCtx.clearRect(0,0,820,380)">清空</button>
+      </div>
+      <div class="info-panel" id="bufInfo">选择缓冲类型查看工作动画</div>
+    </div>
+  </div>
+
+  <div id="tab-spool" class="section">
+    <div class="desc-box">
+      <h3>SPOOLING（假脱机系统）</h3>
+      <p>SPOOLING（Simultaneous Peripheral Operations On-Line）利用磁盘作为高速"虚拟设备"缓冲，将独占型设备（如打印机）改造为<strong style="color:#fbbf24">共享设备</strong>。进程将打印数据写入磁盘缓冲队列，由专门的SPOOLING进程（Daemon）负责实际打印，实现多进程共享一台打印机。</p>
+    </div>
+    <div class="canvas-area">
+      <h3>🎬 SPOOLING打印机假脱机动画</h3>
+      <canvas id="spoolCanvas" width="820" height="380"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="spoolSubmit()">进程提交打印任务</button>
+        <button class="btn btn-success" onclick="spoolPrint()">SPOOLING进程打印</button>
+        <button class="btn btn-info" onclick="spoolFull()">模拟3个进程竞争</button>
+        <button class="btn btn-reset" onclick="spoolReset()">重置</button>
+      </div>
+      <div class="info-panel" id="spoolInfo">点击「进程提交打印任务」查看假脱机工作过程</div>
+    </div>
+  </div>
+
+  <div id="tab-dma" class="section">
+    <div class="desc-box">
+      <h3>DMA（直接内存访问）控制器</h3>
+      <p>DMA控制器允许<strong style="color:#fbbf24">设备直接与内存传输数据</strong>，无需CPU全程介入。CPU只需设置DMA参数（源地址、目标地址、传输字节数），然后去做其他工作；DMA完成后向CPU发中断。</p>
+    </div>
+    <div class="canvas-area">
+      <h3>🎬 DMA传输过程动画</h3>
+      <canvas id="dmaCanvas" width="820" height="380"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="dmaStart()">▶ 启动DMA传输</button>
+        <button class="btn btn-success" onclick="dmaStep()">单步</button>
+        <button class="btn btn-reset" onclick="dmaReset()">重置</button>
+      </div>
+      <div class="info-panel" id="dmaInfo">点击「启动DMA传输」查看CPU与DMA并发工作过程</div>
+    </div>
+  </div>
+</div>
+
+<script>
+function activateTab(name){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('tab-'+name).classList.add('active');
+}
+function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
+function setInfo(id,html){document.getElementById(id).innerHTML=html;}
+
+// ======= IO控制方式 =======
+const ioCtx=document.getElementById('ioCanvas').getContext('2d');
+
+const ioTypes=[
+  {
+    name:'程序查询（轮询）',color:'#ef4444',
+    desc:'CPU不断查询设备状态寄存器，等待IO完成。CPU利用率极低（大部分时间在忙等待）。',
+    timeline:[
+      {who:'CPU',label:'发IO命令',start:0,end:1,color:'#0ea5e9'},
+      {who:'CPU',label:'忙等待（轮询）',start:1,end:8,color:'#ef4444'},
+      {who:'IO',label:'IO操作进行中',start:1,end:7,color:'#64748b'},
+      {who:'CPU',label:'处理数据',start:8,end:10,color:'#10b981'},
+    ]
+  },
+  {
+    name:'中断驱动',color:'#f59e0b',
+    desc:'CPU发出IO请求后继续执行其他任务；IO完成后设备发中断，CPU响应处理。CPU利用率大幅提升。',
+    timeline:[
+      {who:'CPU',label:'发IO命令',start:0,end:1,color:'#0ea5e9'},
+      {who:'CPU',label:'执行其他程序',start:1,end:6,color:'#10b981'},
+      {who:'IO',label:'IO操作',start:1,end:7,color:'#64748b'},
+      {who:'CPU',label:'中断处理',start:6,end:7,color:'#f59e0b'},
+      {who:'CPU',label:'处理数据',start:7,end:9,color:'#10b981'},
+    ]
+  },
+  {
+    name:'DMA方式',color:'#22d3ee',
+    desc:'DMA控制器直接负责内存与设备间的数据传输，CPU仅在传输开始和结束时介入，中间可自由运行。',
+    timeline:[
+      {who:'CPU',label:'设置DMA',start:0,end:0.5,color:'#0ea5e9'},
+      {who:'CPU',label:'执行其他程序（大块时间）',start:0.5,end:7.5,color:'#10b981'},
+      {who:'DMA',label:'DMA自主传输（大块数据）',start:0.5,end:7,color:'#22d3ee'},
+      {who:'CPU',label:'中断处理',start:7,end:7.5,color:'#f59e0b'},
+      {who:'CPU',label:'继续执行',start:7.5,end:9,color:'#10b981'},
+    ]
+  },
+  {
+    name:'通道控制方式',color:'#a855f7',
+    desc:'通道是独立的IO处理器，接受CPU一条通道命令即可完成复杂IO操作序列，CPU几乎完全解放。',
+    timeline:[
+      {who:'CPU',label:'发通道命令',start:0,end:0.2,color:'#0ea5e9'},
+      {who:'CPU',label:'执行用户程序（几乎全程）',start:0.2,end:8.8,color:'#10b981'},
+      {who:'通道',label:'通道自主完成IO序列（复杂操作）',start:0.2,end:8,color:'#a855f7'},
+      {who:'CPU',label:'中断处理',start:8,end:8.5,color:'#f59e0b'},
+    ]
+  }
+];
+
+function showIO(idx){
+  const io=ioTypes[idx];
+  const c=ioCtx; c.clearRect(0,0,820,380);
+  c.fillStyle=io.color; c.font='bold 14px Microsoft YaHei'; c.textAlign='center';
+  c.fillText(io.name,410,24);
+  
+  // 说明
+  c.fillStyle='#94a3b8'; c.font='11px Microsoft YaHei'; c.textAlign='center';
+  c.fillText(io.desc,410,46);
+  
+  // 时间轴
+  const scale=60, gX=120, gY=80;
+  const rows=['CPU','IO','DMA','通道'].slice(0,idx>=2?idx+1:2);
+  rows.forEach((row,ri)=>{
+    const ry=gY+ri*80;
+    c.fillStyle='#64748b'; c.font='bold 11px Microsoft YaHei'; c.textAlign='right';
+    c.fillText(row,gX-8,ry+20);
+    c.strokeStyle='#334155'; c.lineWidth=1;
+    c.beginPath(); c.moveTo(gX,ry); c.lineTo(gX+10*scale,ry+40); c.stroke();
+    c.beginPath(); c.moveTo(gX,ry); c.lineTo(gX,ry+40); c.stroke();
+    c.beginPath(); c.moveTo(gX,ry+40); c.lineTo(gX+10*scale,ry+40); c.stroke();
+  });
+  
+  // 甘特条
+  io.timeline.forEach(seg=>{
+    const ri=rows.indexOf(seg.who);
+    if(ri<0) return;
+    const ry=gY+ri*80;
+    const x=gX+seg.start*scale, w=(seg.end-seg.start)*scale;
+    c.fillStyle=seg.color+'55'; c.strokeStyle=seg.color; c.lineWidth=1.5;
+    c.fillRect(x,ry+2,w,36); c.strokeRect(x,ry+2,w,36);
+    c.fillStyle=seg.color; c.font='9px Microsoft YaHei'; c.textAlign='center';
+    const words=seg.label;
+    if(w>40) c.fillText(words,x+w/2,ry+22);
+    else { c.font='8px Microsoft YaHei'; c.fillText(words.slice(0,4),x+w/2,ry+22); }
+  });
+  
+  // 时间刻度
+  for(let t=0;t<=10;t++){
+    c.strokeStyle='#334155'; c.lineWidth=1;
+    c.beginPath(); c.moveTo(gX+t*scale,gY-10); c.lineTo(gX+t*scale,gY); c.stroke();
+    c.fillStyle='#64748b'; c.font='9px monospace'; c.textAlign='center';
+    c.fillText(t,gX+t*scale,gY-12);
+  }
+  
+  // CPU利用率分析
+  const cpuSegs=io.timeline.filter(s=>s.who==='CPU'&&s.color==='#10b981');
+  const cpuUseful=cpuSegs.reduce((s,t)=>s+(t.end-t.start),0);
+  const total=10;
+  c.fillStyle='#fbbf24'; c.font='bold 12px Microsoft YaHei'; c.textAlign='center';
+  c.fillText(`CPU有效利用率: ${((cpuUseful/total)*100).toFixed(0)}%  （绿色=有效工作，红色=忙等待）`,410,362);
+  
+  setInfo('ioInfo',`<span class="step">${io.name}：</span>${io.desc}`);
+}
+
+// ======= 缓冲 =======
+const bufCtx=document.getElementById('bufCanvas').getContext('2d');
+let bufBusy=false;
+
+async function showBuffer(type){
+  if(bufBusy)return; bufBusy=true;
+  const c=bufCtx; c.clearRect(0,0,820,380);
+  
+  if(type==='single'){
+    c.fillStyle='#fbbf24'; c.font='bold 13px Microsoft YaHei'; c.textAlign='center';
+    c.fillText('单缓冲（Single Buffer）',410,22);
+    // 设备→缓冲→CPU的时间线
+    const tl=[
+      {label:'设备读入缓冲',x:60,w:160,y:60,color:'#0ea5e9'},
+      {label:'CPU处理（等待）',x:60,w:160,y:110,color:'#ef4444'},
+      {label:'CPU处理数据',x:220,w:140,y:110,color:'#10b981'},
+      {label:'设备读入缓冲',x:360,w:160,y:60,color:'#0ea5e9'},
+      {label:'CPU处理（等待）',x:360,w:160,y:110,color:'#ef4444'},
+      {label:'CPU处理数据',x:520,w:140,y:110,color:'#10b981'},
+    ];
+    tl.forEach(b=>{
+      c.fillStyle=b.color+'44'; c.strokeStyle=b.color; c.lineWidth=1.5;
+      c.fillRect(b.x,b.y,b.w,36); c.strokeRect(b.x,b.y,b.w,36);
+      c.fillStyle=b.color; c.font='10px Microsoft YaHei'; c.textAlign='center';
+      c.fillText(b.label,b.x+b.w/2,b.y+22);
+    });
+    c.fillStyle='#94a3b8'; c.font='11px Microsoft YaHei'; c.textAlign='left';
+    c.fillText('单缓冲时：设备和CPU不能同时工作，效率低（T_cycle = T_IO + T_CPU）',40,180);
+    setInfo('bufInfo','<span class="step">单缓冲：</span>设备填满缓冲区后，CPU才能处理；CPU处理完后，设备才能再次填充。设备和CPU串行工作，效率低。');
+  } else if(type==='double'){
+    c.fillStyle='#10b981'; c.font='bold 13px Microsoft YaHei'; c.textAlign='center';
+    c.fillText('双缓冲（Double Buffer）— 流水线并行',410,22);
+    const tl=[
+      {label:'填缓冲B1',x:60,w:140,y:60,color:'#0ea5e9',who:'设备'},
+      {label:'填缓冲B2',x:200,w:140,y:60,color:'#0ea5e9',who:'设备'},
+      {label:'填缓冲B1',x:340,w:140,y:60,color:'#0ea5e9',who:'设备'},
+      {label:'处理B1',x:200,w:140,y:110,color:'#10b981',who:'CPU'},
+      {label:'处理B2',x:340,w:140,y:110,color:'#10b981',who:'CPU'},
+      {label:'处理B1',x:480,w:140,y:110,color:'#10b981',who:'CPU'},
+    ];
+    tl.forEach(b=>{
+      c.fillStyle=b.color+'44'; c.strokeStyle=b.color; c.lineWidth=1.5;
+      c.fillRect(b.x,b.y,b.w,36); c.strokeRect(b.x,b.y,b.w,36);
+      c.fillStyle=b.color; c.font='10px Microsoft YaHei'; c.textAlign='center';
+      c.fillText(b.label,b.x+b.w/2,b.y+22);
+    });
+    c.strokeStyle='#fbbf24'; c.lineWidth=2; c.setLineDash([4,4]);
+    c.beginPath(); c.moveTo(200,50); c.lineTo(200,160); c.stroke();
+    c.setLineDash([]);
+    c.fillStyle='#fbbf24'; c.font='10px Microsoft YaHei'; c.textAlign='center'; c.fillText('同时工作→',200,170);
+    c.fillStyle='#94a3b8'; c.font='11px Microsoft YaHei'; c.textAlign='left';
+    c.fillText('双缓冲：设备填B1时，CPU同步处理B2；填B2时CPU处理B1，实现流水线并行',40,210);
+    c.fillText('T_cycle = max(T_IO, T_CPU) — 效率大幅提升！',40,230);
+    setInfo('bufInfo','<span class="step">双缓冲：</span>设备填充一个缓冲区时，CPU处理另一个。两者可以同时工作，效率提升至max(T_IO, T_CPU)。');
+  } else {
+    c.fillStyle='#a855f7'; c.font='bold 13px Microsoft YaHei'; c.textAlign='center';
+    c.fillText('循环缓冲（Ring Buffer）',410,22);
+    const N=8, R=80, cx=200, cy=200;
+    for(let i=0;i<N;i++){
+      const angle=(i/N)*2*Math.PI-Math.PI/2;
+      const bx=cx+R*Math.cos(angle), by=cy+R*Math.sin(angle);
+      const state=i<3?'满':i>=6?'空':'处理中';
+      const color=i<3?'#0ea5e9':i>=6?'#334155':'#10b981';
+      c.fillStyle=color+'55'; c.strokeStyle=color; c.lineWidth=2;
+      c.beginPath(); c.arc(bx,by,22,0,Math.PI*2); c.fill(); c.stroke();
+      c.fillStyle=color; c.font='9px Microsoft YaHei'; c.textAlign='center';
+      c.fillText(state,bx,by+4);
+      c.fillStyle='#64748b'; c.font='8px monospace';
+      c.fillText('B'+i,bx,by-10);
+    }
+    c.fillStyle='#94a3b8'; c.font='11px Microsoft YaHei'; c.textAlign='left';
+    c.fillText('循环缓冲：N个缓冲区组成环形，设备向空缓冲区写入，CPU从满缓冲区读取',400,100);
+    c.fillText('生产者（设备）指针和消费者（CPU）指针绕环运转，实现流水线最大化并发',400,120);
+    c.fillText('适用于高速IO场景，如网卡、磁盘控制器',400,140);
+    c.fillStyle='#0ea5e9'; c.font='11px Microsoft YaHei';
+    c.fillText('■ 蓝色=已填充（等CPU处理）',400,168);
+    c.fillStyle='#10b981'; c.fillText('■ 绿色=正在被CPU处理',400,186);
+    c.fillStyle='#334155'; c.fillText('■ 灰色=空（等设备填充）',400,204);
+    setInfo('bufInfo','<span class="step">循环缓冲：</span>N个缓冲区组成环形队列，设备持续填入空缓冲，CPU持续读取满缓冲，实现持续高并发IO，是网卡、SSD等高速设备的标配架构。');
+  }
+  bufBusy=false;
+}
+
+// ======= SPOOLING =======
+const spoolCtx=document.getElementById('spoolCanvas').getContext('2d');
+let spoolState={queue:[],printing:null,done:[],busy:false};
+
+function spoolDraw(){
+  const c=spoolCtx; c.clearRect(0,0,820,380);
+  // 进程组
+  const procs=['进程A','进程B','进程C'];
+  const procColors=['#0ea5e9','#a855f7','#10b981'];
+  procs.forEach((p,i)=>{
+    c.fillStyle=procColors[i]+'22'; c.strokeStyle=procColors[i]; c.lineWidth=1.5;
+    c.beginPath(); c.roundRect(10,20+i*80,120,60,6); c.fill(); c.stroke();
+    c.fillStyle=procColors[i]; c.font='bold 11px Microsoft YaHei'; c.textAlign='center';
+    c.fillText(p,70,50+i*80);
+    c.fillStyle='#94a3b8'; c.font='9px Microsoft YaHei';
+    c.fillText('用户进程',70,68+i*80);
+  });
+  
+  // 磁盘假脱机队列
+  c.fillStyle='#1e293b'; c.strokeStyle='#fbbf24'; c.lineWidth=2;
+  c.beginPath(); c.roundRect(200,30,240,220,8); c.fill(); c.stroke();
+  c.fillStyle='#fbbf24'; c.font='bold 12px Microsoft YaHei'; c.textAlign='center';
+  c.fillText(`磁盘输出井（打印队列）`,320,24);
+  c.fillText(`${spoolState.queue.length}个任务等待`,320,50);
+  spoolState.queue.forEach((job,i)=>{
+    const jy=58+i*44;
+    c.fillStyle=job.color+'22'; c.strokeStyle=job.color; c.lineWidth=1;
+    c.beginPath(); c.roundRect(208,jy,224,36,3); c.fill(); c.stroke();
+    c.fillStyle=job.color; c.font='bold 10px Microsoft YaHei'; c.textAlign='center';
+    c.fillText(job.name+' 的打印数据',320,jy+14);
+    c.fillStyle='#94a3b8'; c.font='9px Microsoft YaHei';
+    c.fillText(job.data,320,jy+28);
+  });
+  
+  // SPOOLING守护进程
+  c.fillStyle='#1e3a1a'; c.strokeStyle='#10b981'; c.lineWidth=2;
+  c.beginPath(); c.roundRect(510,80,120,80,8); c.fill(); c.stroke();
+  c.fillStyle='#10b981'; c.font='bold 11px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('SPOOLING',570,104);
+  c.fillText('守护进程',570,120);
+  c.fillStyle='#94a3b8'; c.font='9px Microsoft YaHei';
+  c.fillText(spoolState.printing?'打印中...':'空闲',570,140);
+  
+  // 打印机
+  c.fillStyle='#1a1a2a'; c.strokeStyle='#6366f1'; c.lineWidth=2;
+  c.beginPath(); c.roundRect(690,70,110,100,8); c.fill(); c.stroke();
+  c.fillStyle='#6366f1'; c.font='bold 12px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('🖨️',745,104); c.fillText('打印机',745,124);
+  if(spoolState.printing){
+    c.fillStyle='#fbbf24'; c.font='10px Microsoft YaHei';
+    c.fillText('正在打印',745,142); c.fillText(spoolState.printing.name,745,156);
+  }
+  
+  // 已完成
+  c.fillStyle='#1e293b'; c.strokeStyle='#4ade80'; c.lineWidth=1;
+  c.beginPath(); c.roundRect(200,280,240,80,6); c.fill(); c.stroke();
+  c.fillStyle='#4ade80'; c.font='bold 11px Microsoft YaHei'; c.textAlign='center';
+  c.fillText(`已完成打印（${spoolState.done.length}个）`,320,298);
+  spoolState.done.forEach((d,i)=>{ c.fillStyle=d.color; c.font='10px Microsoft YaHei'; c.fillText(d.name+' ✓',320,316+i*16); });
+  
+  // 箭头
+  procs.forEach((p,i)=>{
+    c.strokeStyle=procColors[i]; c.lineWidth=1; c.setLineDash([4,3]);
+    c.beginPath(); c.moveTo(132,50+i*80); c.lineTo(198,120); c.stroke();
+    c.setLineDash([]);
+  });
+  c.strokeStyle='#fbbf24'; c.lineWidth=1.5;
+  c.beginPath(); c.moveTo(442,120); c.lineTo(508,120); c.stroke();
+  c.fillStyle='#fbbf24'; c.beginPath(); c.moveTo(508,120); c.lineTo(498,114); c.lineTo(498,126); c.fill();
+  c.strokeStyle='#6366f1'; c.lineWidth=1.5;
+  c.beginPath(); c.moveTo(632,120); c.lineTo(688,120); c.stroke();
+  c.fillStyle='#6366f1'; c.beginPath(); c.moveTo(688,120); c.lineTo(678,114); c.lineTo(678,126); c.fill();
+  
+  c.fillStyle='#94a3b8'; c.font='11px Microsoft YaHei'; c.textAlign='left';
+  c.fillText('关键优势：多进程可同时"使用"打印机（实际是写入磁盘队列），无需互斥等待！',10,350);
+}
+
+const jobData=[['报告.pdf','12页 1.2MB'],['图片.png','3页 5MB'],['代码.txt','50行 8KB']];
+let spoolJobCnt=0;
+const spoolColors=['#0ea5e9','#a855f7','#10b981'];
+const spoolNames=['进程A','进程B','进程C'];
+
+async function spoolSubmit(){
+  if(spoolState.busy)return; spoolState.busy=true;
+  if(spoolJobCnt>=3){setInfo('spoolInfo','已提交所有演示任务');spoolState.busy=false;return;}
+  const job={name:spoolNames[spoolJobCnt],color:spoolColors[spoolJobCnt],data:jobData[spoolJobCnt].join(' ')};
+  spoolJobCnt++;
+  spoolState.queue.push(job);
+  spoolDraw();
+  setInfo('spoolInfo',`<span class="step">${job.name} 提交打印任务</span>：进程将数据写入磁盘"输出井"队列，立即返回继续执行——不需要等待打印机！这就是"假脱机"的精髓。`);
+  spoolState.busy=false;
+}
+
+async function spoolPrint(){
+  if(spoolState.busy)return; spoolState.busy=true;
+  if(spoolState.printing||spoolState.queue.length===0){setInfo('spoolInfo','队列为空或正在打印');spoolState.busy=false;return;}
+  const job=spoolState.queue.shift();
+  spoolState.printing=job;
+  spoolDraw();
+  setInfo('spoolInfo',`<span class="step">SPOOLING守护进程开始打印 ${job.name}</span>：从磁盘读取数据，发送到打印机。用户进程${job.name}早已继续执行其他任务了！`);
+  await sleep(1500);
+  spoolState.done.push(job);
+  spoolState.printing=null;
+  spoolDraw();
+  setInfo('spoolInfo',`<span class="step">✅ ${job.name} 打印完成！</span>通知进程打印结束，队列剩余 ${spoolState.queue.length} 个任务。`);
+  spoolState.busy=false;
+}
+
+async function spoolFull(){
+  if(spoolState.busy)return; spoolState.busy=true;
+  // 快速提交3个
+  for(let i=0;i<3;i++){
+    if(spoolJobCnt<3){
+      const job={name:spoolNames[spoolJobCnt],color:spoolColors[spoolJobCnt],data:jobData[spoolJobCnt].join(' ')};
+      spoolJobCnt++;
+      spoolState.queue.push(job);
+      spoolDraw();
+      setInfo('spoolInfo',`${job.name} 同时提交打印任务，写入磁盘队列...`);
+      await sleep(400);
+    }
+  }
+  setInfo('spoolInfo','<span class="step">3个进程同时"使用"打印机：</span>实际上都在向磁盘队列写入，无冲突！SPOOLING将独占设备变为逻辑上的共享设备。');
+  spoolState.busy=false;
+}
+
+function spoolReset(){spoolState={queue:[],printing:null,done:[],busy:false};spoolJobCnt=0;spoolDraw();setInfo('spoolInfo','已重置');}
+spoolDraw();
+
+// ======= DMA =======
+const dmaCtx=document.getElementById('dmaCanvas').getContext('2d');
+let dmaStep_=0, dmaBusy=false;
+const dmaSteps=[
+  {title:'①CPU初始化DMA',desc:'CPU向DMA控制器写入：源地址（设备）、目标地址（内存）、传输字节数',cpu:'设置DMA参数'},
+  {title:'②CPU继续执行用户程序',desc:'CPU设置完DMA后立即返回，继续执行其他用户程序，不再等待IO',cpu:'执行用户代码'},
+  {title:'③DMA自主传输数据',desc:'DMA控制器接管总线，直接将磁盘数据传输到内存，无需CPU介入',dma:'DMA传输中'},
+  {title:'④DMA传输完成，发中断',desc:'DMA将所有数据传输到内存后，向CPU发送中断请求通知完成',cpu:'响应中断'},
+  {title:'⑤CPU处理中断（极短）',desc:'CPU保存现场，执行中断处理程序（通常只需几条指令），然后恢复执行',cpu:'中断处理'},
+  {title:'⑥恢复用户程序执行',desc:'中断处理完毕，CPU继续执行被中断的用户程序，IO已在后台完成',cpu:'继续执行'},
+];
+
+function dmaDraw(step){
+  const c=dmaCtx; c.clearRect(0,0,820,380);
+  c.fillStyle='#fbbf24'; c.font='bold 13px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('DMA直接内存访问传输过程',410,22);
+  
+  // 组件
+  const components=[
+    {label:'CPU',x:60,y:50,w:120,h:80,color:'#0ea5e9'},
+    {label:'DMA控制器',x:260,y:50,w:140,h:80,color:'#fbbf24'},
+    {label:'主存\n(Memory)',x:480,y:50,w:120,h:80,color:'#10b981'},
+    {label:'磁盘\n(Disk)',x:680,y:50,w:100,h:80,color:'#64748b'},
+  ];
+  components.forEach(comp=>{
+    c.fillStyle=comp.color+'22'; c.strokeStyle=comp.color; c.lineWidth=2;
+    c.beginPath(); c.roundRect(comp.x,comp.y,comp.w,comp.h,6); c.fill(); c.stroke();
+    c.fillStyle=comp.color; c.font='bold 12px Microsoft YaHei'; c.textAlign='center';
+    comp.label.split('\n').forEach((l,i)=>c.fillText(l,comp.x+comp.w/2,comp.y+32+i*16));
+    if(step>=0){
+      const stateMap={CPU:[['设置DMA','执行用户代码','执行用户代码','响应中断','中断处理','继续执行'][step]||'']};
+      if(comp.label==='CPU'&&step<6){
+        c.fillStyle='#94a3b8'; c.font='9px Microsoft YaHei';
+        c.fillText(dmaSteps[step].cpu||'',comp.x+comp.w/2,comp.y+68);
+      }
+      if(comp.label==='DMA控制器'&&step>=2&&step<=3){
+        c.fillStyle='#fbbf24'; c.font='9px Microsoft YaHei'; c.fillText('传输中...',comp.x+comp.w/2,comp.y+68);
+      }
+    }
+  });
+  
+  // 步骤详情
+  if(step>=0&&step<dmaSteps.length){
+    const ds=dmaSteps[step];
+    c.fillStyle='#fbbf24'; c.font='bold 12px Microsoft YaHei'; c.textAlign='center';
+    c.fillText(ds.title,410,164);
+    c.fillStyle='#94a3b8'; c.font='11px Microsoft YaHei';
+    c.fillText(ds.desc,410,184);
+  }
+  
+  // 总线时间线
+  const gX=60, gY=210, scale=90;
+  c.fillStyle='#94a3b8'; c.font='11px Microsoft YaHei'; c.textAlign='left'; c.fillText('总线使用情况时间线：',gX,gY-6);
+  const busTimeline=[
+    {who:'CPU',color:'#0ea5e9',start:0,end:0.5,label:'设置DMA'},
+    {who:'CPU',color:'#10b981',start:0.5,end:4,label:'执行用户程序'},
+    {who:'DMA',color:'#fbbf24',start:0.5,end:4,label:'DMA占用总线传输'},
+    {who:'CPU',color:'#f59e0b',start:4,end:4.5,label:'中断处理'},
+    {who:'CPU',color:'#10b981',start:4.5,end:6,label:'继续用户程序'},
+  ];
+  const rows=['CPU','DMA'];
+  rows.forEach((row,ri)=>{
+    const ry=gY+ri*60;
+    c.fillStyle='#64748b'; c.font='bold 10px Microsoft YaHei'; c.textAlign='right';
+    c.fillText(row,gX-6,ry+20);
+    c.strokeStyle='#334155'; c.lineWidth=1;
+    c.beginPath(); c.moveTo(gX,ry); c.lineTo(gX+6*scale,ry+36); c.stroke();
+    c.beginPath(); c.moveTo(gX,ry); c.lineTo(gX,ry+36); c.stroke();
+    c.beginPath(); c.moveTo(gX,ry+36); c.lineTo(gX+6*scale,ry+36); c.stroke();
+  });
+  busTimeline.forEach(seg=>{
+    const ri=rows.indexOf(seg.who); if(ri<0)return;
+    const ry=gY+ri*60;
+    const highlight=step>=0&&dmaSteps[step]&&dmaSteps[step].cpu===seg.label;
+    c.fillStyle=seg.color+(highlight?'88':'33'); c.strokeStyle=seg.color; c.lineWidth=1.5;
+    const sx=gX+seg.start*scale, sw=(seg.end-seg.start)*scale;
+    c.fillRect(sx,ry+2,sw,32); c.strokeRect(sx,ry+2,sw,32);
+    if(sw>30){ c.fillStyle=seg.color; c.font='9px Microsoft YaHei'; c.textAlign='center'; c.fillText(seg.label,sx+sw/2,ry+20); }
+  });
+  c.fillStyle='#fbbf24'; c.font='11px Microsoft YaHei'; c.textAlign='left';
+  c.fillText('DMA传输期间CPU可以执行其他程序，CPU利用率远高于中断方式！',gX,gY+140);
+}
+
+function dmaReset(){dmaStep_=0;dmaDraw(-1);dmaBusy=false;setInfo('dmaInfo','已重置');}
+async function dmaStart(){
+  if(dmaBusy)return; dmaBusy=true;
+  for(let i=0;i<=5;i++){
+    dmaStep_=i; dmaDraw(i);
+    setInfo('dmaInfo',`<span class="step">${dmaSteps[i].title}：</span>${dmaSteps[i].desc}`);
+    await sleep(1500);
+  }
+  dmaBusy=false;
+}
+function dmaStep(){
+  if(dmaBusy)return;
+  if(dmaStep_<6){ dmaDraw(dmaStep_); setInfo('dmaInfo',`<span class="step">${dmaSteps[dmaStep_].title}：</span>${dmaSteps[dmaStep_].desc}`); dmaStep_++; }
+  else { dmaStep_=0; dmaDraw(-1); setInfo('dmaInfo','已重置，点击单步继续'); }
+}
+dmaReset();
+</script>
+</body>
+</html>

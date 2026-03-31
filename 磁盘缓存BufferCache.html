@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>磁盘缓存 Buffer Cache - OS动画</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0a0e14;--card:#1a1f2e;--border:#3b4252;--text:#e2e8f0;--muted:#9ca3af;--green:#22c55e;--blue:#60a5fa;--purple:#a78bfa;--orange:#f97316;--yellow:#fbbf24;--red:#f87171;--cyan:#06b6d4;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Noto Sans SC',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+.page-header{background:linear-gradient(135deg,#0f172a,#1e293b);border-bottom:1px solid var(--border);padding:18px 30px;display:flex;align-items:center;gap:16px;}
+.back-btn{display:flex;align-items:center;gap:6px;color:var(--teal);text-decoration:none;font-size:14px;padding:6px 12px;border:1px solid rgba(45,212,191,.3);border-radius:6px;transition:.2s;}
+.back-btn:hover{background:rgba(45,212,191,.1);}
+.page-title{font-size:20px;font-weight:700;color:#2dd4bf;}
+.page-subtitle{font-size:13px;color:var(--muted);}
+.container{max-width:1100px;margin:0 auto;padding:24px 20px;}
+.tabs{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;}
+.tab{padding:8px 18px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--muted);cursor:pointer;font-size:13px;font-family:'Noto Sans SC',sans-serif;transition:.2s;}
+.tab.active{border-color:#2dd4bf;color:#2dd4bf;background:rgba(45,212,191,.1);}
+.scene{display:none;}
+.scene.active{display:block;}
+.layout{display:grid;grid-template-columns:1fr 320px;gap:16px;}
+canvas{border-radius:10px;border:1px solid var(--border);background:#0d1117;display:block;}
+.info-panel{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:12px;}
+.info-title{font-size:14px;font-weight:700;color:#2dd4bf;border-bottom:1px solid var(--border);padding-bottom:8px;}
+.info-text{font-size:13px;color:var(--text);line-height:1.8;}
+.info-text b{color:var(--yellow);}
+.info-text .em{color:#2dd4bf;}
+.step-box{background:#0d1117;border-radius:8px;padding:10px;border-left:3px solid #2dd4bf;}
+.step-label{font-size:11px;color:var(--muted);margin-bottom:4px;}
+.step-content{font-size:12px;font-family:'JetBrains Mono',monospace;color:#2dd4bf;}
+.controls{display:flex;gap:8px;margin-top:12px;}
+.btn{padding:7px 16px;border-radius:7px;border:none;cursor:pointer;font-size:13px;font-family:'Noto Sans SC',sans-serif;font-weight:500;transition:.2s;}
+.btn-primary{background:#2dd4bf;color:#000;}
+.btn-primary:hover{filter:brightness(1.1);}
+.btn-secondary{background:var(--card);border:1px solid var(--border);color:var(--text);}
+.btn-secondary:hover{border-color:#2dd4bf;color:#2dd4bf;}
+.formula-box{background:#0d1117;border-radius:8px;padding:10px;border:1px solid rgba(251,191,36,.2);}
+.formula{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--yellow);line-height:1.8;}
+</style>
+</head>
+<body>
+<div class="page-header">
+  <a href="index.html" class="back-btn">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>返回首页
+  </a>
+  <div>
+    <div class="page-title">磁盘缓存 Buffer Cache</div>
+    <div class="page-subtitle">Buffer Cache & Page Cache in OS</div>
+  </div>
+</div>
+<div class="container">
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab(0)">缓存原理</button>
+    <button class="tab" onclick="switchTab(1)">缓存读写流程</button>
+    <button class="tab" onclick="switchTab(2)">缓存置换算法</button>
+    <button class="tab" onclick="switchTab(3)">Linux页缓存</button>
+  </div>
+
+  <!-- 场景0：缓存原理 -->
+  <div class="scene active" id="scene0">
+    <div class="layout">
+      <canvas id="c0" width="740" height="420"></canvas>
+      <div class="info-panel">
+        <div class="info-title">磁盘缓存原理</div>
+        <div class="info-text">
+          <b>Buffer Cache / Page Cache</b>：<br>
+          内存中缓存磁盘数据的区域，减少磁盘IO。<br><br>
+          <span class="em">为什么需要缓存？</span><br>
+          · 磁盘访问时间 ~10ms，内存 ~100ns<br>
+          · 相差 100,000 倍！<br><br>
+          <span class="em">工作原理：</span><br>
+          · 首次读取：从磁盘读入缓存，返回<br>
+          · 再次读取：直接从内存返回<br>
+          · 写操作：先写缓存，延迟刷盘
+        </div>
+        <div class="formula-box">
+          <div class="formula">缓存命中率 = 缓存命中次数 / 总访问次数<br>90%命中率 → 性能提升10倍</div>
+        </div>
+        <div class="controls">
+          <button class="btn btn-primary" onclick="animScene0()">播放动画</button>
+          <button class="btn-secondary" onclick="resetScene0()">重置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景1：缓存读写流程 -->
+  <div class="scene" id="scene1">
+    <div class="layout">
+      <canvas id="c1" width="740" height="420"></canvas>
+      <div class="info-panel">
+        <div class="info-title">缓存读写流程</div>
+        <div class="info-text" id="info1">点击"单步演示"展示缓存读写过程</div>
+        <div class="step-box">
+          <div class="step-label">当前操作</div>
+          <div class="step-content" id="step1">等待开始...</div>
+        </div>
+        <div class="formula-box">
+          <div class="formula">read() → 缓存命中? → 直接返回<br>write() → 写入缓存 → 标记脏页 → 延迟写回</div>
+        </div>
+        <div class="controls">
+          <button class="btn btn-primary" onclick="stepScene1()">单步演示</button>
+          <button class="btn-secondary" onclick="resetScene1()">重置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景2：缓存置换 -->
+  <div class="scene" id="scene2">
+    <div class="layout">
+      <canvas id="c2" width="740" height="420"></canvas>
+      <div class="info-panel">
+        <div class="info-title">缓存置换策略</div>
+        <div class="info-text">
+          <b>1. 写回（Write-back）</b><br>
+          数据先写入缓存，标记"脏"，后台异步刷盘<br>
+          优点：减少IO次数，缺点：断电可能丢数据<br><br>
+          <b>2. 写穿（Write-through）</b><br>
+          同时写缓存和磁盘<br>
+          优点：数据安全，缺点：IO次数多<br><br>
+          <b>3. 预读（Read-ahead）</b><br>
+          读取时顺便加载相邻数据
+        </div>
+        <div class="formula-box">
+          <div class="formula">脏页 = 被修改过的缓存页<br>需要刷盘才能释放</div>
+        </div>
+        <div class="controls">
+          <button class="btn btn-primary" onclick="animScene2()">播放动画</button>
+          <button class="btn-secondary" onclick="resetScene2()">重置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景3：Linux页缓存 -->
+  <div class="scene" id="scene3">
+    <div class="layout">
+      <canvas id="c3" width="740" height="420"></canvas>
+      <div class="info-panel">
+        <div class="info-title">Linux 页缓存架构</div>
+        <div class="info-text">
+          <b>Linux 统一缓存模型：</b><br><br>
+          · <b>Page Cache</b>：以页(4KB)为单位缓存文件<br>
+          · <b>Buffer Cache</b>：以块(512B-4KB)为单位缓存块设备<br>
+          · 现代Linux：两者统一为Page Cache<br><br>
+          <span class="em">关键结构：</span><br>
+          · radix tree：快速查找缓存页<br>
+          · pdflush/flush：后台刷新脏页<br>
+          · dirty_ratio：脏页比例上限
+        </div>
+        <div class="formula-box">
+          <div class="formula">Linux缓存策略：<br>内存够用 → 尽量缓存<br>内存紧张 → 回收缓存页</div>
+        </div>
+        <div class="controls">
+          <button class="btn btn-primary" onclick="animScene3()">播放动画</button>
+          <button class="btn-secondary" onclick="resetScene3()">重置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ========== 工具函数 ==========
+function rr(ctx,x,y,w,h,r,fill,stroke,lw=1.5){
+  ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.arcTo(x+w,y,x+w,y+r,r);ctx.lineTo(x+w,y+h-r);ctx.arcTo(x+w,y+h,x+w-r,y+h,r);ctx.lineTo(x+r,y+h);ctx.arcTo(x,y+h,x,y+h-r,r);ctx.lineTo(x,y+r);ctx.arcTo(x,y,x+r,y,r);ctx.closePath();
+  if(fill){ctx.fillStyle=fill;ctx.fill();}
+  if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=lw;ctx.stroke();}
+}
+function arr(ctx,x1,y1,x2,y2,color,lw=1.5){
+  const a=Math.atan2(y2-y1,x2-x1),l=10;
+  ctx.strokeStyle=color;ctx.lineWidth=lw;ctx.fillStyle=color;
+  ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(x2,y2);ctx.lineTo(x2-l*Math.cos(a-.4),y2-l*Math.sin(a-.4));ctx.lineTo(x2-l*Math.cos(a+.4),y2-l*Math.sin(a+.4));ctx.closePath();ctx.fill();
+}
+function lbl(ctx,text,x,y,color='#e2e8f0',size=13,align='center',bold=false){
+  ctx.font=`${bold?700:400} ${size}px 'Noto Sans SC',sans-serif`;ctx.fillStyle=color;ctx.textAlign=align;ctx.textBaseline='middle';ctx.fillText(text,x,y);}
+function mnl(ctx,text,x,y,color='#fbbf24',size=12,align='center'){
+  ctx.font=`600 ${size}px 'JetBrains Mono',monospace`;ctx.fillStyle=color;ctx.textAlign=align;ctx.textBaseline='middle';ctx.fillText(text,x,y);}
+function bg(ctx){ctx.fillStyle='#0d1117';ctx.fillRect(0,0,740,420);}
+
+// ========== 场景0：缓存原理 ==========
+let anim0=null;
+function resetScene0(){cancelAnimationFrame(anim0);const ctx=document.getElementById('c0').getContext('2d');bg(ctx);drawS0(ctx,0);}
+function animScene0(){cancelAnimationFrame(anim0);let p=0;const ctx=document.getElementById('c0').getContext('2d');function step(){drawS0(ctx,p);p++;if(p<=5)anim0=setTimeout(step,700);}step();}
+function drawS0(ctx,phase){
+  bg(ctx);lbl(ctx,'磁盘缓存 Buffer Cache 原理',370,26,'#2dd4bf',16,'center',true);
+  
+  // 应用程序
+  if(phase>=0){
+    rr(ctx,30,60,150,100,10,'#1a2332','#60a5fa');
+    lbl(ctx,'应用程序',105,90,'#60a5fa',14,'center',true);
+    lbl(ctx,'read()/write()',105,125,'#9ca3af',11);
+  }
+  
+  // Buffer Cache
+  if(phase>=1){
+    rr(ctx,220,60,300,300,12,'#1a2332','#2dd4bf',2);
+    lbl(ctx,'Buffer Cache (内存)',370,85,'#2dd4bf',14,'center',true);
+    // 缓存块
+    const blocks=[
+      {bn:'block 0',valid:phase>=2,dirty:false},
+      {bn:'block 1',valid:phase>=3,dirty:false},
+      {bn:'block 2',valid:phase>=2,dirty:phase>=4},
+      {bn:'block 3',valid:false,dirty:false},
+      {bn:'block 4',valid:false,dirty:false},
+      {bn:'block 5',valid:phase>=3,dirty:false},
+    ];
+    blocks.forEach((b,i)=>{
+      const y=110+i*40;
+      const bg=b.valid?'rgba(45,212,191,0.25)':'#0d1117';
+      const border=b.valid?'#2dd4bf':(b.dirty?'#fbbf24':'#3b4252');
+      rr(ctx,240,y,260,32,4,bg,border);
+      lbl(ctx,b.bn,280,y+16,b.valid?'#2dd4bf':'#6b7280',11,'center');
+      if(b.valid){
+        lbl(ctx,'有效',450,y+16,'#22c55e',10,'center');
+        if(b.dirty){
+          rr(ctx,490,y,50,24,3,'rgba(251,191,36,0.3)','#fbbf24');
+          lbl(ctx,'脏',515,y+12,'#fbbf24',9,'center');
+        }
+      }
+    });
+  }
+  
+  // 磁盘
+  if(phase>=0){
+    rr(ctx,560,60,150,300,10,'#1a2332','#f97316');
+    lbl(ctx,'磁盘',635,85,'#f97316',14,'center',true);
+    for(let i=0;i<8;i++){
+      const y=110+i*35;
+      rr(ctx,570,y,130,28,4,'#0d1117','#f97316');
+      mnl(ctx,'block '+i,635,y+14,'#f97316',10);
+    }
+  }
+  
+  // 箭头
+  if(phase>=1){
+    arr(ctx,182,110,218,130,'#60a5fa',2);
+    lbl(ctx,'read()',150,105,'#60a5fa',10,'right');
+  }
+  if(phase>=2){
+    arr(ctx,370,150,520,150,'#2dd4bf',2);
+    lbl(ctx,'miss→从磁盘读',445,140,'#2dd4bf',10,'center');
+  }
+  if(phase>=3){
+    arr(ctx,370,220,520,220,'#22c55e',2);
+    lbl(ctx,'hit→直接返回',445,210,'#22c55e',10,'center');
+  }
+  
+  // 性能对比
+  if(phase>=4){
+    rr(ctx,30,380,680,30,6,'rgba(45,212,191,0.1)','#2dd4bf');
+    lbl(ctx,'缓存命中: 0.1ms vs 缓存未命中: 10ms → 性能提升 100倍!',370,395,'#2dd4bf',12,'center');
+  }
+}
+
+// ========== 场景1：缓存读写流程 ==========
+let step1Idx=0;
+const rwSteps=[
+  {op:'read("/a.txt")',s:'首次读取 block 0',cache:'MISS',info:'缓存未命中，需要从磁盘读取',hit:false},
+  {op:'',s:'从磁盘读取→缓存',cache:'LOAD',info:'从磁盘加载数据到缓存，返回给应用',hit:false},
+  {op:'read("/a.txt")',s:'再次读取 block 0',cache:'HIT',info:'缓存命中！直接从内存返回，无需磁盘IO',hit:true},
+  {op:'write("/a.txt")',s:'写入 block 0',cache:'WRITE',info:'写入缓存，标记为脏页，立即返回',hit:true},
+  {op:'',s:'后台: flush脏页',cache:'FLUSH',info:'pdflush/flush线程定期将脏页写回磁盘',hit:false},
+];
+function resetScene1(){step1Idx=0;document.getElementById('step1').textContent='等待开始...';document.getElementById('info1').textContent='点击"单步演示"展示缓存读写过程';drawS1(document.getElementById('c1').getContext('2d'),-1);}
+function stepScene1(){
+  if(step1Idx>=rwSteps.length)step1Idx=0;
+  const s=rwSteps[step1Idx];
+  document.getElementById('step1').textContent=s.op + ' → ' + s.cache;
+  document.getElementById('info1').textContent=s.info;
+  drawS1(document.getElementById('c1').getContext('2d'),step1Idx);
+  step1Idx++;
+}
+function drawS1(ctx,phase){
+  bg(ctx);lbl(ctx,'缓存读写流程演示',370,24,'#2dd4bf',15,'center',true);
+  
+  const cur=rwSteps[phase]||{op:'',cache:'',hit:false};
+  
+  // 应用层
+  rr(ctx,30,60,150,120,10,'#1a2332','#60a5fa');
+  lbl(ctx,'应用程序',105,90,'#60a5fa',13,'center',true);
+  if(phase>=0){
+    mnl(ctx,cur.op||'---',105,130,'#60a5fa',11);
+  }
+  
+  // 缓存层
+  rr(ctx,220,60,300,340,12,'#1a2332','#2dd4bf',2);
+  lbl(ctx,'Buffer Cache',370,82,'#2dd4bf',13,'center',true);
+  
+  // block 0 状态
+  const b0States=['empty','loading','clean','dirty','flushing'];
+  const b0=Math.min(phase,4);
+  const b0Colors=['#3b4252','#fbbf24','#22c55e','#fbbf24','#f97316'];
+  const b0Labels=['空','加载中','有效','脏页','刷盘中'];
+  rr(ctx,240,100,260,50,6,b0Colors[b0]+'33',b0Colors[b0]);
+  lbl(ctx,'Block 0',290,115,b0Colors[b0],12,'center',true);
+  lbl(ctx,b0Labels[b0],290,138,'#9ca3af',11,'center');
+  
+  // 操作指示
+  if(phase>=0){
+    const ops=[
+      {l:'MISS: 未命中',c:'#f97316',show:phase===0},
+      {l:'LOAD: 加载中',c:'#fbbf24',show:phase===1},
+      {l:'HIT: 命中!',c:'#22c55e',show:phase===2},
+      {l:'WRITE: 写入',c:'#fbbf24',show:phase===3},
+      {l:'FLUSH: 刷盘',c:'#f97316',show:phase===4},
+    ];
+    ops.forEach(o=>{
+      if(o.show){
+        rr(ctx,240,170,260,35,4,o.c+'33',o.c);
+        lbl(ctx,o.l,370,187,o.c,12,'center',true);
+      }
+    });
+  }
+  
+  // 磁盘
+  rr(ctx,560,60,150,120,10,'#1a2332','#f97316');
+  lbl(ctx,'磁盘',635,90,'#f97316',13,'center',true);
+  if(phase<=1){
+    rr(ctx,570,105,130,60,6,'rgba(249,115,22,0.3)','#f97316');
+    lbl(ctx,'读取中...',635,135,'#f97316',11,'center');
+  }
+  
+  // 箭头
+  if(phase===0)arr(ctx,182,120,218,125,'#f97316',2);
+  if(phase===1)arr(ctx,370,152,520,135,'#fbbf24',2);
+  if(phase===2)arr(ctx,218,125,182,125,'#22c55e',2);
+  if(phase===3)arr(ctx,182,120,218,125,'#fbbf24',2);
+  if(phase===4)arr(ctx,520,185,635,185,'#f97316',2);
+  
+  // 时间对比
+  rr(ctx,30,380,680,30,6,cur.hit?'rgba(34,197,94,0.15)':'rgba(249,115,22,0.15)',cur.hit?'#22c55e':'#f97316');
+  const times=['10ms (磁盘)','10ms (磁盘)','0.1ms (内存)','0.1ms (内存)','后台异步'];
+  lbl(ctx,'耗时: '+(times[phase]||'---'),370,395,cur.hit?'#22c55e':'#f97316',12,'center');
+}
+
+// ========== 场景2：缓存置换 ==========
+let anim2=null;
+function resetScene2(){cancelAnimationFrame(anim2);const ctx=document.getElementById('c2').getContext('2d');bg(ctx);drawS2(ctx,0);}
+function animScene2(){cancelAnimationFrame(anim2);let p=0;const ctx=document.getElementById('c2').getContext('2d');function step(){drawS2(ctx,p);p++;if(p<=4)anim2=setTimeout(step,800);}step();}
+function drawS2(ctx,phase){
+  bg(ctx);lbl(ctx,'缓存置换与写回策略',370,26,'#2dd4bf',16,'center',true);
+  
+  const strategies=[
+    {t:'写回 Write-back',d:'数据先写缓存\n标记"脏页"\n后台异步刷盘\n→ 性能好，安全性低',c:'#fbbf24',y:60},
+    {t:'写穿 Write-through',d:'同时写缓存和磁盘\n每次写都同步\n→ 性能低，安全性高',c:'#22c55e',y:170},
+    {t:'预读 Read-ahead',d:'读取时预加载\n相邻数据\n提高命中率',c:'#60a5fa',y:280},
+  ];
+  strategies.forEach((s,i)=>{
+    if(phase>=i){
+      rr(ctx,30,s.y,340,95,8,s.c+'22',s.c);
+      lbl(ctx,s.t,200,s.y+18,s.c,13,'center',true);
+      const lines=s.d.split('\n');
+      lines.forEach((ln,j)=>{
+        lbl(ctx,ln,200,s.y+45+j*16,'#e2e8f0',11,'center');
+      });
+    }
+  });
+  
+  // 图示
+  if(phase>=0){
+    // 写回示意
+    rr(ctx,400,60,310,95,8,'#1a2332','#fbbf24');
+    lbl(ctx,'Write-back 示意',555,78,'#fbbf24',12,'center',true);
+    // 应用→缓存→磁盘
+    rr(ctx,420,95,50,25,4,'#60a5fa','#60a5fa');
+    lbl(ctx,'App',445,108,'#60a5fa',9,'center');
+    arr(ctx,475,108,490,108,'#60a5fa',1.5);
+    rr(ctx,495,95,50,25,4,'#fbbf24','#fbbf24');
+    lbl(ctx,'Cache',520,108,'#fbbf24',9,'center');
+    arr(ctx,550,108,600,108,'#fbbf24',1.5);
+    rr(ctx,605,95,50,25,4,'#f97316','#f97316');
+    lbl(ctx,'Disk',630,108,'#f97316',9,'center');
+    // 延迟箭头
+    if(phase>=1){
+      arr(ctx,630,122,630,150,'#fbbf24',1);
+      lbl(ctx,'延迟',640,140,'#fbbf24',9);
+      lbl(ctx,'后台',640,152,'#9ca3af',8);
+    }
+  }
+  
+  // 写穿示意
+  if(phase>=1){
+    rr(ctx,400,170,310,80,8,'#1a2332','#22c55e');
+    lbl(ctx,'Write-through 示意',555,188,'#22c55e',12,'center',true);
+    rr(ctx,420,205,50,25,4,'#60a5fa','#60a5fa');
+    lbl(ctx,'App',445,218,'#60a5fa',9,'center');
+    // 同步箭头
+    arr(ctx,475,218,495,205,'#22c55e',1.5);
+    arr(ctx,475,218,495,231,'#22c55e',1.5);
+    rr(ctx,500,205,50,25,4,'#22c55e','#22c55e');
+    lbl(ctx,'Cache',525,218,'#22c55e',9,'center');
+    arr(ctx,555,218,600,218,'#22c55e',2);
+    rr(ctx,605,205,50,25,4,'#f97316','#f97316');
+    lbl(ctx,'Disk',630,218,'#f97316',9,'center');
+  }
+  
+  // 预读示意
+  if(phase>=2){
+    rr(ctx,400,280,310,80,8,'#1a2332','#60a5fa');
+    lbl(ctx,'Read-ahead 示意',555,298,'#60a5fa',12,'center',true);
+    // 读取序列
+    for(let i=0;i<5;i++){
+      const x=420+i*40;
+      const read=i===0;
+      rr(ctx,x,315,35,28,4,read?'rgba(96,165,250,0.4)':'#0d1117',read?'#60a5fa':'#3b4252');
+      mnl(ctx,i===0?'R':'?',x+17,i===0?'#60a5fa':'#6b7280',9);
+    }
+    lbl(ctx,'← 访问顺序',420,355,'#9ca3af',10,'left');
+    if(phase>=3){
+      // 预读
+      rr(ctx,500,315,120,28,6,'rgba(96,165,250,0.2)','#60a5fa');
+      lbl(ctx,'预读: 已加载',560,329,'#60a5fa',10,'center');
+    }
+  }
+  
+  // 总结
+  if(phase>=4){
+    rr(ctx,30,380,680,30,6,'rgba(45,212,191,0.1)','#2dd4bf');
+    lbl(ctx,'选择策略需权衡：性能 vs 数据安全性',370,395,'#2dd4bf',12,'center');
+  }
+}
+
+// ========== 场景3：Linux页缓存 ==========
+let anim3=null;
+function resetScene3(){cancelAnimationFrame(anim3);const ctx=document.getElementById('c3').getContext('2d');bg(ctx);drawS3(ctx,0);}
+function animScene3(){cancelAnimationFrame(anim3);let p=0;const ctx=document.getElementById('c3').getContext('2d');function step(){drawS3(ctx,p);p++;if(p<=4)anim3=setTimeout(step,800);}step();}
+function drawS3(ctx,phase){
+  bg(ctx);lbl(ctx,'Linux 页缓存架构',370,26,'#2dd4bf',16,'center',true);
+  
+  // 层级
+  const layers=[
+    {n:'应用程序',c:'#60a5fa',y:70},
+    {n:'系统调用',c:'#9ca3af',y:110},
+    {n:'Page Cache',c:'#2dd4bf',y:150},
+    {n:'文件系统',c:'#a78bfa',y:190},
+    {n:'块设备层',c:'#f97316',y:230},
+    {n:'磁盘',c:'#6b7280',y:270},
+  ];
+  layers.forEach((l,i)=>{
+    const active=phase>=i;
+    rr(ctx,100,l.y,200,32,6,active?l.c+'33':'#0d1117',active?l.c:'#3b4252');
+    lbl(ctx,l.n,200,l.y+16,active?l.c:'#6b7280',12,'center',true);
+    if(i<layers.length-1 && phase>=i){
+      arr(ctx,200,l.y+32,200,layers[i+1].y,'#3b4252',1);
+    }
+  });
+  
+  // radix tree
+  if(phase>=1){
+    rr(ctx,340,60,180,140,8,'#1a2332','#fbbf24');
+    lbl(ctx,'Radix Tree',430,75,'#fbbf24',12,'center',true);
+    lbl(ctx,'快速查找缓存页',430,95,'#9ca3af',10,'center');
+    // 树形结构
+    const cx=430, cy=145;
+    ctx.strokeStyle='#fbbf24';ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(cx,110);ctx.lineTo(cx-30,135);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(cx,110);ctx.lineTo(cx+30,135);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(cx-30,135);ctx.lineTo(cx-50,160);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(cx-30,135);ctx.lineTo(cx-10,160);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(cx+30,135);ctx.lineTo(cx+10,160);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(cx+30,135);ctx.lineTo(cx+50,160);ctx.stroke();
+    // 节点
+    [[cx,95,'root'],[cx-30,130,'A'],[cx+30,130,'B']].forEach((n,i)=>{
+      rr(ctx,n[0]-15,n[1]-12,30,24,4,i===0?'#fbbf24':'rgba(251,191,36,0.3)',i===0?'#fbbf24':'#fbbf24');
+      lbl(ctx,n[2],n[0],n[1],'#fbbf24',8,'center');
+    });
+  }
+  
+  // pdflush
+  if(phase>=2){
+    rr(ctx,340,220,180,80,8,'#1a2332','#f97316');
+    lbl(ctx,'pdflush/flush',430,240,'#f97316',12,'center',true);
+    lbl(ctx,'后台刷新脏页',430,265,'#9ca3af',10,'center');
+    arr(ctx,430,300,430,340,'#f97316',1.5);
+  }
+  
+  // 参数
+  if(phase>=3){
+    rr(ctx,340,320,180,85,8,'#1a2332','#22c55e');
+    lbl(ctx,'关键参数',430,340,'#22c55e',12,'center',true);
+    mnl(ctx,'dirty_ratio: 20%',430,360,'#22c55e',10);
+    mnl(ctx,'dirty_expire: 30s',430,380,'#22c55e',10);
+  }
+  
+  // 流程
+  if(phase>=1){
+    rr(ctx,550,60,170,340,8,'#1a2332','#a78bfa');
+    lbl(ctx,'读写流程',635,78,'#a78bfa',12,'center',true);
+    const flow=[
+      {t:'read',d:'页缓存查找→Hit/Miss'},
+      {t:'write',d:'写入页缓存→标记脏页'},
+      {t:'sync',d:'flush刷盘→清理脏标记'},
+      {t:'mmap',d:'内存映射→直接操作缓存'},
+    ];
+    flow.forEach((f,i)=>{
+      const y=105+i*55;
+      rr(ctx,565,y,150,40,4,'#a78bfa33','#a78bfa');
+      lbl(ctx,f.t,575,y+12,'#a78bfa',10,'left',true);
+      lbl(ctx,f.d,575,y+28,'#9ca3af',9,'left');
+    });
+  }
+  
+  // 总结
+  if(phase>=4){
+    rr(ctx,30,385,680,25,6,'rgba(45,212,191,0.1)','#2dd4bf');
+    lbl(ctx,'Linux统一缓存 = Page Cache + Buffer Cache，以页为单位管理',370,398,'#2dd4bf',11,'center');
+  }
+}
+
+function switchTab(i){
+  document.querySelectorAll('.tab').forEach((t,j)=>t.classList.toggle('active',i===j));
+  document.querySelectorAll('.scene').forEach((s,j)=>s.classList.toggle('active',i===j));
+}
+window.onload=()=>{
+  drawS0(document.getElementById('c0').getContext('2d'),0);
+  drawS1(document.getElementById('c1').getContext('2d'),-1);
+  drawS2(document.getElementById('c2').getContext('2d'),0);
+  drawS3(document.getElementById('c3').getContext('2d'),0);
+};
+</script>
+</body>
+</html>

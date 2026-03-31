@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FAT/FAT32/NTFS文件系统 - OS动画学习</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Microsoft YaHei',sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+header{background:linear-gradient(135deg,#1a2a4a,#0f2942);padding:20px 40px;display:flex;align-items:center;gap:16px;border-bottom:2px solid #f59e0b}
+header h1{font-size:1.6rem;color:#f59e0b}
+header p{color:#94a3b8;font-size:.9rem;margin-top:4px}
+.back-btn{background:#1e40af;color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:.85rem;text-decoration:none}
+.back-btn:hover{background:#2563eb}
+.container{max-width:1200px;margin:0 auto;padding:30px 20px}
+.tabs{display:flex;gap:8px;margin-bottom:24px;flex-wrap:wrap}
+.tab{padding:10px 22px;border:2px solid #334155;border-radius:10px;cursor:pointer;background:transparent;color:#94a3b8;font-size:.9rem;transition:all .2s}
+.tab.active{background:#92400e;border-color:#f59e0b;color:#fff}
+.tab:hover:not(.active){border-color:#64748b;color:#e2e8f0}
+.section{display:none}
+.section.active{display:block}
+.desc-box{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px;margin-bottom:20px;border-left:4px solid #f59e0b}
+.desc-box h3{color:#f59e0b;margin-bottom:8px;font-size:1.05rem}
+.desc-box p{color:#94a3b8;line-height:1.7;font-size:.92rem}
+.desc-box .specs{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:14px}
+.spec-item{background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px 14px}
+.spec-item .label{color:#64748b;font-size:.75rem;margin-bottom:4px}
+.spec-item .value{color:#f59e0b;font-size:.95rem;font-weight:600}
+.canvas-area{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px;margin-bottom:20px}
+.canvas-area h3{color:#e2e8f0;margin-bottom:16px;font-size:1rem}
+canvas{display:block;margin:0 auto;border-radius:8px;background:#0f172a}
+.controls{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;justify-content:center}
+.btn{padding:9px 20px;border:none;border-radius:8px;cursor:pointer;font-size:.85rem;font-weight:600;transition:all .2s}
+.btn-primary{background:#d97706;color:#fff}.btn-primary:hover{background:#b45309}
+.btn-success{background:#16a34a;color:#fff}.btn-success:hover{background:#15803d}
+.btn-info{background:#0284c7;color:#fff}.btn-info:hover{background:#0369a1}
+.btn-reset{background:#475569;color:#fff}.btn-reset:hover{background:#334155}
+.info-panel{background:#0f172a;border:1px solid #334155;border-radius:10px;padding:14px;margin-top:16px;min-height:56px;font-size:.88rem;line-height:1.7;color:#94a3b8}
+.info-panel .step{color:#f59e0b;font-weight:600}
+.comparison-table{width:100%;border-collapse:collapse;font-size:.85rem;margin-top:16px}
+.comparison-table th{background:#0f172a;color:#f59e0b;padding:10px 12px;border:1px solid #334155;text-align:left}
+.comparison-table td{padding:9px 12px;border:1px solid #1e293b;color:#94a3b8}
+.comparison-table tr:nth-child(even) td{background:#162032}
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:.75rem;font-weight:600}
+.bg{background:#14532d;color:#4ade80}.br{background:#450a0a;color:#f87171}.by{background:#451a03;color:#fbbf24}
+</style>
+</head>
+<body>
+<header>
+  <a href="index.html" class="back-btn">← 返回首页</a>
+  <div>
+    <h1>🗂️ FAT / FAT32 / NTFS 文件系统</h1>
+    <p>三大经典文件系统原理与工作机制动画解析</p>
+  </div>
+</header>
+<div class="container">
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('fat12','this')">FAT12/16</button>
+    <button class="tab" onclick="switchTab('fat32','this')">FAT32</button>
+    <button class="tab" onclick="switchTab('ntfs','this')">NTFS</button>
+    <button class="tab" onclick="switchTab('compare','this')">对比总结</button>
+  </div>
+
+  <!-- FAT12/16 -->
+  <div id="tab-fat12" class="section active">
+    <div class="desc-box">
+      <h3>FAT（文件分配表）文件系统</h3>
+      <p>FAT（File Allocation Table）文件系统由微软在1977年设计，使用一个集中的<strong style="color:#f59e0b">文件分配表</strong>记录磁盘上每个簇的使用情况和链式关系。FAT12用12位表示簇号（最大4K簇），FAT16用16位（最大64K簇）。</p>
+      <div class="specs">
+        <div class="spec-item"><div class="label">磁盘结构</div><div class="value">引导区+FAT1+FAT2+根目录+数据区</div></div>
+        <div class="spec-item"><div class="label">最大文件大小</div><div class="value">FAT16: 2GB</div></div>
+        <div class="spec-item"><div class="label">最大分区大小</div><div class="value">FAT16: 2GB</div></div>
+        <div class="spec-item"><div class="label">FAT项特殊值</div><div class="value">0x0000=空闲 0xFFFF=文件末尾</div></div>
+      </div>
+    </div>
+    <div class="canvas-area">
+      <h3>🎬 FAT磁盘结构与文件读取动画</h3>
+      <canvas id="fatCanvas" width="820" height="360"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="fatShowStructure()">▶ 展示磁盘布局</button>
+        <button class="btn btn-success" onclick="fatCreateFile()">创建文件</button>
+        <button class="btn btn-info" onclick="fatReadFile()">读取文件链</button>
+        <button class="btn btn-reset" onclick="fatReset()">重置</button>
+      </div>
+      <div class="info-panel" id="fatInfo">点击「展示磁盘布局」了解FAT文件系统磁盘结构</div>
+    </div>
+  </div>
+
+  <!-- FAT32 -->
+  <div id="tab-fat32" class="section">
+    <div class="desc-box">
+      <h3>FAT32 文件系统</h3>
+      <p>FAT32使用<strong style="color:#f59e0b">32位簇号</strong>（实际28位有效），支持更大的分区和更多的簇。根目录不再固定在固定位置，而是作为普通目录存储。引入了<strong>长文件名（LFN）</strong>支持，使用多个目录项组合存储长文件名。</p>
+      <div class="specs">
+        <div class="spec-item"><div class="label">最大文件大小</div><div class="value">4GB - 1字节</div></div>
+        <div class="spec-item"><div class="label">最大分区</div><div class="value">2TB（理论32TB）</div></div>
+        <div class="spec-item"><div class="label">长文件名</div><div class="value">最长255字符（UTF-16）</div></div>
+        <div class="spec-item"><div class="label">簇大小</div><div class="value">512B ~ 32KB</div></div>
+      </div>
+    </div>
+    <div class="canvas-area">
+      <h3>🎬 FAT32结构与LFN长文件名机制</h3>
+      <canvas id="fat32Canvas" width="820" height="360"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="fat32Structure()">磁盘布局</button>
+        <button class="btn btn-success" onclick="fat32LFN()">长文件名LFN演示</button>
+        <button class="btn btn-info" onclick="fat32Fragment()">碎片化演示</button>
+        <button class="btn btn-reset" onclick="fat32Reset()">重置</button>
+      </div>
+      <div class="info-panel" id="fat32Info">FAT32是FAT16的改进版，广泛用于U盘、SD卡等存储介质。</div>
+    </div>
+  </div>
+
+  <!-- NTFS -->
+  <div id="tab-ntfs" class="section">
+    <div class="desc-box">
+      <h3>NTFS 文件系统</h3>
+      <p>NTFS（New Technology File System）是Windows NT引入的现代文件系统，核心是<strong style="color:#f59e0b">主文件表（MFT）</strong>。每个文件/目录都是MFT中的一条记录（1KB），包含文件的所有元数据和小文件的实际数据（常驻属性）。支持权限、加密、压缩、日志（Journal）。</p>
+      <div class="specs">
+        <div class="spec-item"><div class="label">最大文件大小</div><div class="value">16EB（理论）</div></div>
+        <div class="spec-item"><div class="label">最大分区</div><div class="value">256TB（Win实际）</div></div>
+        <div class="spec-item"><div class="label">日志支持</div><div class="value">✅ 事务日志($LogFile)</div></div>
+        <div class="spec-item"><div class="label">权限/加密</div><div class="value">✅ ACL + EFS</div></div>
+      </div>
+    </div>
+    <div class="canvas-area">
+      <h3>🎬 NTFS MFT结构与文件属性动画</h3>
+      <canvas id="ntfsCanvas" width="820" height="380"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="ntfsMFT()">MFT结构</button>
+        <button class="btn btn-success" onclick="ntfsResident()">常驻属性（小文件）</button>
+        <button class="btn btn-info" onclick="ntfsNonResident()">非常驻属性（大文件）</button>
+        <button class="btn btn-reset" onclick="ntfsReset()">重置</button>
+      </div>
+      <div class="info-panel" id="ntfsInfo">NTFS是Windows现代文件系统，MFT是其核心数据结构。</div>
+    </div>
+  </div>
+
+  <!-- 对比 -->
+  <div id="tab-compare" class="section">
+    <div class="desc-box">
+      <h3>三大文件系统综合对比</h3>
+      <p>从支持大小、功能特性、适用场景等角度全面比较FAT12/16、FAT32和NTFS。</p>
+    </div>
+    <table class="comparison-table">
+      <tr><th>特性</th><th>FAT12/16</th><th>FAT32</th><th>NTFS</th></tr>
+      <tr><td>最大单文件</td><td>2GB</td><td><span class="badge br">4GB-1</span></td><td><span class="badge bg">16EB</span></td></tr>
+      <tr><td>最大分区</td><td>2GB</td><td>2TB</td><td><span class="badge bg">256TB+</span></td></tr>
+      <tr><td>文件名长度</td><td>8.3格式</td><td><span class="badge by">255字符(LFN)</span></td><td><span class="badge bg">255字符</span></td></tr>
+      <tr><td>访问权限</td><td><span class="badge br">不支持</span></td><td><span class="badge br">不支持</span></td><td><span class="badge bg">✅ ACL</span></td></tr>
+      <tr><td>文件压缩</td><td><span class="badge br">不支持</span></td><td><span class="badge br">不支持</span></td><td><span class="badge bg">✅ 内置</span></td></tr>
+      <tr><td>文件加密</td><td><span class="badge br">不支持</span></td><td><span class="badge br">不支持</span></td><td><span class="badge bg">✅ EFS</span></td></tr>
+      <tr><td>日志/恢复</td><td><span class="badge br">不支持</span></td><td><span class="badge br">不支持</span></td><td><span class="badge bg">✅ 事务日志</span></td></tr>
+      <tr><td>碎片化程度</td><td><span class="badge br">严重</span></td><td><span class="badge br">较严重</span></td><td><span class="badge by">中等</span></td></tr>
+      <tr><td>跨平台兼容</td><td><span class="badge bg">极好</span></td><td><span class="badge bg">好</span></td><td><span class="badge by">Windows最佳</span></td></tr>
+      <tr><td>典型应用</td><td>软盘、嵌入式</td><td>U盘、SD卡</td><td>Windows系统盘</td></tr>
+    </table>
+    <div class="canvas-area" style="margin-top:20px">
+      <h3>🎬 磁盘结构对比示意图</h3>
+      <canvas id="cmpCanvas" width="820" height="280"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="drawComparison()">▶ 显示结构对比</button>
+      </div>
+      <div class="info-panel" id="cmpInfo">点击按钮查看三种文件系统的磁盘布局对比</div>
+    </div>
+  </div>
+</div>
+
+<script>
+function switchTab(name, btn){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('tab-'+name).classList.add('active');
+}
+function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
+function setInfo(id,html){document.getElementById(id).innerHTML=html;}
+
+// ========== FAT12/16 ==========
+const fatCtx = document.getElementById('fatCanvas').getContext('2d');
+let fatState = {step:0, fat:[], busy:false, fileChain:[], startCluster:-1};
+
+function fatReset(){
+  fatState={step:0,fat:Array(16).fill(0),busy:false,fileChain:[],startCluster:-1};
+  fatCtx.clearRect(0,0,820,360);
+  setInfo('fatInfo','已重置。点击「展示磁盘布局」开始。');
+}
+
+async function fatShowStructure(){
+  if(fatState.busy) return;
+  fatState.busy=true;
+  const c=fatCtx;
+  c.clearRect(0,0,820,360);
+  // 磁盘分区结构
+  const regions=[
+    {label:'引导扇区\nBoot Sector',w:80,color:'#0ea5e9',desc:'磁盘参数\n文件系统类型'},
+    {label:'FAT1\n(主表)',w:120,color:'#f59e0b',desc:'簇链表\n0x0000=空闲\n0xFFFF=结尾'},
+    {label:'FAT2\n(备份)',w:120,color:'#d97706',desc:'FAT1的完整\n备份副本'},
+    {label:'根目录区\nRoot Dir',w:100,color:'#a855f7',desc:'固定大小\n512个目录项'},
+    {label:'数据区\nData Area',w:340,color:'#10b981',desc:'簇2开始\n文件实际数据'},
+  ];
+  let x=10;
+  for(const r of regions){
+    c.fillStyle=r.color+'33'; c.strokeStyle=r.color; c.lineWidth=2;
+    c.beginPath(); c.roundRect(x,20,r.w,60,4); c.fill(); c.stroke();
+    c.fillStyle=r.color; c.font='bold 10px Microsoft YaHei'; c.textAlign='center';
+    r.label.split('\n').forEach((l,i)=>c.fillText(l,x+r.w/2,36+i*13));
+    c.fillStyle='#64748b'; c.font='9px Microsoft YaHei';
+    r.desc.split('\n').forEach((l,i)=>c.fillText(l,x+r.w/2,92+i*11));
+    x+=r.w+4;
+    await sleep(400);
+  }
+
+  // FAT表示意
+  c.fillStyle='#f59e0b'; c.font='bold 13px Microsoft YaHei'; c.textAlign='left';
+  c.fillText('FAT表内容（每项=下一个簇号）',10,150);
+  const fatItems=['保留','保留','0xFFFF','0x0006','0x0005','0xFFFF','0xFFFF','0x0000','0x0000','0x0000','0x0000','0x0000','0x0000','0x0000','0x0000','0x0000'];
+  for(let i=0;i<16;i++){
+    const ex=10+i*50, ey=160;
+    const isFree=fatItems[i]==='0x0000';
+    const isEnd=fatItems[i]==='0xFFFF';
+    const isChain=[3,4,5,6].includes(i);
+    c.fillStyle=isFree?'#1e293b':isEnd?'#14532d':isChain?'#451a03':'#1e3a5f';
+    c.strokeStyle=isFree?'#334155':isEnd?'#16a34a':isChain?'#d97706':'#475569';
+    c.lineWidth=2;
+    c.beginPath(); c.roundRect(ex,ey,46,38,4); c.fill(); c.stroke();
+    c.fillStyle='#94a3b8'; c.font='9px monospace'; c.textAlign='center';
+    c.fillText('簇'+i,ex+23,ey+12);
+    c.fillStyle=isEnd?'#4ade80':isChain?'#f59e0b':'#475569';
+    c.font='8px monospace';
+    c.fillText(fatItems[i]==='0x0000'?'空闲':fatItems[i],ex+23,ey+28);
+  }
+  // 说明链
+  c.fillStyle='#94a3b8'; c.font='12px Microsoft YaHei'; c.textAlign='left';
+  c.fillText('文件A的簇链：2 → 3(→6) → 4(→5) → 5(→EOF)  即：簇2,6,4,5',10,220);
+  c.fillText('在FAT中：FAT[2]=0xFFFF(EOF) | FAT[3]=0x0006 | FAT[4]=0x0005 | FAT[5]=0xFFFF(EOF)',10,238);
+  
+  setInfo('fatInfo','<span class="step">FAT磁盘结构：</span> 引导扇区→FAT1→FAT2备份→根目录区→数据区(簇2起)。FAT表中每个簇对应一个表项，存储下一个簇的号或特殊值(0=空闲,0xFFFF=文件末尾)。');
+  fatState.busy=false;
+}
+
+async function fatCreateFile(){
+  if(fatState.busy) return; fatState.busy=true;
+  const c=fatCtx; c.clearRect(0,0,820,360);
+  // 模拟创建一个文件，占用簇2,5,7
+  fatState.fileChain=[2,5,7]; fatState.startCluster=2;
+  const fat=Array(12).fill('空闲');
+  fat[0]='保留'; fat[1]='保留';
+  fat[2]='→5'; fat[5]='→7'; fat[7]='EOF';
+  // 画FAT
+  c.fillStyle='#f59e0b'; c.font='bold 13px Microsoft YaHei'; c.textAlign='left';
+  c.fillText('创建"data.txt"(3簇) → 分配簇2,5,7，更新FAT表',10,24);
+  for(let i=0;i<12;i++){
+    const ex=10+i*66, ey=40;
+    const isChain=[2,5,7].includes(i);
+    c.fillStyle=isChain?'#451a03':'#1e293b';
+    c.strokeStyle=isChain?'#f59e0b':'#334155'; c.lineWidth=2;
+    c.beginPath(); c.roundRect(ex,ey,62,50,4); c.fill(); c.stroke();
+    c.fillStyle='#94a3b8'; c.font='10px monospace'; c.textAlign='center';
+    c.fillText('FAT['+i+']',ex+31,ey+14);
+    c.fillStyle=isChain?'#f59e0b':'#475569'; c.font='11px monospace';
+    c.fillText(fat[i],ex+31,ey+36);
+    await sleep(200);
+  }
+  // 目录项
+  c.fillStyle='#a855f7'; c.font='bold 13px Microsoft YaHei'; c.textAlign='left';
+  c.fillText('根目录区 — 写入目录项',10,118);
+  c.fillStyle='#1a0f2e'; c.strokeStyle='#a855f7'; c.lineWidth=2;
+  c.beginPath(); c.roundRect(10,128,720,44,6); c.fill(); c.stroke();
+  const fields=[
+    {l:'文件名',v:'DATA    '},
+    {l:'扩展名',v:'TXT'},
+    {l:'属性',v:'0x20'},
+    {l:'首簇号',v:'0x0002'},
+    {l:'文件大小',v:'15360B'},
+    {l:'创建时间',v:'2026/03/29'},
+  ];
+  let fx=20;
+  fields.forEach(f=>{
+    c.fillStyle='#64748b'; c.font='9px Microsoft YaHei'; c.textAlign='left'; c.fillText(f.l,fx,142);
+    c.fillStyle='#e2e8f0'; c.font='10px monospace'; c.fillText(f.v,fx,156);
+    fx+=118;
+  });
+  // 数据区
+  c.fillStyle='#10b981'; c.font='bold 13px Microsoft YaHei'; c.textAlign='left';
+  c.fillText('数据区 — 簇2,5,7存储实际数据',10,196);
+  [2,5,7].forEach((cn,i)=>{
+    const ex=10+i*200, ey=206;
+    c.fillStyle='#0a3a1a'; c.strokeStyle='#10b981'; c.lineWidth=2;
+    c.beginPath(); c.roundRect(ex,ey,190,60,6); c.fill(); c.stroke();
+    c.fillStyle='#10b981'; c.font='bold 12px Microsoft YaHei'; c.textAlign='center';
+    c.fillText('数据簇 #'+cn,ex+95,ey+20);
+    c.fillStyle='#94a3b8'; c.font='10px monospace';
+    c.fillText(i<2?'下一簇: FAT['+cn+']':'文件末尾(EOF)',ex+95,ey+42);
+  });
+  setInfo('fatInfo','<span class="step">文件创建完成！</span> 系统在根目录写入目录项（含首簇号2），在FAT中建立链：FAT[2]→5→7→0xFFFF(EOF)，数据写入三个分散的簇。');
+  fatState.busy=false;
+}
+
+async function fatReadFile(){
+  if(fatState.busy||fatState.fileChain.length===0){setInfo('fatInfo','请先创建文件');return;}
+  fatState.busy=true;
+  const c=fatCtx;
+  setInfo('fatInfo',`<span class="step">读取文件：</span>从目录项获取首簇号=2，开始追链…`);
+  for(let i=0;i<fatState.fileChain.length;i++){
+    const cn=fatState.fileChain[i];
+    // 高亮FAT表项
+    const ex=10+cn*66, ey=40;
+    c.fillStyle='#fff'; c.strokeStyle='#fff'; c.lineWidth=3;
+    c.beginPath(); c.roundRect(ex,ey,62,50,4); c.fill(); c.stroke();
+    setInfo('fatInfo',`<span class="step">读取簇 #${cn}</span> → 读FAT[${cn}]=${i<fatState.fileChain.length-1?'→'+fatState.fileChain[i+1]:'0xFFFF(EOF)'}，${i<fatState.fileChain.length-1?'继续读下一簇':'文件读取完毕！'}`);
+    await sleep(700);
+    // 恢复
+    c.fillStyle='#451a03'; c.strokeStyle='#f59e0b'; c.lineWidth=2;
+    c.beginPath(); c.roundRect(ex,ey,62,50,4); c.fill(); c.stroke();
+  }
+  setInfo('fatInfo',`<span class="step">✅ 文件读取完成！</span> 共读取 ${fatState.fileChain.length} 个簇的数据。FAT方式的缺点：随机访问需遍历整个链表。`);
+  fatState.busy=false;
+}
+fatReset();
+
+// ========== FAT32 ==========
+const fat32Ctx = document.getElementById('fat32Canvas').getContext('2d');
+function fat32Reset(){ fat32Ctx.clearRect(0,0,820,360); setInfo('fat32Info','已重置'); }
+
+async function fat32Structure(){
+  const c=fat32Ctx; c.clearRect(0,0,820,360);
+  const regions=[
+    {label:'保留扇区\n(含BPB扩展)',w:110,color:'#0ea5e9'},
+    {label:'FAT1\n(32位簇链)',w:130,color:'#f59e0b'},
+    {label:'FAT2\n(备份)',w:130,color:'#d97706'},
+    {label:'数据区\n(根目录\n作普通目录)',w:380,color:'#10b981'},
+  ];
+  let x=10;
+  c.fillStyle='#e2e8f0'; c.font='bold 13px Microsoft YaHei'; c.textAlign='left';
+  c.fillText('FAT32 磁盘布局（对比FAT16：根目录移入数据区，簇号扩至32位）',10,18);
+  for(const r of regions){
+    c.fillStyle=r.color+'33'; c.strokeStyle=r.color; c.lineWidth=2;
+    c.beginPath(); c.roundRect(x,30,r.w,70,4); c.fill(); c.stroke();
+    c.fillStyle=r.color; c.font='bold 10px Microsoft YaHei'; c.textAlign='center';
+    r.label.split('\n').forEach((l,i)=>c.fillText(l,x+r.w/2,46+i*13));
+    x+=r.w+4;
+    await sleep(300);
+  }
+  // BPB扩展字段
+  c.fillStyle='#38bdf8'; c.font='bold 12px Microsoft YaHei'; c.textAlign='left';
+  c.fillText('FAT32 BPB扩展参数',10,128);
+  const bpb=[
+    ['BPB_FATSz32','每FAT扇区数(32位)'],
+    ['BPB_ExtFlags','FAT镜像标志'],
+    ['BPB_RootClus','根目录起始簇(通常=2)'],
+    ['BPB_FSInfo','FSInfo扇区号'],
+    ['BPB_BkBootSec','备份引导扇区位置'],
+  ];
+  bpb.forEach(([k,v],i)=>{
+    const ex=10+(i%3)*270, ey=140+Math.floor(i/3)*26;
+    c.fillStyle='#1e293b'; c.strokeStyle='#334155'; c.lineWidth=1;
+    c.beginPath(); c.roundRect(ex,ey,260,22,3); c.fill(); c.stroke();
+    c.fillStyle='#f59e0b'; c.font='10px monospace'; c.textAlign='left'; c.fillText(k,ex+6,ey+14);
+    c.fillStyle='#94a3b8'; c.font='10px Microsoft YaHei'; c.fillText(v,ex+150,ey+14);
+  });
+  // FSInfo说明
+  c.fillStyle='#10b981'; c.font='12px Microsoft YaHei';
+  c.fillText('FSInfo扇区: 存储空闲簇总数 + 下一个可用簇号 → 加速空间分配查询',10,220);
+  setInfo('fat32Info','<span class="step">FAT32与FAT16的关键差异：</span>①根目录不再固定在特殊区域而是在数据区；②簇号扩展到32位支持更多簇；③新增FSInfo加速空间分配。');
+}
+
+async function fat32LFN(){
+  const c=fat32Ctx; c.clearRect(0,0,820,360);
+  c.fillStyle='#e2e8f0'; c.font='bold 13px Microsoft YaHei'; c.textAlign='left';
+  c.fillText('长文件名(LFN)目录项结构',10,24);
+  c.fillStyle='#94a3b8'; c.font='12px Microsoft YaHei';
+  c.fillText('文件名"操作系统课程笔记2026.docx"在目录区的存储：',10,44);
+  
+  const entries=[
+    {type:'LFN3(序号3,最后)',data:'x(0x0078),结束填0xFF',color:'#a855f7'},
+    {type:'LFN2(序号2)',data:'.docx…(UTF-16)',color:'#8b5cf6'},
+    {type:'LFN1(序号1)',data:'操作系统课程笔记2026',color:'#7c3aed'},
+    {type:'短文件名(8.3)',data:'CAOZUO~1.DOC  首簇:0x5A23  大小:51200B',color:'#10b981'},
+  ];
+  for(let i=0;i<entries.length;i++){
+    const e=entries[i];
+    const y=66+i*60;
+    c.fillStyle=e.color+'22'; c.strokeStyle=e.color; c.lineWidth=2;
+    c.beginPath(); c.roundRect(10,y,790,50,6); c.fill(); c.stroke();
+    c.fillStyle=e.color; c.font='bold 11px Microsoft YaHei'; c.textAlign='left';
+    c.fillText(e.type,20,y+18);
+    c.fillStyle='#94a3b8'; c.font='11px Microsoft YaHei';
+    c.fillText(e.data,20,y+36);
+    // 字节示意
+    c.fillStyle='#334155'; c.font='9px monospace';
+    c.fillText('32字节目录项 →',600,y+26);
+    await sleep(400);
+  }
+  c.fillStyle='#f59e0b'; c.font='12px Microsoft YaHei';
+  c.fillText('读取顺序：先读LFN条目(倒序)拼接长文件名，再读8.3短名条目获取文件位置信息',10,316);
+  setInfo('fat32Info','<span class="step">LFN长文件名机制：</span>每个LFN目录项存储13个UTF-16字符，多个LFN项倒序排列在短文件名项前面。这样既支持长文件名，又兼容旧的8.3格式。');
+}
+
+async function fat32Fragment(){
+  const c=fat32Ctx; c.clearRect(0,0,820,360);
+  const CLUST=40, CW=18, CH=18, CX0=10, CY0=40, CPERROW=40;
+  c.fillStyle='#e2e8f0'; c.font='bold 13px Microsoft YaHei'; c.textAlign='left';
+  c.fillText('FAT32碎片化演示（簇地图）',10,24);
+  // 初始状态
+  const clusters=Array(CLUST).fill('free');
+  function drawClusters(){
+    c.clearRect(0,30,820,250);
+    for(let i=0;i<CLUST;i++){
+      const col=i%CPERROW, row=Math.floor(i/CPERROW);
+      const x=CX0+col*(CW+2), y=CY0+row*(CH+2);
+      const st=clusters[i];
+      c.fillStyle=st==='free'?'#1e293b':st==='A'?'#0ea5e9':st==='B'?'#a855f7':st==='C'?'#10b981':'#f59e0b';
+      c.strokeStyle=st==='free'?'#334155':'#fff'; c.lineWidth=1;
+      c.beginPath(); c.roundRect(x,y,CW,CH,2); c.fill(); c.stroke();
+    }
+  }
+  drawClusters();
+  await sleep(400);
+  // 分配文件A (连续)
+  [2,3,4,5,6].forEach(i=>clusters[i]='A'); drawClusters();
+  setInfo('fat32Info','已分配文件A（簇2-6，连续）'); await sleep(600);
+  // 分配文件B
+  [7,8,9,10,11,12].forEach(i=>clusters[i]='B'); drawClusters();
+  setInfo('fat32Info','已分配文件A+B'); await sleep(600);
+  // 分配文件C
+  [13,14,15,16].forEach(i=>clusters[i]='C'); drawClusters();
+  setInfo('fat32Info','已分配A+B+C'); await sleep(600);
+  // 删除B
+  [7,8,9,10,11,12].forEach(i=>clusters[i]='free'); drawClusters();
+  setInfo('fat32Info','删除文件B，产生6个空闲簇'); await sleep(600);
+  // 新文件D (碎片化：分散存储)
+  [7,8,17,18,25,26].forEach(i=>clusters[i]='D'); drawClusters();
+  setInfo('fat32Info','<span class="step">分配文件D：</span>D的数据散落在7,8,17,18,25,26——产生碎片！FAT32没有日志和碎片整理能力，长期使用性能会明显下降。');
+}
+fat32Reset();
+
+// ========== NTFS ==========
+const ntfsCtx = document.getElementById('ntfsCanvas').getContext('2d');
+function ntfsReset(){ntfsCtx.clearRect(0,0,820,380);setInfo('ntfsInfo','已重置');}
+
+async function ntfsMFT(){
+  const c=ntfsCtx; c.clearRect(0,0,820,380);
+  c.fillStyle='#38bdf8'; c.font='bold 14px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('NTFS 主文件表 (MFT) 结构',410,22);
+  
+  // MFT元文件
+  const metaFiles=[
+    {id:0,name:'$MFT',desc:'MFT自身'},
+    {id:1,name:'$MFTMirr',desc:'MFT备份'},
+    {id:2,name:'$LogFile',desc:'事务日志'},
+    {id:3,name:'$Volume',desc:'卷信息'},
+    {id:4,name:'$AttrDef',desc:'属性定义'},
+    {id:5,name:'.',desc:'根目录'},
+    {id:6,name:'$Bitmap',desc:'簇位图'},
+    {id:7,name:'$Boot',desc:'引导扇区'},
+    {id:8,name:'$BadClus',desc:'坏簇列表'},
+  ];
+  
+  for(let i=0;i<metaFiles.length;i++){
+    const mf=metaFiles[i];
+    const col=i%3, row=Math.floor(i/3);
+    const x=10+col*270, y=40+row*80;
+    c.fillStyle='#0f2942'; c.strokeStyle='#38bdf8'; c.lineWidth=2;
+    c.beginPath(); c.roundRect(x,y,260,65,6); c.fill(); c.stroke();
+    c.fillStyle='#38bdf8'; c.font='bold 11px monospace'; c.textAlign='left';
+    c.fillText(`MFT记录 #${mf.id}: ${mf.name}`,x+8,y+18);
+    c.fillStyle='#f59e0b'; c.font='10px Microsoft YaHei';
+    c.fillText(mf.desc,x+8,y+34);
+    c.fillStyle='#475569'; c.font='9px monospace';
+    c.fillText('FILE记录头 | 标准信息 | 文件名 | 数据属性',x+8,y+52);
+    await sleep(200);
+  }
+  // 用户文件MFT示意
+  const ux=10, uy=290;
+  c.fillStyle='#1a1a3a'; c.strokeStyle='#a855f7'; c.lineWidth=2;
+  c.beginPath(); c.roundRect(ux,uy,790,70,6); c.fill(); c.stroke();
+  c.fillStyle='#a855f7'; c.font='bold 12px Microsoft YaHei'; c.textAlign='left';
+  c.fillText('用户文件MFT记录 #100 (data.txt)',ux+10,uy+18);
+  const attrs=['FILE魔数(4B)','序列号','属性列表','标准信息($SI)','文件名($FN)','安全描述符($SD)','数据($DATA)','结束标记'];
+  attrs.forEach((a,i)=>{
+    const ax=ux+10+i*96, ay=uy+26;
+    c.fillStyle=['#0f2942','#1e3a5f','#163a16','#1a1a3a','#2d1b69','#3a0f1a','#0a3a1a','#0f172a'][i];
+    c.strokeStyle=['#334155','#0ea5e9','#16a34a','#334155','#a855f7','#ef4444','#10b981','#475569'][i];
+    c.lineWidth=1.5;
+    c.beginPath(); c.roundRect(ax,ay,92,34,3); c.fill(); c.stroke();
+    c.fillStyle='#94a3b8'; c.font='9px Microsoft YaHei'; c.textAlign='center';
+    c.fillText(a,ax+46,ay+20);
+  });
+  setInfo('ntfsInfo','<span class="step">NTFS MFT：</span>每个文件/目录都有一个1KB的MFT记录。前16条是NTFS元文件（以$开头），用户文件从#24开始。每条记录包含FILE魔数+多种属性。');
+}
+
+async function ntfsResident(){
+  const c=ntfsCtx; c.clearRect(0,0,820,380);
+  c.fillStyle='#10b981'; c.font='bold 14px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('NTFS 常驻属性（小文件直接存在MFT记录内）',410,22);
+  
+  // MFT记录框
+  c.fillStyle='#0f172a'; c.strokeStyle='#10b981'; c.lineWidth=2;
+  c.beginPath(); c.roundRect(10,40,790,280,8); c.fill(); c.stroke();
+  c.fillStyle='#10b981'; c.font='bold 12px Microsoft YaHei'; c.textAlign='left';
+  c.fillText('MFT记录 #1024 (small.txt, 256字节)',20,60);
+  
+  const sections=[
+    {label:'FILE记录头 (48B)',x:20,y:70,w:120,h:180,color:'#0ea5e9',detail:['魔数: FILE','序列号: 0x0023','属性偏移: 0x30','标志: 0x01(使用中)']},
+    {label:'$SI标准信息 (72B)',x:148,y:70,w:140,h:180,color:'#f59e0b',detail:['创建时间','修改时间','MFT修改时间','访问时间']},
+    {label:'$FN文件名 (68B)',x:296,y:70,w:140,h:180,color:'#a855f7',detail:['父目录MFT号','文件大小','文件名长度','文件名(Unicode)']},
+    {label:'$DATA 数据 (常驻)',x:444,y:70,w:200,h:180,color:'#10b981',detail:['属性类型: 0x80','长度: 256','常驻标志: 0x00','实际数据内容↓','Hello OS World...']},
+    {label:'结束标记',x:652,y:70,w:80,h:180,color:'#475569',detail:['0xFFFFFFFF']},
+  ];
+  for(const s of sections){
+    c.fillStyle=s.color+'22'; c.strokeStyle=s.color; c.lineWidth=1.5;
+    c.beginPath(); c.roundRect(s.x,s.y,s.w,s.h,4); c.fill(); c.stroke();
+    c.fillStyle=s.color; c.font='bold 10px Microsoft YaHei'; c.textAlign='center';
+    c.fillText(s.label,s.x+s.w/2,s.y+14);
+    c.fillStyle='#94a3b8'; c.font='9px Microsoft YaHei';
+    s.detail.forEach((d,i)=>c.fillText(d,s.x+s.w/2,s.y+30+i*16));
+    await sleep(300);
+  }
+  c.fillStyle='#10b981'; c.font='12px Microsoft YaHei'; c.textAlign='left';
+  c.fillText('✅ 小文件数据直接存储在MFT记录的$DATA属性中（常驻），无需额外磁盘I/O！',20,274);
+  c.fillText('NTFS默认常驻阈值约为700字节，超过则变为非常驻属性。',20,294);
+  setInfo('ntfsInfo','<span class="step">常驻属性：</span>小文件（<700B）的$DATA属性直接嵌入MFT记录，访问文件只需读1次MFT记录，无需额外磁盘操作——这是NTFS对小文件的优化。');
+}
+
+async function ntfsNonResident(){
+  const c=ntfsCtx; c.clearRect(0,0,820,380);
+  c.fillStyle='#f59e0b'; c.font='bold 14px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('NTFS 非常驻属性（大文件使用Run List描述数据位置）',410,22);
+  
+  // MFT记录
+  c.fillStyle='#0f172a'; c.strokeStyle='#f59e0b'; c.lineWidth=2;
+  c.beginPath(); c.roundRect(10,36,400,200,6); c.fill(); c.stroke();
+  c.fillStyle='#f59e0b'; c.font='bold 11px Microsoft YaHei'; c.textAlign='left';
+  c.fillText('MFT记录 (large_video.mp4)',20,54);
+  c.fillStyle='#94a3b8'; c.font='10px Microsoft YaHei';
+  c.fillText('$DATA属性（非常驻）:',20,72);
+  c.fillText('非常驻标志=1',20,88);
+  c.fillText('实际大小: 524,288,000 B (500MB)',20,104);
+  c.fillText('Run List (VCN映射表):',20,120);
+  
+  const runs=[
+    {label:'Run#1',lcn:1000,len:500,color:'#0ea5e9'},
+    {label:'Run#2',lcn:5200,len:300,color:'#a855f7'},
+    {label:'Run#3',lcn:9800,len:400,color:'#10b981'},
+  ];
+  runs.forEach((r,i)=>{
+    const ry=136+i*24;
+    c.fillStyle=r.color; c.font='10px monospace';
+    c.fillText(`${r.label}: LCN=${r.lcn}, 长度=${r.len}簇`,30,ry);
+  });
+  // 磁盘示意
+  c.fillStyle='#e2e8f0'; c.font='bold 11px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('磁盘簇分配',620,50);
+  const diskY=60, totalClusters=60, CW=10;
+  for(let i=0;i<totalClusters;i++){
+    const x=440+i*6, y=diskY;
+    const inRun1=i>=40&&i<50;
+    const inRun2=i>=10&&i<16;
+    const inRun3=i>=52&&i<60;
+    c.fillStyle=inRun1?'#0ea5e9':inRun2?'#a855f7':inRun3?'#10b981':'#1e293b';
+    c.strokeStyle='#334155'; c.lineWidth=1;
+    c.fillRect(x,y,5,20);
+    c.strokeRect(x,y,5,20);
+  }
+  c.fillStyle='#94a3b8'; c.font='9px Microsoft YaHei';
+  c.textAlign='left';
+  c.fillText('蓝=Run1  紫=Run2  绿=Run3',440,96);
+  
+  // 箭头说明
+  c.fillStyle='#64748b'; c.font='11px Microsoft YaHei';
+  const steps=[
+    '①读MFT记录，获取$DATA属性Run List',
+    '②Run List描述文件在磁盘上的物理位置（VCN→LCN映射）',
+    '③Run是一段连续的簇，大文件通常由多个Run组成',
+    '④vs FAT: Run List更紧凑，随机访问更快（直接计算偏移）',
+  ];
+  steps.forEach((s,i)=>c.fillText(s,10,246+i*22));
+  setInfo('ntfsInfo','<span class="step">非常驻属性：</span>大文件$DATA属性改用Run List（VCN→LCN映射表）描述数据位置。Run是连续的簇段，比FAT链表更高效——随机访问只需二分查找Run List。');
+}
+ntfsReset();
+
+// ========== 对比动画 ==========
+const cmpCtx = document.getElementById('cmpCanvas').getContext('2d');
+async function drawComparison(){
+  const c=cmpCtx; c.clearRect(0,0,820,280);
+  const systems=[
+    {name:'FAT16',color:'#0ea5e9',x:10,layout:['引导区\n(512B)','FAT1\n(固定)','FAT2\n(备份)','根目录\n(固定32项/512)','数据区\n簇2起始']},
+    {name:'FAT32',color:'#f59e0b',x:10,layout:['保留扇区\n(BPB扩展)','FAT1\n(32位簇)','FAT2\n(备份)','数据区\n(根目录在此)','—','—']},
+    {name:'NTFS',color:'#10b981',x:10,layout:['$Boot\n引导','$MFT\n主文件表','$MFTMirr\n备份','$LogFile\n日志','$Bitmap\n位图','数据区']},
+  ];
+  const widths=[60,90,90,100,340,80];
+  for(let si=0;si<systems.length;si++){
+    const s=systems[si];
+    const y=20+si*82;
+    c.fillStyle=s.color; c.font='bold 12px Microsoft YaHei'; c.textAlign='left';
+    c.fillText(s.name,750,y+38);
+    let x=10;
+    for(let i=0;i<s.layout.length;i++){
+      const w=widths[i]||80;
+      c.fillStyle=s.color+'22'; c.strokeStyle=s.color; c.lineWidth=2;
+      c.beginPath(); c.roundRect(x,y,w,60,4); c.fill(); c.stroke();
+      c.fillStyle=s.color; c.font='9px Microsoft YaHei'; c.textAlign='center';
+      s.layout[i].split('\n').forEach((l,li)=>c.fillText(l,x+w/2,y+20+li*13));
+      x+=w+3;
+      await sleep(150);
+    }
+  }
+  setInfo('cmpInfo','<span class="step">结构对比：</span>FAT16有固定根目录区，FAT32将根目录移至数据区，NTFS用MFT记录管理一切（元文件+用户文件）。NTFS增加了$LogFile事务日志，保证文件系统一致性。');
+}
+</script>
+</body>
+</html>

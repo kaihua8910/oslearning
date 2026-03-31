@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>管程 Monitor - OS动画</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0a0e14;--card:#1a1f2e;--border:#3b4252;--text:#e2e8f0;--muted:#9ca3af;--green:#22c55e;--blue:#60a5fa;--purple:#a78bfa;--orange:#f97316;--yellow:#fbbf24;--red:#f87171;--cyan:#06b6d4;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Noto Sans SC',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+.page-header{background:linear-gradient(135deg,#0f172a,#1e293b);border-bottom:1px solid var(--border);padding:18px 30px;display:flex;align-items:center;gap:16px;}
+.back-btn{display:flex;align-items:center;gap:6px;color:var(--cyan);text-decoration:none;font-size:14px;padding:6px 12px;border:1px solid rgba(6,182,212,.3);border-radius:6px;transition:.2s;}
+.back-btn:hover{background:rgba(6,182,212,.1);}
+.page-title{font-size:20px;font-weight:700;color:var(--cyan);}
+.page-subtitle{font-size:13px;color:var(--muted);}
+.container{max-width:1100px;margin:0 auto;padding:24px 20px;}
+.tabs{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;}
+.tab{padding:8px 18px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--muted);cursor:pointer;font-size:13px;font-family:'Noto Sans SC',sans-serif;transition:.2s;}
+.tab.active{border-color:var(--cyan);color:var(--cyan);background:rgba(6,182,212,.1);}
+.scene{display:none;}
+.scene.active{display:block;}
+.layout{display:grid;grid-template-columns:1fr 320px;gap:16px;}
+canvas{border-radius:10px;border:1px solid var(--border);background:#0d1117;display:block;}
+.info-panel{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:12px;}
+.info-title{font-size:14px;font-weight:700;color:var(--cyan);border-bottom:1px solid var(--border);padding-bottom:8px;}
+.info-text{font-size:13px;color:var(--text);line-height:1.8;}
+.info-text b{color:var(--yellow);}
+.info-text .em{color:var(--cyan);}
+.step-box{background:#0d1117;border-radius:8px;padding:10px;border-left:3px solid var(--cyan);}
+.step-label{font-size:11px;color:var(--muted);margin-bottom:4px;}
+.step-content{font-size:12px;font-family:'JetBrains Mono',monospace;color:var(--cyan);}
+.controls{display:flex;gap:8px;margin-top:12px;}
+.btn{padding:7px 16px;border-radius:7px;border:none;cursor:pointer;font-size:13px;font-family:'Noto Sans SC',sans-serif;font-weight:500;transition:.2s;}
+.btn-primary{background:var(--cyan);color:#000;}
+.btn-primary:hover{filter:brightness(1.1);}
+.btn-secondary{background:var(--card);border:1px solid var(--border);color:var(--text);}
+.btn-secondary:hover{border-color:var(--cyan);color:var(--cyan);}
+.formula-box{background:#0d1117;border-radius:8px;padding:10px;border:1px solid rgba(251,191,36,.2);}
+.formula{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--yellow);line-height:1.8;}
+</style>
+</head>
+<body>
+<div class="page-header">
+  <a href="index.html" class="back-btn">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>返回首页
+  </a>
+  <div>
+    <div class="page-title">管程 Monitor</div>
+    <div class="page-subtitle">High-Level Synchronization Primitive</div>
+  </div>
+</div>
+<div class="container">
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab(0)">管程概念</button>
+    <button class="tab" onclick="switchTab(1)">管程结构</button>
+    <button class="tab" onclick="switchTab(2)">生产者-消费者实例</button>
+    <button class="tab" onclick="switchTab(3)">与信号量对比</button>
+  </div>
+
+  <!-- 场景0：管程概念 -->
+  <div class="scene active" id="scene0">
+    <div class="layout">
+      <canvas id="c0" width="740" height="420"></canvas>
+      <div class="info-panel">
+        <div class="info-title">管程 Monitor 概念</div>
+        <div class="info-text">
+          <b>管程</b>是一种<b>高级同步原语</b>，由Hoare提出：<br><br>
+          将共享资源的<b>操作</b>和<b>同步机制</b>封装在一起，形成一个<b>监视器对象</b>。<br><br>
+          <span class="em">管程特性：</span><br>
+          · 互斥访问：同一时刻只有一个进程在管程内<br>
+          · 条件变量：用于进程等待/唤醒<br>
+          · 封装同步逻辑：更易读、不易出错<br><br>
+          <span class="em">Java synchronized 就是管程</span>
+        </div>
+        <div class="formula-box">
+          <div class="formula">管程 = 共享数据 + 操作 + 同步<br>monitor ProducerConsumer {<br>  ... // 共享变量<br>  procedure put() { ... }<br>  procedure get() { ... }<br>}</div>
+        </div>
+        <div class="controls">
+          <button class="btn btn-primary" onclick="animScene0()">播放动画</button>
+          <button class="btn btn-secondary" onclick="resetScene0()">重置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景1：管程结构 -->
+  <div class="scene" id="scene1">
+    <div class="layout">
+      <canvas id="c1" width="740" height="420"></canvas>
+      <div class="info-panel">
+        <div class="info-title">管程内部结构</div>
+        <div class="info-text">
+          <b>入口队列（Entry Queue）</b><br>
+          想进入管程但被阻塞的进程排隊等待<br><br>
+          <b>互斥锁（Mutual Exclusion）</b><br>
+          保证同一时刻只有一个进程在管程内<br><br>
+          <b>条件变量（Condition Variables）</b><br>
+          · wait()：阻塞自己，等待条件<br>
+          · signal()：唤醒等待该条件的进程<br><br>
+          <span class="em">注意：signal后该进程继续执行还是被唤醒进程执行，取决于实现（Hoare vs Mesa语义）</span>
+        </div>
+        <div class="formula-box">
+          <div class="formula">wait(cv) → 阻塞，释放互斥锁<br>signal(cv) → 唤醒等待的进程<br>（两种语义：立即释放 or 延迟释放）</div>
+        </div>
+        <div class="controls">
+          <button class="btn btn-primary" onclick="animScene1()">播放动画</button>
+          <button class="btn-secondary" onclick="resetScene1()">重置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景2：生产者-消费者实例 -->
+  <div class="scene" id="scene2">
+    <div class="layout">
+      <canvas id="c2" width="740" height="420"></canvas>
+      <div class="info-panel">
+        <div class="info-title">生产者-消费者管程实现</div>
+        <div class="info-text" id="info2">点击"单步执行"演示管程同步</div>
+        <div class="step-box">
+          <div class="step-label">当前状态</div>
+          <div class="step-content" id="step2">等待开始...</div>
+        </div>
+        <div class="formula-box">
+          <div class="formula">管程 PC {<br>  int count = 0;<br>  condition notFull, notEmpty;<br>  procedure put() {<br>    if(count==N) wait(notFull);<br>    buffer[pos++] = item;<br>    count++;<br>    signal(notEmpty);<br>  }<br>}</div>
+        </div>
+        <div class="controls">
+          <button class="btn btn-primary" onclick="stepScene2()">单步执行</button>
+          <button class="btn btn-secondary" onclick="resetScene2()">重置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景3：对比信号量 -->
+  <div class="scene" id="scene3">
+    <div class="layout">
+      <canvas id="c3" width="740" height="420"></canvas>
+      <div class="info-panel">
+        <div class="info-title">管程 vs 信号量 对比</div>
+        <div class="info-text">
+          <b>信号量（Semaphore）</b><br>
+          · 低级原语，需手动管理<br>
+          · PV操作分散在代码各处<br>
+          · 容易出错（顺序错误、遗漏PV）<br>
+          · 适用于简单同步<br><br>
+          <b>管程（Monitor）</b><br>
+          · 高级抽象，封装同步<br>
+          · 同步逻辑集中，易维护<br>
+          · 互斥自动保证<br>
+          · 适合复杂共享资源管理
+        </div>
+        <div class="formula-box">
+          <div class="formula">信号量：分散式同步<br>管程：集中式同步<br><br>管程 = 互斥锁 + 条件变量<br>       + 封装思想</div>
+        </div>
+        <div class="controls">
+          <button class="btn btn-primary" onclick="animScene3()">播放动画</button>
+          <button class="btn btn-secondary" onclick="resetScene3()">重置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ========== 工具函数 ==========
+function rr(ctx,x,y,w,h,r,fill,stroke,lw=1.5){
+  ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.arcTo(x+w,y,x+w,y+r,r);ctx.lineTo(x+w,y+h-r);ctx.arcTo(x+w,y+h,x+w-r,y+h,r);ctx.lineTo(x+r,y+h);ctx.arcTo(x,y+h,x,y+h-r,r);ctx.lineTo(x,y+r);ctx.arcTo(x,y,x+r,y,r);ctx.closePath();
+  if(fill){ctx.fillStyle=fill;ctx.fill();}
+  if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=lw;ctx.stroke();}
+}
+function arr(ctx,x1,y1,x2,y2,color,lw=1.5){
+  const a=Math.atan2(y2-y1,x2-x1),l=10;
+  ctx.strokeStyle=color;ctx.lineWidth=lw;ctx.fillStyle=color;
+  ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(x2,y2);ctx.lineTo(x2-l*Math.cos(a-.4),y2-l*Math.sin(a-.4));ctx.lineTo(x2-l*Math.cos(a+.4),y2-l*Math.sin(a+.4));ctx.closePath();ctx.fill();
+}
+function lbl(ctx,text,x,y,color='#e2e8f0',size=13,align='center',bold=false){
+  ctx.font=`${bold?700:400} ${size}px 'Noto Sans SC',sans-serif`;ctx.fillStyle=color;ctx.textAlign=align;ctx.textBaseline='middle';ctx.fillText(text,x,y);
+}
+function mnl(ctx,text,x,y,color='#fbbf24',size=12,align='center'){
+  ctx.font=`600 ${size}px 'JetBrains Mono',monospace`;ctx.fillStyle=color;ctx.textAlign=align;ctx.textBaseline='middle';ctx.fillText(text,x,y);
+}
+function bg(ctx){ctx.fillStyle='#0d1117';ctx.fillRect(0,0,740,420);}
+
+// ========== 场景0：管程概念 ==========
+let anim0=null;
+function resetScene0(){cancelAnimationFrame(anim0);const ctx=document.getElementById('c0').getContext('2d');bg(ctx);drawS0(ctx,0);}
+function animScene0(){cancelAnimationFrame(anim0);let p=0;const ctx=document.getElementById('c0').getContext('2d');function step(){drawS0(ctx,p);p++;if(p<=5)anim0=setTimeout(step,700);}step();}
+function drawS0(ctx,phase){
+  bg(ctx);lbl(ctx,'管程 Monitor 概念',370,26,'#06b6d4',16,'center',true);
+  
+  // 管程框
+  if(phase>=0){
+    rr(ctx,180,60,380,340,12,'#0f172a','#06b6d4',3);
+    lbl(ctx,'管程 Monitor',370,85,'#06b6d4',15,'center',true);
+    
+    // 共享数据
+    if(phase>=1){
+      rr(ctx,210,110,160,50,6,'#1e3a5f','#60a5fa');
+      lbl(ctx,'共享数据',290,135,'#60a5fa',12,'center',true);
+      mnl(ctx,'count, buffer[]',290,155,'#9ca3af',10);
+    }
+    
+    // 方法
+    if(phase>=2){
+      rr(ctx,210,175,160,45,6,'#1e3a5f','#22c55e');
+      lbl(ctx,'procedure put()',290,198,'#22c55e',11,'center');
+      rr(ctx,210,230,160,45,6,'#1e3a5f','#f97316');
+      lbl(ctx,'procedure get()',290,253,'#f97316',11,'center');
+    }
+    
+    // 条件变量
+    if(phase>=3){
+      rr(ctx,210,290,160,40,6,'#1e3a5f','#a78bfa');
+      lbl(ctx,'condition',290,310,'#a78bfa',11,'center');
+      lbl(ctx,'notFull, notEmpty',290,327,'#9ca3af',9);
+    }
+    
+    // 互斥锁
+    if(phase>=4){
+      rr(ctx,390,110,140,220,6,'rgba(6,182,212,0.15)','#06b6d4');
+      lbl(ctx,'互斥锁',460,135,'#06b6d4',12,'center',true);
+      lbl(ctx,'保证互斥',460,155,'#9ca3af',10);
+      lbl(ctx,'同一时刻',460,175,'#9ca3af',10);
+      lbl(ctx,'一个进程',460,195,'#9ca3af',10);
+      arr(ctx,290,202,388,180,'#06b6d4',1.5);
+    }
+  }
+  
+  // 进程
+  if(phase>=1){
+    rr(ctx,30,150,120,60,8,'#1a2332','#f97316');
+    lbl(ctx,'生产者',90,170,'#f97316',13,'center',true);
+    lbl(ctx,'调用 put()',90,195,'#9ca3af',10);
+    arr(ctx,152,180,178,180,'#f97316',2);
+    
+    rr(ctx,30,280,120,60,8,'#1a2332','#22c55e');
+    lbl(ctx,'消费者',90,300,'#22c55e',13,'center',true);
+    lbl(ctx,'调用 get()',90,325,'#9ca3af',10);
+  }
+  
+  // 说明
+  if(phase>=4){
+    rr(ctx,30,360,680,45,6,'rgba(6,182,212,0.1)','#06b6d4');
+    lbl(ctx,'管程将互斥和同步封装在一起，程序员只需调用过程，无需手动管理PV操作',370,382,'#06b6d4',12,'center');
+  }
+}
+
+// ========== 场景1：管程结构 ==========
+let anim1=null;
+function resetScene1(){cancelAnimationFrame(anim1);const ctx=document.getElementById('c1').getContext('2d');bg(ctx);drawS1(ctx,0);}
+function animScene1(){cancelAnimationFrame(anim1);let p=0;const ctx=document.getElementById('c1').getContext('2d');function step(){drawS1(ctx,p);p++;if(p<=5)anim1=setTimeout(step,700);}step();}
+function drawS1(ctx,phase){
+  bg(ctx);lbl(ctx,'管程内部结构与机制',370,26,'#06b6d4',16,'center',true);
+  
+  // 管程大门
+  if(phase>=0){
+    rr(ctx,200,55,340,350,12,'#0f172a','#06b6d4',3);
+    lbl(ctx,'管程',370,75,'#06b6d4',14,'center',true);
+    
+    // 入口队列
+    if(phase>=1){
+      rr(ctx,220,100,140,120,6,'#1e293b','#f97316');
+      lbl(ctx,'入口队列',290,115,'#f97316',12,'center',true);
+      lbl(ctx,'Entry Queue',290,132,'#9ca3af',10);
+      // 等待的进程
+      for(let i=0;i<3;i++){
+        const py=150+i*22;
+        rr(ctx,230,py,120,18,3,i===0&&phase>=2?'rgba(249,115,22,0.3)':'#0d1117',i===0&&phase>=2?'#f97316':'#3b4252');
+        lbl(ctx,['P1','P2','P3'][i],290,py+9,i===0&&phase>=2?'#f97316':'#6b7280',10);
+      }
+    }
+    
+    // 条件变量区域
+    if(phase>=2){
+      rr(ctx,380,100,140,120,6,'#1e293b','#a78bfa');
+      lbl(ctx,'条件变量区',450,115,'#a78bfa',12,'center',true);
+      lbl(ctx,'Condition Vars',450,132,'#9ca3af',10);
+      // 条件等待
+      rr(ctx,390,150,120,30,4,'rgba(167,139,250,0.2)','#a78bfa');
+      lbl(ctx,'wait(cv1) → 阻塞',450,165,'#a78bfa',10,'center');
+      rr(ctx,390,190,120,30,4,'rgba(167,139,250,0.2)','#a78bfa');
+      lbl(ctx,'signal(cv1) → 唤醒',450,205,'#a78bba',10,'center');
+      if(phase>=3){
+        arr(ctx,290,170,378,165,'#a78bfa',1.5);
+        lbl(ctx,'阻塞进程',335,155,'#a78bfa',10,'right');
+      }
+    }
+    
+    // 管程体（共享数据+方法）
+    if(phase>=3){
+      rr(ctx,220,240,300,140,6,'#1e3a5f','#22c55e');
+      lbl(ctx,'管程体（共享数据+方法）',370,258,'#22c55e',12,'center',true);
+      lbl(ctx,'正在执行的进程',370,280,'#9ca3af',10);
+      rr(ctx,260,295,220,30,4,'rgba(34,197,94,0.3)','#22c55e');
+      lbl(ctx,'P0 在管程内',370,310,'#22c55e',12,'center',true);
+    }
+  }
+  
+  // 外部进程
+  if(phase>=0){
+    rr(ctx,30,150,150,60,8,'#1a2332','#6b7280');
+    lbl(ctx,'管程外部',105,170,'#9ca3af',12,'center',true);
+    lbl(ctx,'多个进程竞争进入',105,195,'#6b7280',10);
+    
+    rr(ctx,30,280,150,60,8,'#1a2332','#6b7280');
+    lbl(ctx,'等待队列',105,300,'#9ca3af',12,'center',true);
+    lbl(ctx,'因条件不满足而等待',105,325,'#6b7280',10);
+  }
+  
+  // 关键说明
+  if(phase>=4){
+    rr(ctx,30,360,680,45,6,'rgba(249,115,22,0.1)','#f97316');
+    lbl(ctx,'wait() 释放互斥锁，允许其他进程进入管程；signal() 唤醒等待该条件的进程',370,382,'#f97316',12,'center');
+  }
+}
+
+// ========== 场景2：生产者-消费者 ==========
+let step2Idx=0;
+const pcSteps=[
+  {act:'初始化',info:'管程初始状态：count=0, 缓冲区空',buf:[]},
+  {act:'生产者P1调用put()',info:'P1进入管程，检查count<N(5)',buf:[1]},
+  {act:'P1放物品，count=1',info:'count=1 < N，signal(notEmpty)唤醒消费者',buf:[1]},
+  {act:'生产者P2调用put()',info:'P2进入管程，检查count<N(5)',buf:[1,2]},
+  {act:'P2放物品，count=2',info:'count=2，signal(notEmpty)',buf:[1,2]},
+  {act:'消费者C1调用get()',info:'C1进入管程，count>0，可以消费',buf:[2]},
+  {act:'C1取物品，count=1',info:'count=1 < N，signal(notFull)唤醒生产者',buf:[2]},
+  {act:'缓冲区满，生产者阻塞',info:'count=5= N，wait(notFull)阻塞生产者',buf:[1,2,3,4,5]},
+];
+function resetScene2(){step2Idx=0;document.getElementById('step2').textContent='等待开始...';document.getElementById('info2').textContent='点击"单步执行"演示管程同步';drawS2(document.getElementById('c2').getContext('2d'),-1,[]);}
+function stepScene2(){
+  if(step2Idx>=pcSteps.length)step2Idx=0;
+  const s=pcSteps[step2Idx];
+  document.getElementById('step2').textContent=s.act;
+  document.getElementById('info2').textContent=s.info;
+  drawS2(document.getElementById('c2').getContext('2d'),step2Idx,s.buf);
+  step2Idx++;
+}
+function drawS2(ctx,phase,buffer){
+  bg(ctx);lbl(ctx,'生产者-消费者管程演示',370,24,'#06b6d4',15,'center',true);
+  
+  // 管程
+  rr(ctx,150,60,440,340,10,'#0f172a','#06b6d4',2);
+  lbl(ctx,'管程 PC',370,82,'#06b6d4',14,'center',true);
+  
+  // 共享缓冲区
+  rr(ctx,180,110,200,80,6,'#1e293b','#60a5fa');
+  lbl(ctx,'共享缓冲区',280,125,'#60a5fa',12,'center',true);
+  lbl(ctx,'容量 N=5',280,145,'#9ca3af',10);
+  // 缓冲区格子
+  const bufSlots=5;
+  for(let i=0;i<bufSlots;i++){
+    const bx=190+i*36;
+    const filled=buffer[i]!==undefined;
+    rr(ctx,bx,155,32,28,3,filled?'rgba(96,165,250,0.3)':'#0d1117',filled?'#60a5fa':'#3b4252');
+    if(filled)mnl(ctx,buffer[i],bx+16,169,'#60a5fa',11);
+  }
+  
+  // count显示
+  rr(ctx,400,110,150,50,6,'#1e293b','#22c55e');
+  lbl(ctx,'count = '+ (buffer.length||0),475,122,'#22c55e',14,'center',true);
+  lbl(ctx,buffer.length===5?'缓冲区满!':buffer.length===0?'缓冲区空':'正常',475,148,'#9ca3af',10);
+  
+  // 条件变量
+  rr(ctx,180,210,180,45,6,'#1e293b','#a78bfa');
+  lbl(ctx,'notFull 条件',270,225,'#a78bfa',12,'center',true);
+  lbl(ctx,buffer.length<5?'满足 ✓':'不满足 wait()',270,243,'#9ca3af',10);
+  
+  rr(ctx,400,210,180,45,6,'#1e293b','#a78bfa');
+  lbl(ctx,'notEmpty 条件',490,225,'#a78bfa',12,'center',true);
+  lbl(ctx,buffer.length>0?'满足 ✓':'不满足 wait()',490,243,'#9ca3af',10);
+  
+  // 管程体/进程
+  rr(ctx,180,280,360,90,6,'#1e3a5f','#22c55e');
+  lbl(ctx,'管程内进程状态',360,295,'#22c55e',12,'center',true);
+  if(phase>=0){
+    const acts=['等待入口','入口','管程内','阻塞','等待条件'];
+    lbl(ctx,'状态: '+(pcSteps[phase]?.act||'初始'),360,320,'#fbbf24',11,'center');
+  }
+  
+  // 进程标记
+  if(phase>=1){
+    rr(ctx,30,100,100,40,6,'#f97316','#f97316');
+    lbl(ctx,'生产者',80,120,'#f97316',12,'center',true);
+  }
+  if(phase>=5){
+    rr(ctx,30,180,100,40,6,'#22c55e','#22c55e');
+    lbl(ctx,'消费者',80,200,'#22c55e',12,'center',true);
+  }
+  
+  // 箭头
+  if(phase>=1)arr(ctx,132,120,148,120,'#f97316',2);
+  if(phase>=5)arr(ctx,132,200,148,200,'#22c55e',2);
+  
+  // 说明
+  if(phase>=0){
+    lbl(ctx,'步骤'+(phase+1)+': '+(pcSteps[phase]?.act||''),370,400,'#fbbf24',11,'center');
+  }
+}
+
+// ========== 场景3：对比信号量 ==========
+let anim3=null;
+function resetScene3(){cancelAnimationFrame(anim3);const ctx=document.getElementById('c3').getContext('2d');bg(ctx);drawS3(ctx,0);}
+function animScene3(){cancelAnimationFrame(anim3);let p=0;const ctx=document.getElementById('c3').getContext('2d');function step(){drawS3(ctx,p);p++;if(p<=3)anim3=setTimeout(step,900);}step();}
+function drawS3(ctx,phase){
+  bg(ctx);lbl(ctx,'管程 vs 信号量 对比',370,26,'#06b6d4',16,'center',true);
+  
+  // 信号量列
+  if(phase>=0){
+    rr(ctx,40,60,280,340,10,'#1a1f2e','#f97316',2);
+    lbl(ctx,'信号量 Semaphore',180,85,'#f97316',14,'center',true);
+    const semItems=[
+      {title:'低级原语',desc:'P()和V()操作\n分散在代码各处\n需要手动保证配对',c:'#f97316'},
+      {title:'易出错',desc:'可能遗漏PV\n顺序可能错误\n不易调试',c:'#f87171'},
+      {title:'灵活',desc:'适用于简单同步\n二元信号量=互斥锁\n计数信号量=资源计数',c:'#fbbf24'},
+      {title:'示例',desc:'sem_wait(&mutex);\ncritical_section();\nsem_post(&mutex);',c:'#9ca3af'},
+    ];
+    semItems.forEach((it,i)=>{
+      const y=115+i*75;
+      rr(ctx,50,y,260,65,6,it.c+'22',it.c);
+      lbl(ctx,it.title,180,y+15,it.c,12,'center',true);
+      lbl(ctx,it.desc,180,y+45,it.c,10,'center');
+    });
+  }
+  
+  // 管程列
+  if(phase>=1){
+    rr(ctx,420,60,280,340,10,'#1a1f2e','#06b6d4',2);
+    lbl(ctx,'管程 Monitor',560,85,'#06b6d4',14,'center',true);
+    const monItems=[
+      {title:'高级抽象',desc:'同步逻辑封装\n集中管理\n更易读和维护',c:'#06b6d4'},
+      {title:'更安全',desc:'互斥自动保证\n条件变量清晰\n不易出错',c:'#22c55e'},
+      {title:'结构化',desc:'共享资源+操作\n+同步打包\n符合OOP思想',c:'#60a5fa'},
+      {title:'示例',desc:'monitor {\n  condition cv;\n  procedure f() {\n    if(!cond) wait(cv);\n  }\n}',c:'#9ca3af'},
+    ];
+    monItems.forEach((it,i)=>{
+      const y=115+i*75;
+      rr(ctx,430,y,260,65,6,it.c+'22',it.c);
+      lbl(ctx,it.title,560,y+15,it.c,12,'center',true);
+      lbl(ctx,it.desc,560,y+45,it.c,10,'center');
+    });
+  }
+  
+  // VS
+  if(phase>=2){
+    rr(ctx,325,180,90,60,8,'#0d1117','#e2e8f0');
+    lbl(ctx,'VS',370,195,'#e2e8f0',20,'center',true);
+    lbl(ctx,'各有优劣',370,225,'#9ca3af',12,'center');
+  }
+  
+  // 总结
+  if(phase>=3){
+    rr(ctx,40,385,660,28,6,'rgba(6,182,212,0.1)','#06b6d4');
+    lbl(ctx,'结论：简单场景用信号量，复杂共享资源用管程。Java synchronized = 管程实现',370,399,'#06b6d4',12,'center');
+  }
+}
+
+function switchTab(i){
+  document.querySelectorAll('.tab').forEach((t,j)=>t.classList.toggle('active',i===j));
+  document.querySelectorAll('.scene').forEach((s,j)=>s.classList.toggle('active',i===j));
+}
+window.onload=()=>{
+  drawS0(document.getElementById('c0').getContext('2d'),0);
+  drawS1(document.getElementById('c1').getContext('2d'),0);
+  drawS2(document.getElementById('c2').getContext('2d'),-1,[]);
+  drawS3(document.getElementById('c3').getContext('2d'),0);
+};
+</script>
+</body>
+</html>

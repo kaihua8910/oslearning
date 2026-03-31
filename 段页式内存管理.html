@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>段页式内存管理 - OS动画</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0e14; --card: #1a1f2e; --border: #3b4252;
+  --text: #e2e8f0; --muted: #9ca3af;
+  --green: #22c55e; --blue: #60a5fa; --purple: #a78bfa;
+  --orange: #f97316; --yellow: #fbbf24; --red: #f87171;
+  --teal: #2dd4bf;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Noto Sans SC',sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
+.page-header { background:linear-gradient(135deg,#0f172a,#1e293b); border-bottom:1px solid var(--border); padding:18px 30px; display:flex; align-items:center; gap:16px; }
+.back-btn { display:flex; align-items:center; gap:6px; color:var(--green); text-decoration:none; font-size:14px; padding:6px 12px; border:1px solid rgba(34,197,94,.3); border-radius:6px; transition:.2s; }
+.back-btn:hover { background:rgba(34,197,94,.1); }
+.page-title { font-size:20px; font-weight:700; color:var(--green); }
+.page-subtitle { font-size:13px; color:var(--muted); }
+.container { max-width:1100px; margin:0 auto; padding:24px 20px; }
+.tabs { display:flex; gap:8px; margin-bottom:20px; flex-wrap:wrap; }
+.tab { padding:8px 18px; border-radius:8px; border:1px solid var(--border); background:var(--card); color:var(--muted); cursor:pointer; font-size:13px; font-family:'Noto Sans SC',sans-serif; transition:.2s; }
+.tab.active { border-color:var(--green); color:var(--green); background:rgba(34,197,94,.1); }
+.scene { display:none; }
+.scene.active { display:block; }
+.layout { display:grid; grid-template-columns:1fr 320px; gap:16px; }
+canvas { border-radius:10px; border:1px solid var(--border); background:#0d1117; display:block; }
+.info-panel { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:16px; display:flex; flex-direction:column; gap:12px; }
+.info-title { font-size:14px; font-weight:700; color:var(--green); border-bottom:1px solid var(--border); padding-bottom:8px; }
+.info-text { font-size:13px; color:var(--text); line-height:1.8; }
+.info-text b { color:var(--yellow); }
+.info-text .em { color:var(--teal); }
+.step-box { background:#0d1117; border-radius:8px; padding:10px; border-left:3px solid var(--green); }
+.step-label { font-size:11px; color:var(--muted); margin-bottom:4px; }
+.step-content { font-size:12px; font-family:'JetBrains Mono',monospace; color:var(--green); }
+.controls { display:flex; gap:8px; margin-top:12px; }
+.btn { padding:7px 16px; border-radius:7px; border:none; cursor:pointer; font-size:13px; font-family:'Noto Sans SC',sans-serif; font-weight:500; transition:.2s; }
+.btn-primary { background:var(--green); color:#000; }
+.btn-primary:hover { filter:brightness(1.1); }
+.btn-secondary { background:var(--card); border:1px solid var(--border); color:var(--text); }
+.btn-secondary:hover { border-color:var(--green); color:var(--green); }
+.formula-box { background:#0d1117; border-radius:8px; padding:10px; border:1px solid rgba(251,191,36,.2); }
+.formula { font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--yellow); line-height:1.8; }
+.highlight-chip { display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-family:'JetBrains Mono',monospace; }
+</style>
+</head>
+<body>
+<div class="page-header">
+  <a href="index.html" class="back-btn">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>返回首页
+  </a>
+  <div>
+    <div class="page-title">段页式内存管理</div>
+    <div class="page-subtitle">Segmentation + Paging Combined Memory Management</div>
+  </div>
+</div>
+
+<div class="container">
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab(0)">原理概述</button>
+    <button class="tab" onclick="switchTab(1)">地址结构</button>
+    <button class="tab" onclick="switchTab(2)">地址转换过程</button>
+    <button class="tab" onclick="switchTab(3)">与纯分段/纯分页对比</button>
+  </div>
+
+  <!-- 场景0：原理概述 -->
+  <div class="scene active" id="scene0">
+    <div class="layout">
+      <canvas id="c0" width="740" height="420"></canvas>
+      <div class="info-panel">
+        <div class="info-title">段页式内存管理</div>
+        <div class="info-text">
+          段页式管理是<b>分段</b>与<b>分页</b>的结合：<br><br>
+          先将程序按<b>逻辑分段</b>（代码段、数据段、栈段），再将每段分成<b>固定大小的页</b>。<br><br>
+          <span class="em">优点：</span><br>
+          · 保留分段的<b>逻辑性</b>（便于共享和保护）<br>
+          · 保留分页的<b>消除外碎片</b>优势<br><br>
+          <span class="em">代价：</span><br>
+          · 需要两级表（段表 + 多个页表）<br>
+          · 地址转换多访问一次内存
+        </div>
+        <div class="formula-box">
+          <div class="formula">逻辑地址 = (段号 s, 段内偏移 d)<br>段内偏移 d = (页号 p, 页内偏移 w)</div>
+        </div>
+        <div class="controls">
+          <button class="btn btn-primary" onclick="animScene0()">播放动画</button>
+          <button class="btn btn-secondary" onclick="resetScene0()">重置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景1：地址结构 -->
+  <div class="scene" id="scene1">
+    <div class="layout">
+      <canvas id="c1" width="740" height="420"></canvas>
+      <div class="info-panel">
+        <div class="info-title">逻辑地址结构</div>
+        <div class="info-text">
+          段页式的逻辑地址由<b>三部分</b>组成：<br><br>
+          <b>段号 (s)</b>：标识属于哪个段<br>
+          <b>页号 (p)</b>：段内第几页<br>
+          <b>页内偏移 (w)</b>：页内字节位置<br><br>
+          <span class="em">示例（32位地址）：</span><br>
+          段号占4位 → 最多16个段<br>
+          页号占8位 → 每段最多256页<br>
+          偏移占20位 → 页大小1MB
+        </div>
+        <div class="formula-box">
+          <div class="formula">
+| s(段号) | p(页号) | w(偏移) |<br>
+|  4 bit  |  8 bit  | 20 bit  |<br>
+段长 = (最大页数) × 页大小<br>
+物理地址 = 帧号 × 页大小 + w</div>
+        </div>
+        <div class="controls">
+          <button class="btn btn-primary" onclick="animScene1()">播放动画</button>
+          <button class="btn btn-secondary" onclick="resetScene1()">重置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景2：地址转换 -->
+  <div class="scene" id="scene2">
+    <div class="layout">
+      <canvas id="c2" width="740" height="420"></canvas>
+      <div class="info-panel">
+        <div class="info-title">地址转换过程</div>
+        <div class="info-text" id="info2">点击"单步执行"逐步演示地址转换</div>
+        <div class="step-box">
+          <div class="step-label">当前步骤</div>
+          <div class="step-content" id="step2">等待开始...</div>
+        </div>
+        <div class="formula-box">
+          <div class="formula">转换需3次内存访问：<br>① 读段表 → 得页表基址<br>② 读页表 → 得物理帧号<br>③ 访问实际物理地址</div>
+        </div>
+        <div class="controls">
+          <button class="btn btn-primary" onclick="stepScene2()">单步执行</button>
+          <button class="btn btn-secondary" onclick="resetScene2()">重置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景3：对比 -->
+  <div class="scene" id="scene3">
+    <div class="layout">
+      <canvas id="c3" width="740" height="420"></canvas>
+      <div class="info-panel">
+        <div class="info-title">三种方案对比</div>
+        <div class="info-text">
+          <b>纯分段：</b><br>
+          · 有外部碎片<br>
+          · 段长可变，共享方便<br><br>
+          <b>纯分页：</b><br>
+          · 无外碎片，有内碎片<br>
+          · 不符合程序逻辑结构<br><br>
+          <b>段页式：</b><br>
+          · 无外碎片（页帧固定）<br>
+          · 保留逻辑分段<br>
+          · 两层表，开销较大
+        </div>
+        <div class="formula-box">
+          <div class="formula">段页式 = 分段的逻辑性<br>       + 分页的物理效率</div>
+        </div>
+        <div class="controls">
+          <button class="btn btn-primary" onclick="animScene3()">播放动画</button>
+          <button class="btn btn-secondary" onclick="resetScene3()">重置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ==================== 工具函数 ====================
+function roundRect(ctx, x, y, w, h, r, fill, stroke) {
+  ctx.beginPath();
+  ctx.moveTo(x+r, y);
+  ctx.lineTo(x+w-r, y); ctx.arcTo(x+w,y,x+w,y+r,r);
+  ctx.lineTo(x+w, y+h-r); ctx.arcTo(x+w,y+h,x+w-r,y+h,r);
+  ctx.lineTo(x+r, y+h); ctx.arcTo(x,y+h,x,y+h-r,r);
+  ctx.lineTo(x, y+r); ctx.arcTo(x,y,x+r,y,r);
+  ctx.closePath();
+  if(fill){ctx.fillStyle=fill;ctx.fill();}
+  if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=1.5;ctx.stroke();}
+}
+function arrow(ctx, x1,y1,x2,y2,color,lw=1.5) {
+  const angle=Math.atan2(y2-y1,x2-x1),len=12;
+  ctx.strokeStyle=color; ctx.lineWidth=lw; ctx.fillStyle=color;
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x2,y2);
+  ctx.lineTo(x2-len*Math.cos(angle-0.4),y2-len*Math.sin(angle-0.4));
+  ctx.lineTo(x2-len*Math.cos(angle+0.4),y2-len*Math.sin(angle+0.4));
+  ctx.closePath(); ctx.fill();
+}
+function label(ctx, text, x, y, color='#e2e8f0', size=13, align='center', bold=false) {
+  ctx.font = `${bold?'700':'400'} ${size}px 'Noto Sans SC', sans-serif`;
+  ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline='middle';
+  ctx.fillText(text, x, y);
+}
+function mono(ctx, text, x, y, color='#fbbf24', size=12, align='center') {
+  ctx.font = `600 ${size}px 'JetBrains Mono', monospace`;
+  ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline='middle';
+  ctx.fillText(text, x, y);
+}
+
+// ==================== 场景0：原理概述 ====================
+let anim0 = null, phase0 = 0;
+function resetScene0() {
+  cancelAnimationFrame(anim0); phase0=0;
+  const ctx = document.getElementById('c0').getContext('2d');
+  ctx.clearRect(0,0,740,420);
+  drawScene0Base(ctx);
+}
+function drawScene0Base(ctx) {
+  ctx.clearRect(0,0,740,420);
+  // 背景
+  ctx.fillStyle='#0d1117'; ctx.fillRect(0,0,740,420);
+  // 标题
+  label(ctx,'段页式内存管理原理',370,28,'#22c55e',16,'center',true);
+  // 绘制程序逻辑结构
+  label(ctx,'程序逻辑视图',120,68,'#9ca3af',13);
+  const segs=[
+    {name:'代码段',color:'#3b82f6',h:70},
+    {name:'数据段',color:'#22c55e',h:55},
+    {name:'栈  段',color:'#f97316',h:50},
+    {name:'堆  段',color:'#a78bfa',h:45},
+  ];
+  let sy=90;
+  segs.forEach(s=>{
+    roundRect(ctx,30,sy,180,s.h,6,s.color+'22',s.color);
+    label(ctx,s.name,120,sy+s.h/2,s.color,13,'center',true);
+    sy+=s.h+6;
+  });
+}
+
+function animScene0() {
+  cancelAnimationFrame(anim0); phase0=0;
+  const ctx=document.getElementById('c0').getContext('2d');
+  const segs=[
+    {name:'代码段',color:'#3b82f6',h:70,pages:3},
+    {name:'数据段',color:'#22c55e',h:55,pages:2},
+    {name:'栈  段',color:'#f97316',h:50,pages:2},
+    {name:'堆  段',color:'#a78bfa',h:45,pages:2},
+  ];
+  const pageH=30, pageW=70;
+  let startTime=null;
+  function draw(ts) {
+    if(!startTime) startTime=ts;
+    const elapsed=(ts-startTime)/1000;
+    ctx.clearRect(0,0,740,420);
+    ctx.fillStyle='#0d1117'; ctx.fillRect(0,0,740,420);
+    label(ctx,'段页式内存管理原理',370,28,'#22c55e',16,'center',true);
+
+    // 左：程序逻辑结构
+    label(ctx,'① 程序逻辑视图（分段）',120,68,'#9ca3af',12);
+    let sy=88;
+    segs.forEach((s,i)=>{
+      roundRect(ctx,30,sy,180,s.h,6,s.color+'22',s.color);
+      label(ctx,s.name,120,sy+s.h/2,s.color,12,'center',true);
+      label(ctx,`段${i}`,40,sy+s.h/2,'#ffffff',11);
+      sy+=s.h+6;
+    });
+
+    // 中间：各段对应的页
+    if(elapsed>0.6) {
+      label(ctx,'② 各段再分页',370,68,'#9ca3af',12);
+      sy=88;
+      segs.forEach((s,i)=>{
+        const midY=sy+s.h/2;
+        // 箭头
+        arrow(ctx,215,midY,280,midY,s.color);
+        // 页块
+        for(let p=0;p<s.pages;p++){
+          const px=290+(p*(pageW+4));
+          const py=midY-pageH/2;
+          const progress=Math.min(1,(elapsed-0.6-i*0.3-p*0.15));
+          if(progress>0){
+            ctx.globalAlpha=progress;
+            roundRect(ctx,px,py,pageW,pageH,4,s.color+'33',s.color);
+            mono(ctx,`页${p}`,px+pageW/2,py+pageH/2,s.color,11);
+            ctx.globalAlpha=1;
+          }
+        }
+        sy+=s.h+6;
+      });
+    }
+
+    // 右：物理内存
+    if(elapsed>2.2) {
+      label(ctx,'③ 离散存放到物理内存',600,68,'#9ca3af',12);
+      const frames=[
+        {color:'#3b82f6',label:'代码 p0'},{color:'#22c55e',label:'数据 p0'},
+        {color:'#3b82f6',label:'代码 p1'},{color:'#f97316',label:'栈  p0'},
+        {color:'#a78bfa',label:'堆  p0'},{color:'#3b82f6',label:'代码 p2'},
+        {color:'#22c55e',label:'数据 p1'},{color:'#f97316',label:'栈  p1'},
+        {color:'#a78bfa',label:'堆  p1'},{color:'#e5e7eb',label:'空闲'},
+      ];
+      frames.forEach((f,idx)=>{
+        const fy=88+idx*32;
+        const progress=Math.min(1,(elapsed-2.2-idx*0.1));
+        if(progress>0){
+          ctx.globalAlpha=progress;
+          roundRect(ctx,540,fy,150,28,4,f.color+'33',f.color);
+          mono(ctx,`帧${idx}: ${f.label}`,615,fy+14,f.color,10);
+          ctx.globalAlpha=1;
+        }
+      });
+    }
+
+    if(elapsed<5) anim0=requestAnimationFrame(draw);
+  }
+  anim0=requestAnimationFrame(draw);
+}
+
+// ==================== 场景1：地址结构 ====================
+let anim1=null;
+function resetScene1(){
+  cancelAnimationFrame(anim1);
+  const ctx=document.getElementById('c1').getContext('2d');
+  drawAddressStructure(ctx,0);
+}
+function drawAddressStructure(ctx, phase){
+  ctx.clearRect(0,0,740,420);
+  ctx.fillStyle='#0d1117'; ctx.fillRect(0,0,740,420);
+  label(ctx,'段页式逻辑地址结构',370,28,'#22c55e',16,'center',true);
+
+  // 地址位图
+  const bits=[
+    {label:'段号 s',bits:4,color:'#f87171',w:80},
+    {label:'页号 p',bits:8,color:'#fbbf24',w:160},
+    {label:'页内偏移 w',bits:20,color:'#60a5fa',w:400},
+  ];
+  let bx=30; const by=70;
+  bits.forEach(b=>{
+    roundRect(ctx,bx,by,b.w,50,4,b.color+'22',b.color);
+    label(ctx,b.label,bx+b.w/2,by+16,b.color,12,'center',true);
+    mono(ctx,`${b.bits} bits`,bx+b.w/2,by+36,b.color+'cc',11);
+    bx+=b.w;
+  });
+  label(ctx,'32位逻辑地址',370,140,'#9ca3af',12);
+
+  // 示例地址拆解
+  if(phase>0){
+    label(ctx,'示例：逻辑地址 0x050A_3C20',370,175,'#e2e8f0',14,'center',true);
+    // 二进制展示
+    const example=[
+      {label:'s=0101',desc:'段5',color:'#f87171',x:80,w:100},
+      {label:'p=00001010',desc:'页10',color:'#fbbf24',x:200,w:140},
+      {label:'w=00111100_00100000',desc:'偏移15392',color:'#60a5fa',x:370,w:280},
+    ];
+    example.forEach(e=>{
+      roundRect(ctx,e.x,200,e.w,40,4,e.color+'22',e.color);
+      mono(ctx,e.label,e.x+e.w/2,212,e.color,10);
+      label(ctx,e.desc,e.x+e.w/2,232,e.color,11);
+    });
+  }
+
+  // 段表结构
+  if(phase>1){
+    label(ctx,'段表（Segment Table）',140,280,'#a78bfa',13,'center',true);
+    const stRows=[['段号','页表基址','页表长度'],['0','0x1000','3'],['1','0x2000','2'],['5','0x5800','4']];
+    stRows.forEach((r,i)=>{
+      const ry=295+i*26;
+      const bg=i===0?'#1e293b':(r[0]==='5'?'rgba(248,113,113,0.15)':'#0d1117');
+      roundRect(ctx,30,ry,220,24,3,bg,i===0?'#a78bfa':'#3b4252');
+      [0,1,2].forEach((ci,_)=>{
+        const cx=[60,140,220];
+        mono(ctx,r[ci],cx[ci],ry+12,i===0?'#a78bfa':r[0]==='5'?'#f87171':'#e2e8f0',11);
+      });
+    });
+  }
+
+  // 页表结构
+  if(phase>2){
+    label(ctx,'段5的页表（Page Table for Seg 5）',520,280,'#60a5fa',13,'center',true);
+    const ptRows=[['页号','帧号'],['0','0x3A'],['1','0x7F'],['2','0x12'],['3','0x91']];
+    ptRows.forEach((r,i)=>{
+      const ry=295+i*26;
+      const bg=i===0?'#1e293b':'#0d1117';
+      roundRect(ctx,380,ry,280,24,3,bg,i===0?'#60a5fa':'#3b4252');
+      mono(ctx,r[0],470,ry+12,i===0?'#60a5fa':'#fbbf24',11);
+      mono(ctx,r[1],590,ry+12,i===0?'#60a5fa':'#2dd4bf',11);
+    });
+    // 连接箭头
+    arrow(ctx,252,323,378,323,'#f87171',2);
+    label(ctx,'s=5时查询此页表',315,315,'#f87171',10);
+  }
+}
+
+function animScene1(){
+  cancelAnimationFrame(anim1);
+  let p=0;
+  const ctx=document.getElementById('c1').getContext('2d');
+  const steps=[0,1,2,3];
+  function next(){
+    drawAddressStructure(ctx,p);
+    p++;
+    if(p<=3) anim1=setTimeout(next,900);
+  }
+  next();
+}
+
+// ==================== 场景2：地址转换 ====================
+let step2Idx=0;
+const steps2=[
+  {text:'输入逻辑地址 (s=2, p=1, w=256)',info:'CPU产生逻辑地址，分解出段号s=2，段内页号p=1，页内偏移w=256'},
+  {text:'查段表寄存器 → 找到段表基址',info:'段表寄存器(STR)存储段表起始物理地址，用段号s索引段表'},
+  {text:'段表[2] → 页表基址=0x3000，长度=4',info:'从段表第2项读出：该段的页表存放在物理地址0x3000，段共4页'},
+  {text:'检查p=1 < 长度4，合法',info:'越界检查：若p≥段页表长度则产生越界中断，此处合法'},
+  {text:'查页表[1] → 物理帧号=0x5A',info:'在页表(基址0x3000)中查第1项，得到物理帧号0x5A(十进制90)'},
+  {text:'物理地址 = 0x5A×4KB + 256 = 0x5A100',info:'最终物理地址 = 帧号×页大小 + 页内偏移 = 0x5A100'},
+  {text:'访问物理地址 0x5A100，读取数据',info:'完成！整个转换过程访问了内存3次（段表+页表+数据）'},
+];
+function resetScene2(){
+  step2Idx=0;
+  document.getElementById('step2').textContent='等待开始...';
+  document.getElementById('info2').textContent='点击"单步执行"逐步演示地址转换';
+  drawScene2(document.getElementById('c2').getContext('2d'),-1);
+}
+function stepScene2(){
+  if(step2Idx>=steps2.length){step2Idx=0;}
+  const s=steps2[step2Idx];
+  document.getElementById('step2').textContent=`步骤${step2Idx+1}: ${s.text}`;
+  document.getElementById('info2').textContent=s.info;
+  drawScene2(document.getElementById('c2').getContext('2d'),step2Idx);
+  step2Idx++;
+}
+function drawScene2(ctx,phase){
+  ctx.clearRect(0,0,740,420);
+  ctx.fillStyle='#0d1117'; ctx.fillRect(0,0,740,420);
+  label(ctx,'段页式地址转换（三次内存访问）',370,24,'#22c55e',15,'center',true);
+
+  // CPU逻辑地址
+  const cpuX=30,cpuY=60;
+  roundRect(ctx,cpuX,cpuY,150,90,8,'#1e3a5f','#3b82f6');
+  label(ctx,'CPU逻辑地址',cpuX+75,cpuY+16,'#60a5fa',12,'center',true);
+  const addrParts=[['s=2','#f87171',cpuX+15,cpuY+38,50,24],['p=1','#fbbf24',cpuX+75,cpuY+38,50,24],['w=256','#60a5fa',cpuX+15,cpuY+68,110,20]];
+  addrParts.forEach(([t,c,ax,ay,aw,ah])=>{roundRect(ctx,ax,ay,aw,ah,3,c+'22',c);mono(ctx,t,ax+aw/2,ay+ah/2,c,11);});
+
+  // STR（段表寄存器）
+  roundRect(ctx,cpuX,180,150,40,6,'#2d1b4e','#a78bfa');
+  label(ctx,'段表寄存器(STR)',cpuX+75,192,'#a78bfa',11,'center');
+  mono(ctx,'基址: 0x2000',cpuX+75,208,'#a78bfa',11);
+
+  // 段表
+  const stX=220, stY=55;
+  roundRect(ctx,stX,stY,180,130,8,'#1a1f2e','#a78bfa');
+  label(ctx,'段表 (内存)',stX+90,stY+16,'#a78bfa',12,'center',true);
+  [['段0','0x1000','3'],['段1','0x2800','2'],['段2','0x3000','4'],['段3','0x4200','5']].forEach((r,i)=>{
+    const ry=stY+32+i*22;
+    const isActive=(phase>=2 && i===2);
+    roundRect(ctx,stX+8,ry,164,20,3,isActive?'rgba(248,113,113,0.2)':'#0d1117',isActive?'#f87171':'#3b4252');
+    mono(ctx,r[0],stX+36,ry+10,isActive?'#f87171':'#9ca3af',10);
+    mono(ctx,r[1],stX+98,ry+10,isActive?'#fbbf24':'#9ca3af',10);
+    mono(ctx,r[2],stX+158,ry+10,isActive?'#22c55e':'#9ca3af',10);
+  });
+  // 列标题
+  mono(ctx,'段号',stX+36,stY+22,'#a78bfa',10);
+  mono(ctx,'页表基址',stX+98,stY+22,'#a78bfa',10);
+  mono(ctx,'长度',stX+158,stY+22,'#a78bfa',10);
+
+  // 页表
+  const ptX=440, ptY=55;
+  roundRect(ctx,ptX,ptY,150,130,8,'#1a1f2e','#60a5fa');
+  label(ctx,'段2的页表',ptX+75,ptY+16,'#60a5fa',12,'center',true);
+  mono(ctx,'基址: 0x3000',ptX+75,ptY+28,'#6b7280',10);
+  [['页0','0x3A'],['页1','0x5A'],['页2','0x2F'],['页3','0x88']].forEach((r,i)=>{
+    const ry=ptY+42+i*22;
+    const isActive=(phase>=4 && i===1);
+    roundRect(ctx,ptX+8,ry,134,20,3,isActive?'rgba(96,165,250,0.2)':'#0d1117',isActive?'#60a5fa':'#3b4252');
+    mono(ctx,r[0],ptX+44,ry+10,isActive?'#fbbf24':'#9ca3af',10);
+    mono(ctx,r[1],ptX+110,ry+10,isActive?'#2dd4bf':'#9ca3af',10);
+  });
+
+  // 物理内存
+  const pmX=630, pmY=55;
+  roundRect(ctx,pmX,pmY,90,130,8,'#1a1f2e','#22c55e');
+  label(ctx,'物理内存',pmX+45,pmY+16,'#22c55e',12,'center',true);
+  for(let i=0;i<5;i++){
+    const fy=pmY+32+i*20;
+    const isTarget=(phase>=5 && i===2);
+    roundRect(ctx,pmX+8,fy,74,18,3,isTarget?'rgba(34,197,94,0.3)':'#0d1117',isTarget?'#22c55e':'#3b4252');
+    mono(ctx,i===2?'帧0x5A':'帧...', pmX+45,fy+9,isTarget?'#22c55e':'#4b5563',9);
+  }
+
+  // 动画箭头
+  if(phase>=1) arrow(ctx,180,195,215,120,'#a78bfa',2); // STR→段表
+  if(phase>=0) {mono(ctx,'s=2',175,100,'#f87171',11,'right'); arrow(ctx,cpuX+150,95,stX,95,'#f87171',2);}
+  if(phase>=3) { // 段表→页表
+    arrow(ctx,stX+180,121,ptX,121,'#fbbf24',2);
+    mono(ctx,'页表基址\n0x3000',410,115,'#fbbf24',10);
+  }
+  if(phase>=4) { // 页号p
+    mono(ctx,'p=1',415,148,'#fbbf24',10,'right');
+    arrow(ctx,cpuX+75,cpuY+50,ptX,87,'#fbbf24',1.5);
+  }
+  if(phase>=5) arrow(ctx,ptX+150,87+22,pmX,87+22,'#2dd4bf',2); // 页表→物理
+  if(phase>=5) {
+    label(ctx,'帧号: 0x5A',540,145,'#2dd4bf',11,'center');
+  }
+
+  // 物理地址计算
+  if(phase>=5){
+    roundRect(ctx,220,220,500,60,8,'rgba(34,197,94,0.1)','#22c55e');
+    label(ctx,'物理地址计算',470,234,'#22c55e',13,'center',true);
+    mono(ctx,'PA = 0x5A × 4096 + 256 = 0x5A000 + 0x100 = 0x5A100',470,258,'#22c55e',11);
+  }
+
+  // 步骤高亮
+  if(phase>=0){
+    const stepLabels=['①','②','③','④','⑤','⑥','⑦'];
+    if(phase<7) label(ctx,`当前: ${stepLabels[phase]} ${steps2[phase]?.text||''}`,370,390,'#fbbf24',12,'center');
+  }
+}
+
+// ==================== 场景3：对比 ====================
+let anim3=null;
+function resetScene3(){
+  cancelAnimationFrame(anim3);
+  drawScene3(document.getElementById('c3').getContext('2d'),0);
+}
+function animScene3(){
+  cancelAnimationFrame(anim3);
+  let p=0;
+  const ctx=document.getElementById('c3').getContext('2d');
+  function step(){
+    drawScene3(ctx,p);
+    p++;
+    if(p<=4) anim3=setTimeout(step,700);
+  }
+  step();
+}
+function drawScene3(ctx,phase){
+  ctx.clearRect(0,0,740,420);
+  ctx.fillStyle='#0d1117'; ctx.fillRect(0,0,740,420);
+  label(ctx,'三种内存管理方案对比',370,24,'#22c55e',15,'center',true);
+
+  const cols=[
+    {title:'纯分段',color:'#f97316',x:60,desc:['地址结构：(段号,偏移)','段长可变','有外部碎片','便于共享保护','内存利用率低']},
+    {title:'纯分页',color:'#60a5fa',x:270,desc:['地址结构：(页号,偏移)','页大小固定','无外碎片','有内碎片','不符合逻辑']},
+    {title:'段页式',color:'#22c55e',x:480,desc:['地址结构：(段号,页号,偏移)','段长按页对齐','无外碎片','逻辑清晰','两级表结构']},
+  ];
+  cols.forEach((c,i)=>{
+    if(phase>i){
+      roundRect(ctx,c.x,55,190,340,10,c.color+'15',c.color);
+      label(ctx,c.title,c.x+95,80,c.color,15,'center',true);
+      c.desc.forEach((d,j)=>{
+        const color=i===2&&j>=3?'#22c55e':i===0&&j===4?'#f87171':i===1&&j===2?'#22c55e':i===1&&j===4?'#f87171':'#e2e8f0';
+        label(ctx,d,c.x+95,120+j*48,color,12,'center');
+        if(i===2&&j===3||i===2&&j===2) {
+          roundRect(ctx,c.x+10,108+j*48,170,22,4,'rgba(34,197,94,0.1)','rgba(34,197,94,0.4)');
+        }
+      });
+    }
+  });
+
+  // 对比标注
+  if(phase>3){
+    label(ctx,'VS',230,230,'#6b7280',20,'center',true);
+    label(ctx,'VS',440,230,'#6b7280',20,'center',true);
+  }
+  if(phase>4){
+    roundRect(ctx,30,390,680,22,6,'rgba(34,197,94,0.1)','#22c55e');
+    label(ctx,'段页式 = 分段的逻辑性 + 分页的无碎片优势，是现代OS（Linux x86-64分段已退化）的基础',370,401,'#22c55e',12,'center');
+  }
+}
+
+// ==================== 初始化 ====================
+function switchTab(i){
+  document.querySelectorAll('.tab').forEach((t,j)=>t.classList.toggle('active',i===j));
+  document.querySelectorAll('.scene').forEach((s,j)=>s.classList.toggle('active',i===j));
+}
+window.onload=()=>{
+  drawScene0Base(document.getElementById('c0').getContext('2d'));
+  drawAddressStructure(document.getElementById('c1').getContext('2d'),0);
+  drawScene2(document.getElementById('c2').getContext('2d'),-1);
+  drawScene3(document.getElementById('c3').getContext('2d'),0);
+};
+</script>
+</body>
+</html>

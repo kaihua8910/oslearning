@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>进程间通信IPC - OS动画学习</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Microsoft YaHei',sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+header{background:linear-gradient(135deg,#1a3a2a,#0f2a1a);padding:20px 40px;display:flex;align-items:center;gap:16px;border-bottom:2px solid #10b981}
+header h1{font-size:1.6rem;color:#10b981}
+header p{color:#94a3b8;font-size:.9rem;margin-top:4px}
+.back-btn{background:#1e40af;color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:.85rem;text-decoration:none}
+.back-btn:hover{background:#2563eb}
+.container{max-width:1200px;margin:0 auto;padding:30px 20px}
+.tabs{display:flex;gap:8px;margin-bottom:24px;flex-wrap:wrap}
+.tab{padding:10px 22px;border:2px solid #334155;border-radius:10px;cursor:pointer;background:transparent;color:#94a3b8;font-size:.9rem;transition:all .2s}
+.tab.active{background:#064e3b;border-color:#10b981;color:#fff}
+.tab:hover:not(.active){border-color:#64748b;color:#e2e8f0}
+.section{display:none}
+.section.active{display:block}
+.desc-box{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px;margin-bottom:20px;border-left:4px solid #10b981}
+.desc-box h3{color:#10b981;margin-bottom:8px}
+.desc-box p{color:#94a3b8;line-height:1.7;font-size:.92rem}
+.canvas-area{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px;margin-bottom:20px}
+.canvas-area h3{color:#e2e8f0;margin-bottom:16px}
+canvas{display:block;margin:0 auto;border-radius:8px;background:#0a0f1e}
+.controls{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;justify-content:center}
+.btn{padding:9px 20px;border:none;border-radius:8px;cursor:pointer;font-size:.85rem;font-weight:600;transition:all .2s}
+.btn-primary{background:#059669;color:#fff}.btn-primary:hover{background:#047857}
+.btn-success{background:#0284c7;color:#fff}.btn-success:hover{background:#0369a1}
+.btn-warning{background:#d97706;color:#fff}.btn-warning:hover{background:#b45309}
+.btn-reset{background:#475569;color:#fff}.btn-reset:hover{background:#334155}
+.info-panel{background:#0f172a;border:1px solid #334155;border-radius:10px;padding:14px;margin-top:16px;min-height:56px;font-size:.88rem;line-height:1.7;color:#94a3b8}
+.info-panel .step{color:#10b981;font-weight:600}
+table{width:100%;border-collapse:collapse;font-size:.85rem;margin-top:16px}
+th{background:#0f172a;color:#10b981;padding:10px 12px;border:1px solid #334155;text-align:left}
+td{padding:9px 12px;border:1px solid #1e293b;color:#94a3b8}
+tr:nth-child(even) td{background:#162032}
+</style>
+</head>
+<body>
+<header>
+  <a href="index.html" class="back-btn">← 返回首页</a>
+  <div>
+    <h1>📡 进程间通信 (IPC)</h1>
+    <p>管道 · 消息队列 · 共享内存 · 信号量 · 套接字 — 五大IPC机制动画详解</p>
+  </div>
+</header>
+<div class="container">
+  <div class="tabs">
+    <button class="tab active" onclick="activateTab('pipe')">管道 Pipe</button>
+    <button class="tab" onclick="activateTab('msgq')">消息队列</button>
+    <button class="tab" onclick="activateTab('shm')">共享内存</button>
+    <button class="tab" onclick="activateTab('sem')">信号量</button>
+    <button class="tab" onclick="activateTab('compare')">对比总结</button>
+  </div>
+
+  <!-- 管道 -->
+  <div id="tab-pipe" class="section active">
+    <div class="desc-box">
+      <h3>管道（Pipe）</h3>
+      <p>管道是最古老的IPC机制，本质是内核中的一个<strong style="color:#10b981">循环缓冲区</strong>。<strong>匿名管道</strong>只能在父子进程间通信，单向；<strong>命名管道（FIFO）</strong>可在任意进程间通信，有文件名。数据遵循FIFO（先进先出）顺序。</p>
+    </div>
+    <div class="canvas-area">
+      <h3>🎬 管道通信动画</h3>
+      <canvas id="pipeCanvas" width="820" height="320"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="pipeSend()">进程A写入数据</button>
+        <button class="btn btn-success" onclick="pipeRead()">进程B读取数据</button>
+        <button class="btn btn-warning" onclick="pipeFull()">模拟管道满（阻塞）</button>
+        <button class="btn btn-reset" onclick="pipeReset()">重置</button>
+      </div>
+      <div class="info-panel" id="pipeInfo">点击「进程A写入数据」开始演示管道通信</div>
+    </div>
+  </div>
+
+  <!-- 消息队列 -->
+  <div id="tab-msgq" class="section">
+    <div class="desc-box">
+      <h3>消息队列（Message Queue）</h3>
+      <p>消息队列是内核维护的<strong style="color:#10b981">消息链表</strong>，每条消息有类型（type）和数据。进程可以根据消息类型选择性读取，不必按FIFO顺序，比管道更灵活。消息队列在内核中持久存在，不依赖进程是否在运行。</p>
+    </div>
+    <div class="canvas-area">
+      <h3>🎬 消息队列通信动画</h3>
+      <canvas id="msgqCanvas" width="820" height="320"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="msgSend(1)">发送类型1消息</button>
+        <button class="btn btn-primary" onclick="msgSend(2)">发送类型2消息</button>
+        <button class="btn btn-success" onclick="msgRecv(1)">接收类型1</button>
+        <button class="btn btn-success" onclick="msgRecv(2)">接收类型2</button>
+        <button class="btn btn-reset" onclick="msgReset()">重置</button>
+      </div>
+      <div class="info-panel" id="msgqInfo">点击「发送消息」向消息队列添加消息</div>
+    </div>
+  </div>
+
+  <!-- 共享内存 -->
+  <div id="tab-shm" class="section">
+    <div class="desc-box">
+      <h3>共享内存（Shared Memory）</h3>
+      <p>共享内存是<strong style="color:#10b981">速度最快</strong>的IPC机制。OS在物理内存中分配一块区域，将同一物理内存页同时映射到多个进程的虚拟地址空间，进程可直接读写共享区域，无需数据复制。但需配合信号量进行同步控制。</p>
+    </div>
+    <div class="canvas-area">
+      <h3>🎬 共享内存映射与读写动画</h3>
+      <canvas id="shmCanvas" width="820" height="360"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="shmCreate()">创建共享内存</button>
+        <button class="btn btn-success" onclick="shmWrite()">进程A写入</button>
+        <button class="btn btn-warning" onclick="shmRead()">进程B读取</button>
+        <button class="btn btn-reset" onclick="shmReset()">重置</button>
+      </div>
+      <div class="info-panel" id="shmInfo">点击「创建共享内存」建立共享内存区域</div>
+    </div>
+  </div>
+
+  <!-- 信号量 -->
+  <div id="tab-sem" class="section">
+    <div class="desc-box">
+      <h3>信号量（Semaphore）</h3>
+      <p>信号量是用于进程同步的整数计数器，通过<strong style="color:#10b981">P操作（等待/申请）</strong>和<strong style="color:#10b981">V操作（释放/通知）</strong>控制对共享资源的访问。互斥信号量（初值=1）实现互斥，计数信号量（初值=N）控制资源数量。</p>
+    </div>
+    <div class="canvas-area">
+      <h3>🎬 信号量P/V操作动画（生产者消费者）</h3>
+      <canvas id="semCanvas" width="820" height="340"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="semProduce()">生产者生产</button>
+        <button class="btn btn-success" onclick="semConsume()">消费者消费</button>
+        <button class="btn btn-reset" onclick="semReset()">重置</button>
+      </div>
+      <div class="info-panel" id="semInfo">使用信号量解决生产者-消费者问题（缓冲区大小=5）</div>
+    </div>
+  </div>
+
+  <!-- 对比 -->
+  <div id="tab-compare" class="section">
+    <div class="desc-box">
+      <h3>IPC机制综合对比</h3>
+      <p>不同IPC机制在速度、使用场景、同步需求上各有特点，选择合适的IPC是系统设计的关键。</p>
+    </div>
+    <table>
+      <tr><th>IPC机制</th><th>速度</th><th>数据大小</th><th>通信方向</th><th>进程关系</th><th>需要同步</th><th>典型场景</th></tr>
+      <tr><td>匿名管道</td><td>中</td><td>内核缓冲(64KB)</td><td>单向</td><td>父子进程</td><td>自动（FIFO）</td><td>shell管道 cmd1|cmd2</td></tr>
+      <tr><td>命名管道FIFO</td><td>中</td><td>内核缓冲</td><td>单向/双向</td><td>任意进程</td><td>自动</td><td>任意进程间简单通信</td></tr>
+      <tr><td>消息队列</td><td>中</td><td>消息大小有限</td><td>双向</td><td>任意</td><td>自动</td><td>按类型选择性接收</td></tr>
+      <tr><td>共享内存</td><td>最快</td><td>大（仅限内存）</td><td>双向</td><td>任意</td><td>需要手动（信号量）</td><td>大量数据交换</td></tr>
+      <tr><td>信号量</td><td>快</td><td>整数计数器</td><td>单向（同步）</td><td>任意</td><td>本身即同步机制</td><td>互斥/同步控制</td></tr>
+      <tr><td>套接字Socket</td><td>慢（网络）</td><td>不限</td><td>双向</td><td>跨主机</td><td>TCP保证顺序</td><td>网络通信/跨机器IPC</td></tr>
+    </table>
+  </div>
+</div>
+
+<script>
+function activateTab(name){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('tab-'+name).classList.add('active');
+}
+function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
+function setInfo(id,html){document.getElementById(id).innerHTML=html;}
+
+// ============ 管道 ============
+const pipeCtx=document.getElementById('pipeCanvas').getContext('2d');
+const PIPE_SIZE=8;
+let pipeState={buffer:[],busy:false,blocked:false};
+
+function pipeDraw(){
+  const c=pipeCtx; c.clearRect(0,0,820,320);
+  // 进程A
+  c.fillStyle='#0a3a1a'; c.strokeStyle='#10b981'; c.lineWidth=2;
+  c.beginPath(); c.roundRect(20,100,140,120,8); c.fill(); c.stroke();
+  c.fillStyle='#10b981'; c.font='bold 12px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('进程A',90,124);
+  c.fillStyle='#94a3b8'; c.font='10px Microsoft YaHei';
+  c.fillText('Writer',90,142); c.fillText('fd[1] 写端',90,158);
+  c.fillText(`已写: ${pipeState.buffer.length}项`,90,176);
+  
+  // 管道
+  const pipeX=200, pipeW=420, pipeH=60, pipeY=130;
+  c.fillStyle='#1e293b'; c.strokeStyle='#f59e0b'; c.lineWidth=2;
+  c.beginPath(); c.roundRect(pipeX,pipeY,pipeW,pipeH,4); c.fill(); c.stroke();
+  c.fillStyle='#f59e0b'; c.font='bold 11px Microsoft YaHei'; c.textAlign='center';
+  c.fillText(`内核管道缓冲区（${pipeState.buffer.length}/${PIPE_SIZE}）`,pipeX+pipeW/2,pipeY-6);
+  
+  // 缓冲区内容
+  const cellW=pipeW/PIPE_SIZE;
+  for(let i=0;i<PIPE_SIZE;i++){
+    const cx=pipeX+i*cellW+1, cy=pipeY+1;
+    const hasData=i<pipeState.buffer.length;
+    c.fillStyle=hasData?'#064e3b':'#0f172a';
+    c.strokeStyle=hasData?'#10b981':'#334155'; c.lineWidth=1;
+    c.fillRect(cx,cy,cellW-2,pipeH-2);
+    c.strokeRect(cx,cy,cellW-2,pipeH-2);
+    if(hasData){
+      c.fillStyle='#10b981'; c.font='bold 11px monospace'; c.textAlign='center';
+      c.fillText(pipeState.buffer[i],cx+cellW/2,cy+pipeH/2+4);
+    }
+  }
+  
+  // 进程B
+  c.fillStyle='#0a1a3a'; c.strokeStyle='#0ea5e9'; c.lineWidth=2;
+  c.beginPath(); c.roundRect(660,100,140,120,8); c.fill(); c.stroke();
+  c.fillStyle='#0ea5e9'; c.font='bold 12px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('进程B',730,124);
+  c.fillStyle='#94a3b8'; c.font='10px Microsoft YaHei';
+  c.fillText('Reader',730,142); c.fillText('fd[0] 读端',730,158);
+  
+  // 阻塞提示
+  if(pipeState.blocked){
+    c.fillStyle='#ef444433'; c.strokeStyle='#ef4444'; c.lineWidth=2;
+    c.beginPath(); c.roundRect(20,240,780,50,6); c.fill(); c.stroke();
+    c.fillStyle='#ef4444'; c.font='bold 13px Microsoft YaHei'; c.textAlign='center';
+    c.fillText('⚠ 管道已满！进程A的 write() 调用阻塞，等待进程B读取数据...',410,270);
+  }
+  
+  // 箭头
+  drawArrow(pipeCtx,160,160,200,160,'#10b981');
+  drawArrow(pipeCtx,620,160,660,160,'#0ea5e9');
+  
+  c.fillStyle='#475569'; c.font='10px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('← 写入方向',300,225); c.fillText('读取方向 →',520,225);
+}
+
+function drawArrow(ctx,x1,y1,x2,y2,color){
+  ctx.strokeStyle=color; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  const a=Math.atan2(y2-y1,x2-x1);
+  ctx.fillStyle=color;
+  ctx.beginPath(); ctx.moveTo(x2,y2);
+  ctx.lineTo(x2-10*Math.cos(a-0.4),y2-10*Math.sin(a-0.4));
+  ctx.lineTo(x2-10*Math.cos(a+0.4),y2-10*Math.sin(a+0.4));
+  ctx.fill();
+}
+
+const msgNames=['Hello','Data','Ping','Msg','ACK','Bye','Test','OK'];
+async function pipeSend(){
+  if(pipeState.busy)return; pipeState.busy=true;
+  if(pipeState.buffer.length>=PIPE_SIZE){
+    pipeState.blocked=true; pipeDraw();
+    setInfo('pipeInfo','<span class="step">⚠ 管道已满（容量8）！</span>进程A的 write() 系统调用<strong>阻塞</strong>，直到进程B读取数据腾出空间。');
+    pipeState.busy=false; return;
+  }
+  pipeState.blocked=false;
+  const data=msgNames[pipeState.buffer.length%msgNames.length];
+  pipeState.buffer.push(data);
+  pipeDraw();
+  setInfo('pipeInfo',`<span class="step">进程A写入 "${data}"</span>，管道缓冲区 ${pipeState.buffer.length}/${PIPE_SIZE}。数据写入内核空间，进程A无需等待进程B读取。`);
+  pipeState.busy=false;
+}
+
+async function pipeRead(){
+  if(pipeState.busy)return; pipeState.busy=true;
+  if(pipeState.buffer.length===0){
+    setInfo('pipeInfo','<span class="step">管道为空！</span>进程B的 read() 调用<strong>阻塞</strong>，等待进程A写入数据（无写端时返回EOF）。');
+    pipeState.busy=false; return;
+  }
+  pipeState.blocked=false;
+  const data=pipeState.buffer.shift();
+  pipeDraw();
+  setInfo('pipeInfo',`<span class="step">进程B读取 "${data}"</span>，FIFO顺序。管道剩余 ${pipeState.buffer.length}/${PIPE_SIZE}。读取后数据从缓冲区删除。`);
+  pipeState.busy=false;
+}
+
+async function pipeFull(){
+  if(pipeState.busy)return; pipeState.busy=true;
+  while(pipeState.buffer.length<PIPE_SIZE) pipeState.buffer.push(msgNames[pipeState.buffer.length]);
+  pipeState.blocked=true; pipeDraw();
+  setInfo('pipeInfo','<span class="step">管道已被填满！</span>再次写入会导致进程A阻塞。点击「进程B读取」解除阻塞。');
+  pipeState.busy=false;
+}
+
+function pipeReset(){pipeState={buffer:[],busy:false,blocked:false};pipeDraw();setInfo('pipeInfo','已重置');}
+pipeDraw();
+
+// ============ 消息队列 ============
+const msgqCtx=document.getElementById('msgqCanvas').getContext('2d');
+let msgQueue=[];
+let msgBusy=false;
+
+function msgDraw(){
+  const c=msgqCtx; c.clearRect(0,0,820,320);
+  const colors={1:'#0ea5e9',2:'#a855f7',3:'#f59e0b'};
+  
+  // 发送进程
+  c.fillStyle='#0a1628'; c.strokeStyle='#0ea5e9'; c.lineWidth=2;
+  c.beginPath(); c.roundRect(10,100,130,100,8); c.fill(); c.stroke();
+  c.fillStyle='#0ea5e9'; c.font='bold 11px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('发送进程',75,124); c.fillStyle='#94a3b8'; c.font='10px Microsoft YaHei';
+  c.fillText('msgsnd()',75,142); c.fillText('类型1/2消息',75,158);
+  
+  // 队列区域
+  c.fillStyle='#1e293b'; c.strokeStyle='#f59e0b'; c.lineWidth=2;
+  c.beginPath(); c.roundRect(180,80,480,160,8); c.fill(); c.stroke();
+  c.fillStyle='#f59e0b'; c.font='bold 12px Microsoft YaHei'; c.textAlign='center';
+  c.fillText(`消息队列（内核）— ${msgQueue.length} 条消息`,420,72);
+  
+  msgQueue.forEach((msg,i)=>{
+    const mx=192+i*62, my=100;
+    c.fillStyle=colors[msg.type]+'33'; c.strokeStyle=colors[msg.type]; c.lineWidth=1.5;
+    c.beginPath(); c.roundRect(mx,my,56,110,4); c.fill(); c.stroke();
+    c.fillStyle=colors[msg.type]; c.font='bold 10px Microsoft YaHei'; c.textAlign='center';
+    c.fillText('type='+msg.type,mx+28,my+16);
+    c.fillStyle='#94a3b8'; c.font='9px monospace';
+    c.fillText(msg.data,mx+28,my+34);
+    c.fillStyle='#475569'; c.font='8px Microsoft YaHei';
+    c.fillText('#'+i,mx+28,my+52);
+    // 下一指针
+    if(i<msgQueue.length-1){
+      c.strokeStyle=colors[msg.type]; c.lineWidth=1;
+      c.beginPath(); c.moveTo(mx+56,my+55); c.lineTo(mx+62,my+55); c.stroke();
+    }
+  });
+  
+  // 接收进程
+  c.fillStyle='#1a0f2e'; c.strokeStyle='#a855f7'; c.lineWidth=2;
+  c.beginPath(); c.roundRect(680,100,130,100,8); c.fill(); c.stroke();
+  c.fillStyle='#a855f7'; c.font='bold 11px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('接收进程',745,124); c.fillStyle='#94a3b8'; c.font='10px Microsoft YaHei';
+  c.fillText('msgrcv()',745,142); c.fillText('按类型选取',745,158);
+  
+  drawArrow(msgqCtx,142,150,180,150,'#0ea5e9');
+  drawArrow(msgqCtx,660,150,680,150,'#a855f7');
+}
+
+const msgData=[['HTTP','Request'],['File','Read'],['DB','Query'],['Auth','Token']];
+let msgCnt=0;
+async function msgSend(type){
+  if(msgBusy)return; msgBusy=true;
+  if(msgQueue.length>=7){setInfo('msgqInfo','队列已满');msgBusy=false;return;}
+  const d=msgData[msgCnt%msgData.length]; msgCnt++;
+  msgQueue.push({type,data:d[0]+'\n'+d[1]});
+  msgDraw();
+  setInfo('msgqInfo',`<span class="step">发送消息</span> type=${type}, data="${d[0]} ${d[1]}"。消息被添加到内核消息队列末尾。接收方可按类型选择性接收，不必按顺序。`);
+  msgBusy=false;
+}
+
+async function msgRecv(type){
+  if(msgBusy)return; msgBusy=true;
+  const idx=msgQueue.findIndex(m=>m.type===type);
+  if(idx<0){setInfo('msgqInfo',`<span class="step">队列中没有 type=${type} 的消息，接收方阻塞等待...</span>`);msgBusy=false;return;}
+  const msg=msgQueue.splice(idx,1)[0];
+  msgDraw();
+  setInfo('msgqInfo',`<span class="step">接收 type=${type} 消息：</span> "${msg.data.replace('\n',' ')}"。注意：可跳过其他类型直接取第一个匹配消息，这是比管道更灵活的地方！`);
+  msgBusy=false;
+}
+
+function msgReset(){msgQueue=[];msgCnt=0;msgBusy=false;msgDraw();setInfo('msgqInfo','已重置');}
+msgDraw();
+
+// ============ 共享内存 ============
+const shmCtx=document.getElementById('shmCanvas').getContext('2d');
+let shmState={created:false,data:[],busy:false};
+
+function shmDraw(){
+  const c=shmCtx; c.clearRect(0,0,820,360);
+  if(!shmState.created){
+    c.fillStyle='#475569'; c.font='15px Microsoft YaHei'; c.textAlign='center';
+    c.fillText('点击「创建共享内存」建立共享内存区域',410,180);
+    return;
+  }
+  
+  // 进程A虚拟空间
+  const drawVAS=(x,y,w,label,color)=>{
+    c.fillStyle=color+'11'; c.strokeStyle=color; c.lineWidth=2;
+    c.beginPath(); c.roundRect(x,y,w,200,8); c.fill(); c.stroke();
+    c.fillStyle=color; c.font='bold 11px Microsoft YaHei'; c.textAlign='center';
+    c.fillText(label,x+w/2,y-8);
+    ['内核区','栈Stack','堆Heap'].forEach((seg,i)=>{
+      c.fillStyle='#1e293b'; c.strokeStyle='#334155'; c.lineWidth=1;
+      c.beginPath(); c.roundRect(x+8,y+8+i*38,w-16,32,3); c.fill(); c.stroke();
+      c.fillStyle='#64748b'; c.font='10px Microsoft YaHei';
+      c.fillText(seg,x+w/2,y+28+i*38);
+    });
+    // 共享内存映射区
+    c.fillStyle='#f59e0b33'; c.strokeStyle='#f59e0b'; c.lineWidth=2;
+    c.beginPath(); c.roundRect(x+8,y+122,w-16,32,3); c.fill(); c.stroke();
+    c.fillStyle='#f59e0b'; c.font='bold 10px Microsoft YaHei';
+    c.fillText('共享内存映射区 →',x+w/2,y+142);
+    // 代码
+    c.fillStyle='#1e293b'; c.strokeStyle='#334155'; c.lineWidth=1;
+    c.beginPath(); c.roundRect(x+8,y+162,w-16,30,3); c.fill(); c.stroke();
+    c.fillStyle='#64748b'; c.font='10px Microsoft YaHei';
+    c.fillText('代码段',x+w/2,y+182);
+  };
+  
+  drawVAS(20,40,220,'进程A (Writer)','#10b981');
+  drawVAS(580,40,220,'进程B (Reader)','#0ea5e9');
+  
+  // 物理内存共享区
+  c.fillStyle='#1a1a0a'; c.strokeStyle='#f59e0b'; c.lineWidth=3;
+  c.beginPath(); c.roundRect(280,140,260,100,8); c.fill(); c.stroke();
+  c.fillStyle='#f59e0b'; c.font='bold 12px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('物理内存 — 共享区域',410,132);
+  c.fillText(`shmid=0x1234  大小=4096B`,410,164);
+  
+  // 显示数据
+  shmState.data.forEach((d,i)=>{
+    const dx=290+i*50, dy=172;
+    c.fillStyle='#064e3b'; c.strokeStyle='#10b981'; c.lineWidth=1;
+    c.beginPath(); c.roundRect(dx,dy,44,44,3); c.fill(); c.stroke();
+    c.fillStyle='#10b981'; c.font='10px monospace'; c.textAlign='center';
+    c.fillText(d,dx+22,dy+26);
+  });
+  
+  // 虚实映射箭头
+  const arrowColor='#f59e0b';
+  // A→共享区
+  c.strokeStyle=arrowColor; c.lineWidth=1.5; c.setLineDash([4,3]);
+  c.beginPath(); c.moveTo(240,162); c.lineTo(280,200); c.stroke();
+  // B→共享区
+  c.beginPath(); c.moveTo(580,162); c.lineTo(540,200); c.stroke();
+  c.setLineDash([]);
+  c.fillStyle='#f59e0b'; c.font='10px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('同一物理页',410,262);
+  c.fillText('两个进程的虚拟地址映射到相同物理内存，读写无需数据复制',410,280);
+  c.fillStyle='#ef4444'; c.font='11px Microsoft YaHei';
+  c.fillText('⚠ 注意：共享内存本身无同步机制，需配合信号量/互斥锁使用！',410,306);
+}
+
+async function shmCreate(){
+  if(shmState.busy)return; shmState.busy=true;
+  shmState.created=true; shmState.data=[];
+  shmDraw();
+  setInfo('shmInfo','<span class="step">共享内存创建成功！</span>shmget()分配物理内存，shmat()将其映射到进程A和进程B的虚拟地址空间。两个进程现在有指针指向同一物理内存区域。');
+  shmState.busy=false;
+}
+
+async function shmWrite(){
+  if(shmState.busy||!shmState.created)return; shmState.busy=true;
+  if(shmState.data.length>=5){setInfo('shmInfo','共享内存已满');shmState.busy=false;return;}
+  const val='D'+(shmState.data.length+1);
+  shmState.data.push(val);
+  shmDraw();
+  setInfo('shmInfo',`<span class="step">进程A写入 "${val}"：</span>直接写物理内存，不经过内核复制！这是最快的IPC方式。进程B即可通过自己的映射地址读到相同数据。`);
+  shmState.busy=false;
+}
+
+async function shmRead(){
+  if(shmState.busy||!shmState.created||shmState.data.length===0)return; shmState.busy=true;
+  const val=shmState.data[shmState.data.length-1];
+  const c=shmCtx;
+  // 高亮最后一项
+  const i=shmState.data.length-1;
+  const dx=290+i*50, dy=172;
+  c.fillStyle='#fff'; c.strokeStyle='#0ea5e9'; c.lineWidth=3;
+  c.beginPath(); c.roundRect(dx,dy,44,44,3); c.fill(); c.stroke();
+  c.fillStyle='#0f172a'; c.font='bold 10px monospace'; c.textAlign='center';
+  c.fillText(val,dx+22,dy+26);
+  setInfo('shmInfo',`<span class="step">进程B读取 "${val}"：</span>进程B通过自己的虚拟地址直接读物理内存，无需任何复制或系统调用，速度极快！`);
+  await sleep(800); shmDraw(); shmState.busy=false;
+}
+
+function shmReset(){shmState={created:false,data:[],busy:false};shmDraw();setInfo('shmInfo','已重置');}
+shmDraw();
+
+// ============ 信号量 ============
+const semCtx=document.getElementById('semCanvas').getContext('2d');
+const BUF_SIZE=5;
+let semState={empty:BUF_SIZE,full:0,mutex:1,buffer:[],busy:false};
+
+function semDraw(){
+  const c=semCtx; c.clearRect(0,0,820,340);
+  
+  // 信号量状态
+  const sems=[
+    {name:'empty\n(空缓冲数)',val:semState.empty,color:'#0ea5e9',desc:'初值=5'},
+    {name:'full\n(满缓冲数)',val:semState.full,color:'#10b981',desc:'初值=0'},
+    {name:'mutex\n(互斥锁)',val:semState.mutex,color:'#f59e0b',desc:'初值=1'},
+  ];
+  sems.forEach((s,i)=>{
+    const sx=20+i*140, sy=20;
+    c.fillStyle=s.val>0?s.color+'22':'#ef444422';
+    c.strokeStyle=s.val>0?s.color:'#ef4444'; c.lineWidth=2;
+    c.beginPath(); c.roundRect(sx,sy,130,70,6); c.fill(); c.stroke();
+    c.fillStyle=s.val>0?s.color:'#ef4444'; c.font='bold 12px Microsoft YaHei'; c.textAlign='center';
+    s.name.split('\n').forEach((l,li)=>c.fillText(l,sx+65,sy+16+li*14));
+    c.font='bold 20px monospace'; c.fillStyle=s.val>0?'#fff':'#ef4444';
+    c.fillText(s.val,sx+65,sy+56);
+  });
+  
+  // 缓冲区
+  const bufX=480, bufY=20, bufW=320, bufH=70;
+  c.fillStyle='#1e293b'; c.strokeStyle='#64748b'; c.lineWidth=2;
+  c.beginPath(); c.roundRect(bufX,bufY,bufW,bufH,6); c.fill(); c.stroke();
+  c.fillStyle='#94a3b8'; c.font='bold 11px Microsoft YaHei'; c.textAlign='center';
+  c.fillText(`环形缓冲区（${semState.full}/${BUF_SIZE}）`,bufX+bufW/2,bufY-6);
+  for(let i=0;i<BUF_SIZE;i++){
+    const cx=bufX+12+i*60, cy=bufY+8;
+    const hasItem=i<semState.buffer.length;
+    c.fillStyle=hasItem?'#064e3b':'#0f172a';
+    c.strokeStyle=hasItem?'#10b981':'#334155'; c.lineWidth=1.5;
+    c.beginPath(); c.roundRect(cx,cy,52,52,4); c.fill(); c.stroke();
+    if(hasItem){
+      c.fillStyle='#10b981'; c.font='bold 14px monospace'; c.textAlign='center';
+      c.fillText(semState.buffer[i],cx+26,cy+32);
+    }
+  }
+  
+  // 生产者
+  const py=120;
+  c.fillStyle='#0a3a1a'; c.strokeStyle='#10b981'; c.lineWidth=2;
+  c.beginPath(); c.roundRect(20,py,180,160,8); c.fill(); c.stroke();
+  c.fillStyle='#10b981'; c.font='bold 12px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('生产者',110,py+20);
+  const pCode=['P(empty)  // -1','P(mutex)  // 加锁','put(item) // 存入','V(mutex)  // 解锁','V(full)   // +1'];
+  pCode.forEach((l,i)=>{
+    c.fillStyle=i%2===0?'#162032':'#0f172a'; c.fillRect(28,py+28+i*24,164,22);
+    c.fillStyle='#94a3b8'; c.font='9px monospace'; c.textAlign='left';
+    c.fillText(l,32,py+43+i*24);
+  });
+  
+  // 消费者
+  c.fillStyle='#0a1628'; c.strokeStyle='#0ea5e9'; c.lineWidth=2;
+  c.beginPath(); c.roundRect(620,py,180,160,8); c.fill(); c.stroke();
+  c.fillStyle='#0ea5e9'; c.font='bold 12px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('消费者',710,py+20);
+  const cCode=['P(full)   // -1','P(mutex)  // 加锁','get(item) // 取出','V(mutex)  // 解锁','V(empty)  // +1'];
+  cCode.forEach((l,i)=>{
+    c.fillStyle=i%2===0?'#162032':'#0f172a'; c.fillRect(628,py+28+i*24,164,22);
+    c.fillStyle='#94a3b8'; c.font='9px monospace'; c.textAlign='left';
+    c.fillText(l,632,py+43+i*24);
+  });
+  
+  drawArrow(semCtx,200,200,480-10,150,'#10b981');
+  drawArrow(semCtx,800,200,640,150,'#0ea5e9');
+}
+
+let itemNo=1;
+async function semProduce(){
+  if(semState.busy)return; semState.busy=true;
+  if(semState.empty===0){
+    setInfo('semInfo','<span class="step">⚠ empty=0，缓冲区已满！</span>生产者在 P(empty) 处阻塞，等待消费者消费后 V(empty) 唤醒。');
+    semState.busy=false; return;
+  }
+  if(semState.mutex===0){setInfo('semInfo','mutex=0，等待互斥锁');semState.busy=false;return;}
+  // P(empty) P(mutex)
+  semState.empty--; semState.mutex=0; semDraw(); await sleep(300);
+  // put
+  const item='P'+itemNo++; semState.buffer.push(item); semState.full++;
+  semDraw(); await sleep(300);
+  // V(mutex) V(full)
+  semState.mutex=1; semDraw(); await sleep(200);
+  setInfo('semInfo',`<span class="step">生产者生产 "${item}"：</span>P(empty)→P(mutex)→放入缓冲区→V(mutex)→V(full)。empty=${semState.empty}, full=${semState.full}`);
+  semState.busy=false;
+}
+
+async function semConsume(){
+  if(semState.busy)return; semState.busy=true;
+  if(semState.full===0){
+    setInfo('semInfo','<span class="step">⚠ full=0，缓冲区为空！</span>消费者在 P(full) 处阻塞，等待生产者生产后 V(full) 唤醒。');
+    semState.busy=false; return;
+  }
+  semState.full--; semState.mutex=0; semDraw(); await sleep(300);
+  const item=semState.buffer.shift(); semState.empty++;
+  semDraw(); await sleep(300);
+  semState.mutex=1; semDraw(); await sleep(200);
+  setInfo('semInfo',`<span class="step">消费者消费 "${item}"：</span>P(full)→P(mutex)→取出缓冲区→V(mutex)→V(empty)。empty=${semState.empty}, full=${semState.full}`);
+  semState.busy=false;
+}
+
+function semReset(){semState={empty:BUF_SIZE,full:0,mutex:1,buffer:[]};itemNo=1;semState.busy=false;semDraw();setInfo('semInfo','已重置。缓冲区大小=5，empty=5, full=0, mutex=1');}
+semReset();
+</script>
+</body>
+</html>

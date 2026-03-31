@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>前趋图 - OS动画学习</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Microsoft YaHei',sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+header{background:linear-gradient(135deg,#1a2a1a,#0a1a2a);padding:20px 40px;display:flex;align-items:center;gap:16px;border-bottom:2px solid #22d3ee}
+header h1{font-size:1.6rem;color:#22d3ee}
+header p{color:#94a3b8;font-size:.9rem;margin-top:4px}
+.back-btn{background:#1e40af;color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:.85rem;text-decoration:none}
+.back-btn:hover{background:#2563eb}
+.container{max-width:1200px;margin:0 auto;padding:30px 20px}
+.desc-box{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px;margin-bottom:20px;border-left:4px solid #22d3ee}
+.desc-box h3{color:#22d3ee;margin-bottom:8px}
+.desc-box p{color:#94a3b8;line-height:1.7;font-size:.92rem}
+.canvas-area{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px;margin-bottom:20px}
+.canvas-area h3{color:#e2e8f0;margin-bottom:16px}
+canvas{display:block;margin:0 auto;border-radius:8px;background:#0a0f1e}
+.controls{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;justify-content:center;align-items:center}
+.btn{padding:9px 20px;border:none;border-radius:8px;cursor:pointer;font-size:.85rem;font-weight:600;transition:all .2s}
+.btn-primary{background:#0e7490;color:#fff}.btn-primary:hover{background:#0c6782}
+.btn-success{background:#16a34a;color:#fff}.btn-success:hover{background:#15803d}
+.btn-warning{background:#d97706;color:#fff}.btn-warning:hover{background:#b45309}
+.btn-reset{background:#475569;color:#fff}.btn-reset:hover{background:#334155}
+.info-panel{background:#0f172a;border:1px solid #334155;border-radius:10px;padding:14px;margin-top:16px;min-height:56px;font-size:.88rem;line-height:1.7;color:#94a3b8}
+.info-panel .step{color:#22d3ee;font-weight:600}
+.tabs{display:flex;gap:8px;margin-bottom:24px;flex-wrap:wrap}
+.tab{padding:10px 22px;border:2px solid #334155;border-radius:10px;cursor:pointer;background:transparent;color:#94a3b8;font-size:.9rem;transition:all .2s}
+.tab.active{background:#0c4a6e;border-color:#22d3ee;color:#fff}
+.tab:hover:not(.active){border-color:#64748b;color:#e2e8f0}
+.section{display:none}
+.section.active{display:block}
+</style>
+</head>
+<body>
+<header>
+  <a href="index.html" class="back-btn">← 返回首页</a>
+  <div>
+    <h1>🔗 前趋图（优先图）</html>
+    <p>任务间前趋关系表示 · 拓扑排序 · 并发与同步约束</p>
+  </div>
+</header>
+<div class="container">
+  <div class="tabs">
+    <button class="tab active" onclick="activateTab('intro')">基础概念</button>
+    <button class="tab" onclick="activateTab('draw')">交互绘制</button>
+    <button class="tab" onclick="activateTab('topo')">拓扑排序执行</button>
+    <button class="tab" onclick="activateTab('example')">经典例题</button>
+  </div>
+
+  <div id="tab-intro" class="section active">
+    <div class="desc-box">
+      <h3>前趋图（Precedence Graph / DAG）</h3>
+      <p>前趋图是一个<strong style="color:#22d3ee">有向无环图（DAG）</strong>，用于描述进程（或语句）间的执行顺序约束。节点代表进程/语句，有向边 P→Q 表示"P必须在Q开始前完成"（P是Q的前趋）。</p>
+      <p style="margin-top:10px">前趋图的关键性质：①无环（若有环则产生死锁）；②入度为0的节点可并发执行；③拓扑排序给出合法的顺序执行序列。</p>
+    </div>
+    <div class="canvas-area">
+      <h3>🎬 前趋图概念动画</h3>
+      <canvas id="introCanvas" width="820" height="380"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="introAnimate()">▶ 播放演示</button>
+        <button class="btn btn-reset" onclick="introReset()">重置</button>
+      </div>
+      <div class="info-panel" id="introInfo">点击「播放演示」了解前趋图的含义</div>
+    </div>
+  </div>
+
+  <div id="tab-draw" class="section">
+    <div class="desc-box">
+      <h3>前趋图绘制练习</h3>
+      <p>根据给定的前趋关系，系统会自动绘制对应的前趋图。可以选择不同的例子进行学习。</p>
+    </div>
+    <div class="canvas-area">
+      <h3>🎬 前趋图自动绘制演示</h3>
+      <canvas id="drawCanvas" width="820" height="380"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="drawExample(0)">例1：简单顺序</button>
+        <button class="btn btn-success" onclick="drawExample(1)">例2：并行分支</button>
+        <button class="btn btn-warning" onclick="drawExample(2)">例3：汇聚同步</button>
+        <button class="btn btn-primary" onclick="drawExample(3)">例4：复杂图</button>
+        <button class="btn btn-reset" onclick="drawReset()">清空</button>
+      </div>
+      <div class="info-panel" id="drawInfo">选择一个例子查看前趋图</div>
+    </div>
+  </div>
+
+  <div id="tab-topo" class="section">
+    <div class="desc-box">
+      <h3>拓扑排序 — 前趋图的执行序列</h3>
+      <p>对前趋图进行<strong style="color:#22d3ee">拓扑排序</strong>，可以得到满足前趋关系的合法执行顺序。每次选择入度为0的节点执行，执行后删除该节点及其出边，重复直到所有节点执行完毕。</p>
+    </div>
+    <div class="canvas-area">
+      <h3>🎬 拓扑排序逐步执行动画</h3>
+      <canvas id="topoCanvas" width="820" height="400"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="topoStart()">▶ 开始排序</button>
+        <button class="btn btn-success" onclick="topoStep()">单步执行</button>
+        <button class="btn btn-reset" onclick="topoReset()">重置</button>
+      </div>
+      <div class="info-panel" id="topoInfo">点击「开始排序」或「单步执行」进行拓扑排序演示</div>
+    </div>
+  </div>
+
+  <div id="tab-example" class="section">
+    <div class="desc-box">
+      <h3>经典例题：流水线程序前趋图</h3>
+      <p>以"编译→汇编→链接→运行"流水线为例，结合并行优化分析哪些步骤可以并发执行。</p>
+    </div>
+    <div class="canvas-area">
+      <h3>🎬 程序编译流水线前趋图</h3>
+      <canvas id="exCanvas" width="820" height="380"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="exDraw()">▶ 绘制前趋图</button>
+        <button class="btn btn-success" onclick="exHighlightParallel()">高亮可并发节点</button>
+        <button class="btn btn-reset" onclick="exReset()">重置</button>
+      </div>
+      <div class="info-panel" id="exInfo">点击「绘制前趋图」查看编译流水线的前趋关系</div>
+    </div>
+  </div>
+</div>
+
+<script>
+function activateTab(name){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('tab-'+name).classList.add('active');
+}
+function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
+function setInfo(id,html){document.getElementById(id).innerHTML=html;}
+
+// ======= 工具：绘制有向图 =======
+function drawDAG(ctx,nodes,edges,highlight=[],finished=[]){
+  const c=ctx;
+  const W=820,H=ctx.canvas.height;
+  c.clearRect(0,0,W,H);
+  // 绘制边
+  edges.forEach(([from,to,label])=>{
+    const f=nodes[from], t=nodes[to];
+    const isHL=highlight.includes(from+'-'+to)||highlight.includes(from)||highlight.includes(to);
+    c.strokeStyle=isHL?'#22d3ee':'#475569'; c.lineWidth=isHL?2.5:1.5;
+    // 箭头
+    const dx=t.x-f.x, dy=t.y-f.y, len=Math.sqrt(dx*dx+dy*dy);
+    const nx=dx/len, ny=dy/len, R=26;
+    const x1=f.x+nx*R, y1=f.y+ny*R;
+    const x2=t.x-nx*R, y2=t.y-ny*R;
+    c.beginPath(); c.moveTo(x1,y1); c.lineTo(x2,y2); c.stroke();
+    const angle=Math.atan2(dy,dx);
+    c.fillStyle=isHL?'#22d3ee':'#475569';
+    c.beginPath();
+    c.moveTo(x2,y2);
+    c.lineTo(x2-10*Math.cos(angle-0.4),y2-10*Math.sin(angle-0.4));
+    c.lineTo(x2-10*Math.cos(angle+0.4),y2-10*Math.sin(angle+0.4));
+    c.fill();
+    if(label){
+      c.fillStyle='#64748b'; c.font='9px Microsoft YaHei'; c.textAlign='center';
+      c.fillText(label,(x1+x2)/2,(y1+y2)/2-6);
+    }
+  });
+  // 绘制节点
+  Object.entries(nodes).forEach(([id,n])=>{
+    const isDone=finished.includes(id);
+    const isHL=highlight.includes(id);
+    c.fillStyle=isDone?'#14532d':isHL?'#0c4a6e':'#1e293b';
+    c.strokeStyle=isDone?'#4ade80':isHL?'#22d3ee':'#64748b';
+    c.lineWidth=isHL?3:2;
+    c.beginPath(); c.arc(n.x,n.y,26,0,Math.PI*2); c.fill(); c.stroke();
+    c.fillStyle=isDone?'#4ade80':isHL?'#22d3ee':'#e2e8f0';
+    c.font='bold 12px Microsoft YaHei'; c.textAlign='center';
+    c.fillText(n.label,n.x,n.y+4);
+    if(n.desc){
+      c.fillStyle='#64748b'; c.font='9px Microsoft YaHei';
+      c.fillText(n.desc,n.x,n.y+40);
+    }
+  });
+}
+
+// ======= 基础概念演示 =======
+const introCtx=document.getElementById('introCanvas').getContext('2d');
+function introReset(){introCtx.clearRect(0,0,820,380);setInfo('introInfo','已重置');}
+
+async function introAnimate(){
+  const c=introCtx; c.clearRect(0,0,820,380);
+  // 简单前趋图：P1→P2→P4, P1→P3→P4
+  const nodes={
+    P1:{x:150,y:190,label:'P1',desc:'初始化'},
+    P2:{x:350,y:100,label:'P2',desc:'读文件'},
+    P3:{x:350,y:280,label:'P3',desc:'解析配置'},
+    P4:{x:560,y:190,label:'P4',desc:'加载模块'},
+    P5:{x:700,y:190,label:'P5',desc:'启动服务'},
+  };
+  const edges=[['P1','P2'],['P1','P3'],['P2','P4'],['P3','P4'],['P4','P5']];
+  
+  // 逐步出现
+  const steps=[
+    {msg:'前趋图由节点（进程）和有向边（前趋关系）组成',hl:[]},
+    {msg:'P1是起点，无前趋节点（入度=0），可最先执行',hl:['P1']},
+    {msg:'P1完成后，P2和P3都可以<strong>并发</strong>执行（两者无前趋关系）',hl:['P1','P2','P3','P1-P2','P1-P3']},
+    {msg:'P2、P3都完成后，P4才能开始（P4需要等待P2和P3两个前趋）',hl:['P2','P3','P4']},
+    {msg:'最终P4完成后P5执行，这是唯一的终止节点',hl:['P4','P5']},
+  ];
+  
+  for(const st of steps){
+    drawDAG(introCtx,nodes,edges,st.hl);
+    // 画前趋关系说明
+    c.fillStyle='#0f172a66'; c.fillRect(0,330,820,48);
+    c.fillStyle='#22d3ee'; c.font='12px Microsoft YaHei'; c.textAlign='center';
+    c.fillText('前趋关系: P1→P2, P1→P3, P2→P4, P3→P4, P4→P5',410,350);
+    c.fillStyle='#64748b'; c.font='11px Microsoft YaHei';
+    c.fillText('有向边 A→B 表示：A必须在B之前完成执行',410,368);
+    setInfo('introInfo',st.msg);
+    await sleep(2000);
+  }
+  drawDAG(introCtx,nodes,edges);
+}
+introAnimate();
+
+// ======= 例子绘制 =======
+const drawCtx=document.getElementById('drawCanvas').getContext('2d');
+const examples=[
+  {
+    name:'例1：简单顺序 P1→P2→P3→P4',
+    nodes:{P1:{x:120,y:190,label:'P1'},P2:{x:300,y:190,label:'P2'},P3:{x:480,y:190,label:'P3'},P4:{x:660,y:190,label:'P4'}},
+    edges:[['P1','P2'],['P2','P3'],['P3','P4']],
+    info:'顺序执行：每个进程只有一个前趋，按顺序一个接一个运行，无法并发。'
+  },
+  {
+    name:'例2：并行分支（Fork）',
+    nodes:{P1:{x:120,y:190,label:'P1'},P2:{x:320,y:80,label:'P2'},P3:{x:320,y:190,label:'P3'},P4:{x:320,y:300,label:'P4'}},
+    edges:[['P1','P2'],['P1','P3'],['P1','P4']],
+    info:'Fork型：P1执行完毕后，P2、P3、P4三个进程可以<strong>并发执行</strong>，充分利用多核CPU。'
+  },
+  {
+    name:'例3：汇聚同步（Join）',
+    nodes:{P1:{x:120,y:80,label:'P1'},P2:{x:120,y:190,label:'P2'},P3:{x:120,y:300,label:'P3'},P4:{x:360,y:190,label:'P4'},P5:{x:560,y:190,label:'P5'}},
+    edges:[['P1','P4'],['P2','P4'],['P3','P4'],['P4','P5']],
+    info:'Join型：P1、P2、P3并发执行，P4必须等待三者<strong>全部完成</strong>才能开始（同步点），P5再等P4。'
+  },
+  {
+    name:'例4：复杂前趋图',
+    nodes:{
+      S1:{x:100,y:190,label:'S1',desc:'输入'},S2:{x:260,y:80,label:'S2',desc:'计算A'},
+      S3:{x:260,y:300,label:'S3',desc:'读取B'},S4:{x:420,y:80,label:'S4',desc:'写结果'},
+      S5:{x:420,y:300,label:'S5',desc:'处理B'},S6:{x:580,y:190,label:'S6',desc:'合并'},
+      S7:{x:720,y:190,label:'S7',desc:'输出'}
+    },
+    edges:[['S1','S2'],['S1','S3'],['S2','S4'],['S2','S5'],['S3','S5'],['S4','S6'],['S5','S6'],['S6','S7']],
+    info:'复杂前趋图：多个并发与同步节点混合。S2、S3可并发；S4、S5都依赖S2；S5还依赖S3；S6汇聚S4和S5。'
+  }
+];
+
+function drawExample(idx){
+  const ex=examples[idx];
+  drawDAG(drawCtx,ex.nodes,ex.edges);
+  // 标题
+  const c=drawCtx;
+  c.fillStyle='#22d3ee'; c.font='bold 13px Microsoft YaHei'; c.textAlign='center';
+  c.fillText(ex.name,410,22);
+  setInfo('drawInfo',ex.info);
+}
+function drawReset(){drawCtx.clearRect(0,0,820,380);setInfo('drawInfo','已清空');}
+
+// ======= 拓扑排序 =======
+const topoCtx=document.getElementById('topoCanvas').getContext('2d');
+const topoNodes={
+  A:{x:100,y:200,label:'A'},B:{x:280,y:100,label:'B'},C:{x:280,y:300,label:'C'},
+  D:{x:460,y:100,label:'D'},E:{x:460,y:300,label:'E'},F:{x:640,y:200,label:'F'},G:{x:760,y:200,label:'G'}
+};
+const topoEdges=[['A','B'],['A','C'],['B','D'],['C','D'],['C','E'],['D','F'],['E','F'],['F','G']];
+let topoState={inDegree:{},adj:{},queue:[],finished:[],order:[],step:0};
+
+function topoInit(){
+  Object.keys(topoNodes).forEach(n=>{topoState.inDegree[n]=0;topoState.adj[n]=[];});
+  topoEdges.forEach(([f,t])=>{topoState.adj[f].push(t);topoState.inDegree[t]++;});
+  topoState.queue=Object.keys(topoNodes).filter(n=>topoState.inDegree[n]===0);
+  topoState.finished=[]; topoState.order=[]; topoState.step=0;
+}
+
+function topoReset(){topoInit();drawDAG(topoCtx,topoNodes,topoEdges);setInfo('topoInfo','已重置。前趋关系：A→B,A→C,B→D,C→D,C→E,D→F,E→F,F→G');}
+
+async function topoStart(){
+  topoInit();
+  while(topoState.queue.length>0){
+    await topoStep();
+    await sleep(1000);
+  }
+}
+
+function topoStep(){
+  if(topoState.queue.length===0){
+    if(topoState.finished.length===Object.keys(topoNodes).length)
+      setInfo('topoInfo',`<span class="step">✅ 拓扑排序完成！</span>执行顺序：${topoState.order.join(' → ')}`);
+    else setInfo('topoInfo','队列为空（图中有环？）');
+    return;
+  }
+  // 选第一个入度为0的节点
+  const n=topoState.queue.shift();
+  topoState.finished.push(n); topoState.order.push(n);
+  // 更新邻居入度
+  topoState.adj[n].forEach(nb=>{
+    topoState.inDegree[nb]--;
+    if(topoState.inDegree[nb]===0) topoState.queue.push(nb);
+  });
+  drawDAG(topoCtx,topoNodes,topoEdges,[n],topoState.finished);
+  const c=topoCtx;
+  c.fillStyle='#22d3ee'; c.font='12px Microsoft YaHei'; c.textAlign='left';
+  c.fillText('执行顺序：'+topoState.order.join(' → '),10,22);
+  c.fillStyle='#64748b'; c.font='11px Microsoft YaHei';
+  c.fillText('就绪队列: ['+topoState.queue.join(', ')+']',10,40);
+  setInfo('topoInfo',`<span class="step">执行节点 ${n}</span>（入度=0），删除其出边，邻居入度更新。就绪队列=[${topoState.queue.join(', ')}]`);
+}
+topoReset();
+
+// ======= 经典例题 =======
+const exCtx=document.getElementById('exCanvas').getContext('2d');
+const exNodes={
+  src1:{x:80,y:100,label:'src1',desc:'源文件1'},src2:{x:80,y:220,label:'src2',desc:'源文件2'},
+  src3:{x:80,y:340,label:'src3',desc:'源文件3'},
+  comp1:{x:240,y:100,label:'编译1',desc:'cc -c'},comp2:{x:240,y:220,label:'编译2',desc:'cc -c'},comp3:{x:240,y:340,label:'编译3',desc:'cc -c'},
+  link:{x:430,y:220,label:'链接',desc:'ld'},run:{x:600,y:220,label:'运行',desc:'./a.out'}
+};
+const exEdges=[['src1','comp1'],['src2','comp2'],['src3','comp3'],['comp1','link'],['comp2','link'],['comp3','link'],['link','run']];
+
+function exReset(){exCtx.clearRect(0,0,820,380);setInfo('exInfo','已重置');}
+function exDraw(){
+  drawDAG(exCtx,exNodes,exEdges);
+  const c=exCtx;
+  c.fillStyle='#22d3ee'; c.font='bold 13px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('多文件编译链接前趋图',410,22);
+  setInfo('exInfo','程序有3个源文件，前趋关系：各src→各编译→链接→运行。编译步骤彼此独立，可并行进行！');
+}
+function exHighlightParallel(){
+  drawDAG(exCtx,exNodes,exEdges,['comp1','comp2','comp3']);
+  const c=exCtx;
+  c.fillStyle='#22d3ee'; c.font='bold 13px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('多文件编译链接前趋图',410,22);
+  c.fillStyle='#22d3ee33'; c.strokeStyle='#22d3ee'; c.lineWidth=2; c.setLineDash([5,4]);
+  c.beginPath(); c.roundRect(190,70,120,300,8); c.fill(); c.stroke();
+  c.setLineDash([]);
+  c.fillStyle='#22d3ee'; c.font='11px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('可并发执行',250,390);
+  setInfo('exInfo','<span class="step">高亮蓝色节点可并发：</span>编译1、编译2、编译3三个步骤互无前趋关系，可以<strong>并行编译</strong>（make -j3），大幅缩短构建时间！');
+}
+</script>
+</body>
+</html>

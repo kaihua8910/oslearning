@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>多级页表与TLB快表 - OS动画</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0a0e14;--card:#1a1f2e;--border:#3b4252;--text:#e2e8f0;--muted:#9ca3af;--green:#22c55e;--blue:#60a5fa;--purple:#a78bfa;--orange:#f97316;--yellow:#fbbf24;--red:#f87171;--teal:#2dd4bf;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Noto Sans SC',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+.page-header{background:linear-gradient(135deg,#0f172a,#1e293b);border-bottom:1px solid var(--border);padding:18px 30px;display:flex;align-items:center;gap:16px;}
+.back-btn{display:flex;align-items:center;gap:6px;color:var(--blue);text-decoration:none;font-size:14px;padding:6px 12px;border:1px solid rgba(96,165,250,.3);border-radius:6px;transition:.2s;}
+.back-btn:hover{background:rgba(96,165,250,.1);}
+.page-title{font-size:20px;font-weight:700;color:var(--blue);}
+.page-subtitle{font-size:13px;color:var(--muted);}
+.container{max-width:1100px;margin:0 auto;padding:24px 20px;}
+.tabs{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;}
+.tab{padding:8px 18px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--muted);cursor:pointer;font-size:13px;font-family:'Noto Sans SC',sans-serif;transition:.2s;}
+.tab.active{border-color:var(--blue);color:var(--blue);background:rgba(96,165,250,.1);}
+.scene{display:none;}
+.scene.active{display:block;}
+.layout{display:grid;grid-template-columns:1fr 320px;gap:16px;}
+canvas{border-radius:10px;border:1px solid var(--border);background:#0d1117;display:block;}
+.info-panel{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:12px;}
+.info-title{font-size:14px;font-weight:700;color:var(--blue);border-bottom:1px solid var(--border);padding-bottom:8px;}
+.info-text{font-size:13px;color:var(--text);line-height:1.8;}
+.info-text b{color:var(--yellow);}
+.info-text .em{color:var(--teal);}
+.step-box{background:#0d1117;border-radius:8px;padding:10px;border-left:3px solid var(--blue);}
+.step-label{font-size:11px;color:var(--muted);margin-bottom:4px;}
+.step-content{font-size:12px;font-family:'JetBrains Mono',monospace;color:var(--blue);}
+.controls{display:flex;gap:8px;margin-top:12px;}
+.btn{padding:7px 16px;border-radius:7px;border:none;cursor:pointer;font-size:13px;font-family:'Noto Sans SC',sans-serif;font-weight:500;transition:.2s;}
+.btn-primary{background:var(--blue);color:#000;}
+.btn-primary:hover{filter:brightness(1.1);}
+.btn-secondary{background:var(--card);border:1px solid var(--border);color:var(--text);}
+.btn-secondary:hover{border-color:var(--blue);color:var(--blue);}
+.formula-box{background:#0d1117;border-radius:8px;padding:10px;border:1px solid rgba(251,191,36,.2);}
+.formula{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--yellow);line-height:1.8;}
+.stat-row{display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid #1e293b;}
+.stat-row .label{color:var(--muted);}
+.stat-row .val{color:var(--yellow);font-family:'JetBrains Mono',monospace;}
+</style>
+</head>
+<body>
+<div class="page-header">
+  <a href="index.html" class="back-btn">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>返回首页
+  </a>
+  <div>
+    <div class="page-title">多级页表 & TLB 快表</div>
+    <div class="page-subtitle">Multi-level Page Table & Translation Lookaside Buffer</div>
+  </div>
+</div>
+<div class="container">
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab(0)">单级页表的问题</button>
+    <button class="tab" onclick="switchTab(1)">二级页表结构</button>
+    <button class="tab" onclick="switchTab(2)">TLB快表原理</button>
+    <button class="tab" onclick="switchTab(3)">TLB命中 vs 缺失</button>
+  </div>
+
+  <!-- 场景0：单级页表的问题 -->
+  <div class="scene active" id="scene0">
+    <div class="layout">
+      <canvas id="c0" width="740" height="420"></canvas>
+      <div class="info-panel">
+        <div class="info-title">单级页表的问题</div>
+        <div class="info-text">
+          32位地址空间，页大小4KB时：<br>
+          <b>页表项数 = 2³²/2¹² = 2²⁰ = 100万项</b><br><br>
+          每项4字节 → <b>单进程页表占4MB</b><br><br>
+          <span class="em">问题：</span><br>
+          · 大多数虚拟空间未使用<br>
+          · 但页表需完整存在内存<br>
+          · 100个进程 = 400MB仅用于页表！<br><br>
+          <span class="em">解决：多级页表</span><br>
+          按需分配，只创建用到的页目录/页表
+        </div>
+        <div class="formula-box">
+          <div class="formula">页表大小问题：<br>2^20 项 × 4B = 4MB/进程<br>→ 需要多级分层结构</div>
+        </div>
+        <div class="controls">
+          <button class="btn btn-primary" onclick="animScene0()">演示问题</button>
+          <button class="btn btn-secondary" onclick="resetScene0()">重置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景1：二级页表 -->
+  <div class="scene" id="scene1">
+    <div class="layout">
+      <canvas id="c1" width="740" height="420"></canvas>
+      <div class="info-panel">
+        <div class="info-title">二级页表结构</div>
+        <div class="info-text">
+          将页表自身也分页，形成<b>两级目录</b>：<br><br>
+          <b>页目录（Page Directory）</b><br>
+          只需1页（1024项），常驻内存<br><br>
+          <b>页表（Page Table）</b><br>
+          每个页目录项指向一个页表<br>
+          按需创建，未用部分不占内存<br><br>
+          <span class="em">32位地址分割：</span><br>
+          高10位 → 页目录索引<br>
+          中10位 → 页表索引<br>
+          低12位 → 页内偏移
+        </div>
+        <div class="formula-box">
+          <div class="formula">逻辑地址 32位：<br>[10位:目录][10位:页表][12位:偏移]<br>节省内存：未用区域不建页表</div>
+        </div>
+        <div class="controls">
+          <button class="btn btn-primary" onclick="animScene1()">播放动画</button>
+          <button class="btn btn-secondary" onclick="resetScene1()">重置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景2：TLB原理 -->
+  <div class="scene" id="scene2">
+    <div class="layout">
+      <canvas id="c2" width="740" height="420"></canvas>
+      <div class="info-panel">
+        <div class="info-title">TLB 快表原理</div>
+        <div class="info-text">
+          TLB（Translation Lookaside Buffer）是<b>页表的高速缓存</b>，存储在CPU内部。<br><br>
+          <span class="em">特点：</span><br>
+          · 容量小（通常64~1024项）<br>
+          · 速度极快（1个时钟周期）<br>
+          · 采用<b>全相联映射</b>，可并行查找<br>
+          · 存储 (页号→帧号) 映射<br><br>
+          <span class="em">局部性原理：</span><br>
+          程序集中访问少量页面，TLB命中率通常 &gt;95%
+        </div>
+        <div class="formula-box">
+          <div class="formula">有效访问时间(EAT)：<br>EAT = h×(t+m) + (1-h)×(t+2m)<br>h=命中率, t=TLB查询, m=内存访问</div>
+        </div>
+        <div class="controls">
+          <button class="btn btn-primary" onclick="animScene2()">演示TLB查找</button>
+          <button class="btn btn-secondary" onclick="resetScene2()">重置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景3：TLB命中vs缺失 -->
+  <div class="scene" id="scene3">
+    <div class="layout">
+      <canvas id="c3" width="740" height="420"></canvas>
+      <div class="info-panel">
+        <div class="info-title">TLB命中 vs 缺失性能对比</div>
+        <div class="info-text" id="info3">点击"单步模拟"对比两种情况</div>
+        <div class="step-box">
+          <div class="step-label">当前访问</div>
+          <div class="step-content" id="step3">等待开始...</div>
+        </div>
+        <div class="stat-row"><span class="label">TLB访问时间</span><span class="val">1 ns</span></div>
+        <div class="stat-row"><span class="label">内存访问时间</span><span class="val">100 ns</span></div>
+        <div class="stat-row"><span class="label">TLB命中总时间</span><span class="val">101 ns</span></div>
+        <div class="stat-row"><span class="label">TLB缺失总时间</span><span class="val">201 ns</span></div>
+        <div class="controls">
+          <button class="btn btn-primary" onclick="stepScene3()">单步模拟</button>
+          <button class="btn btn-secondary" onclick="resetScene3()">重置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ========= 工具 =========
+function rr(ctx,x,y,w,h,r,fill,stroke,lw=1.5){
+  ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.arcTo(x+w,y,x+w,y+r,r);ctx.lineTo(x+w,y+h-r);ctx.arcTo(x+w,y+h,x+w-r,y+h,r);ctx.lineTo(x+r,y+h);ctx.arcTo(x,y+h,x,y+h-r,r);ctx.lineTo(x,y+r);ctx.arcTo(x,y,x+r,y,r);ctx.closePath();
+  if(fill){ctx.fillStyle=fill;ctx.fill();}
+  if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=lw;ctx.stroke();}
+}
+function arr(ctx,x1,y1,x2,y2,color,lw=1.5){
+  const a=Math.atan2(y2-y1,x2-x1),l=10;
+  ctx.strokeStyle=color;ctx.lineWidth=lw;ctx.fillStyle=color;
+  ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(x2,y2);ctx.lineTo(x2-l*Math.cos(a-.4),y2-l*Math.sin(a-.4));ctx.lineTo(x2-l*Math.cos(a+.4),y2-l*Math.sin(a+.4));ctx.closePath();ctx.fill();
+}
+function lbl(ctx,text,x,y,color='#e2e8f0',size=13,align='center',bold=false){
+  ctx.font=`${bold?700:400} ${size}px 'Noto Sans SC',sans-serif`;ctx.fillStyle=color;ctx.textAlign=align;ctx.textBaseline='middle';ctx.fillText(text,x,y);
+}
+function mnl(ctx,text,x,y,color='#fbbf24',size=12,align='center'){
+  ctx.font=`600 ${size}px 'JetBrains Mono',monospace`;ctx.fillStyle=color;ctx.textAlign=align;ctx.textBaseline='middle';ctx.fillText(text,x,y);
+}
+function bg(ctx){ctx.fillStyle='#0d1117';ctx.fillRect(0,0,740,420);}
+
+// ========= 场景0：单级页表问题 =========
+let tm0=null;
+function resetScene0(){clearTimeout(tm0);const ctx=document.getElementById('c0').getContext('2d');bg(ctx);drawS0(ctx,0);}
+function animScene0(){clearTimeout(tm0);let p=0;const ctx=document.getElementById('c0').getContext('2d');function step(){drawS0(ctx,p);p++;if(p<=5)tm0=setTimeout(step,600);}step();}
+function drawS0(ctx,phase){
+  bg(ctx);lbl(ctx,'单级页表占用内存问题（32位地址空间）',370,26,'#60a5fa',15,'center',true);
+  // 地址空间
+  rr(ctx,30,55,180,340,8,'#1e293b','#3b82f6');
+  lbl(ctx,'虚拟地址空间',120,74,'#60a5fa',12,'center',true);
+  lbl(ctx,'4 GB = 2³² Bytes',120,92,'#9ca3af',11);
+  const zones=[{h:60,color:'#22c55e',label:'代码区'},{h:40,color:'#3b82f6',label:'数据区'},{h:60,color:'#f97316',label:'堆'},{h:100,color:'#1e293b',label:'（空）未使用',ec:'#6b7280'},{h:60,color:'#a78bfa',label:'栈'}];
+  let zy=105;zones.forEach(z=>{rr(ctx,38,zy,164,z.h,4,z.color+'22',z.color||'#3b4252');lbl(ctx,z.label,120,zy+z.h/2,z.ec||z.color,11);zy+=z.h;});
+
+  // 单级页表
+  if(phase>=1){
+    rr(ctx,260,55,180,340,8,'#1e293b','#f87171');
+    lbl(ctx,'单级页表（必须完整）',350,74,'#f87171',12,'center',true);
+    lbl(ctx,'2²⁰ = 1,048,576 项',350,92,'#9ca3af',11);
+    // 填充页表项
+    for(let i=0;i<40;i++){
+      const py=105+i*7;const used=(i<5||i>32);
+      rr(ctx,268,py,164,6,1,used?'#22c55e22':'#1e293b',used?'#22c55e33':'#2d3748');
+    }
+    rr(ctx,268,105,164,35,4,'rgba(34,197,94,0.3)','#22c55e');lbl(ctx,'已用项（少量）',350,122,'#22c55e',10);
+    rr(ctx,268,148,164,200,4,'rgba(248,113,113,0.1)','#f87171');lbl(ctx,'未用项（大量浪费）',350,248,'#f87171',10);
+    arr(ctx,215,200,258,200,'#9ca3af');
+  }
+
+  // 内存占用对比
+  if(phase>=2){
+    rr(ctx,490,55,220,160,8,'#1e293b','#f87171');
+    lbl(ctx,'单级页表内存消耗',600,74,'#f87171',13,'center',true);
+    [[`页表项数: 2²⁰ = 1M项`,'#e2e8f0'],[`每项大小: 4 字节`,'#e2e8f0'],[`= 4,194,304 字节`,'#fbbf24'],[`= 4 MB / 进程`,'#f87171'],[`100进程 = 400 MB`,'#f87171']].forEach(([t,c],i)=>{
+      lbl(ctx,t,600,100+i*22,c,12);
+    });
+  }
+
+  // 解决方案
+  if(phase>=3){
+    rr(ctx,490,230,220,160,8,'rgba(34,197,94,0.1)','#22c55e');
+    lbl(ctx,'二级页表解决方案',600,250,'#22c55e',13,'center',true);
+    [['页目录: 1页(4KB)','#22c55e'],['页表: 按需分配','#22c55e'],['未用区域: 0字节','#22c55e'],['最优情况: ~8KB','#fbbf24']].forEach(([t,c],i)=>{
+      lbl(ctx,t,600,276+i*22,c,12);
+    });
+  }
+
+  if(phase>=4){arr(ctx,600,228,600,218,'#22c55e',2);lbl(ctx,'节省内存',600,208,'#22c55e',12);}
+}
+
+// ========= 场景1：二级页表 =========
+let tm1=null;
+function resetScene1(){clearTimeout(tm1);const ctx=document.getElementById('c1').getContext('2d');bg(ctx);drawS1(ctx,0);}
+function animScene1(){clearTimeout(tm1);let p=0;const ctx=document.getElementById('c1').getContext('2d');function step(){drawS1(ctx,p);p++;if(p<=6)tm1=setTimeout(step,700);}step();}
+function drawS1(ctx,phase){
+  bg(ctx);lbl(ctx,'二级页表地址转换',370,26,'#60a5fa',15,'center',true);
+
+  // 地址结构
+  lbl(ctx,'32位逻辑地址',370,54,'#9ca3af',12);
+  const parts=[{l:'页目录号',b:'[31:22] 10位',c:'#f87171',x:30,w:120},{l:'页表号',b:'[21:12] 10位',c:'#fbbf24',x:158,w:120},{l:'页内偏移',b:'[11:0] 12位',c:'#60a5fa',x:286,w:150}];
+  parts.forEach(p=>{rr(ctx,p.x,64,p.w,40,4,p.c+'22',p.c);lbl(ctx,p.l,p.x+p.w/2,78,p.c,11,'center',true);mnl(ctx,p.b,p.x+p.w/2,96,p.c+'cc',10);});
+  lbl(ctx,'（另外344位逻辑地址空间未展示）',600,84,'#4b5563',10,'right');
+
+  // 页目录
+  if(phase>=1){
+    rr(ctx,30,125,150,240,8,'#1e293b','#f87171');
+    lbl(ctx,'页目录（CR3指向）',105,144,'#f87171',11,'center',true);
+    lbl(ctx,'1024 项',105,158,'#9ca3af',10);
+    for(let i=0;i<10;i++){
+      const ry=170+i*18;
+      const active=(i===3&&phase>=2);
+      rr(ctx,38,ry,134,16,3,active?'rgba(248,113,113,0.3)':'#0d1117',active?'#f87171':'#3b4252');
+      mnl(ctx,active?'目录[3]→PT_3':'目录['+i+']',105,ry+8,active?'#f87171':'#4b5563',9);
+    }
+    arr(ctx,116,100,116,122,'#f87171',2);lbl(ctx,'目录号=3',185,112,'#f87171',11,'right');
+  }
+
+  // 页表
+  if(phase>=2){
+    rr(ctx,230,125,150,240,8,'#1e293b','#fbbf24');
+    lbl(ctx,'PT_3（页表）',305,144,'#fbbf24',11,'center',true);
+    lbl(ctx,'1024 项',305,158,'#9ca3af',10);
+    for(let i=0;i<10;i++){
+      const ry=170+i*18;
+      const active=(i===7&&phase>=3);
+      rr(ctx,238,ry,134,16,3,active?'rgba(251,191,36,0.3)':'#0d1117',active?'#fbbf24':'#3b4252');
+      mnl(ctx,active?'页表[7]→帧0x2A':'页表['+i+']',305,ry+8,active?'#fbbf24':'#4b5563',9);
+    }
+    arr(ctx,182,170,228,170,'#fbbf24',2);lbl(ctx,'页表号=7',205,162,'#fbbf24',10);
+  }
+
+  // 物理内存帧
+  if(phase>=3){
+    rr(ctx,430,125,150,240,8,'#1e293b','#60a5fa');
+    lbl(ctx,'物理内存',505,144,'#60a5fa',11,'center',true);
+    for(let i=0;i<10;i++){
+      const ry=170+i*18;
+      const active=(i===4&&phase>=4);
+      rr(ctx,438,ry,134,16,3,active?'rgba(96,165,250,0.3)':'#0d1117',active?'#60a5fa':'#3b4252');
+      mnl(ctx,active?'帧0x2A（目标）':'帧0x'+i.toString(16).padStart(2,'0'),505,ry+8,active?'#60a5fa':'#4b5563',9);
+    }
+    arr(ctx,382,196,428,196,'#60a5fa',2);lbl(ctx,'帧号=0x2A',405,188,'#60a5fa',10);
+  }
+
+  // 物理地址计算
+  if(phase>=4){
+    rr(ctx,620,125,100,100,8,'rgba(96,165,250,0.15)','#60a5fa');
+    lbl(ctx,'物理地址',670,144,'#60a5fa',12,'center',true);
+    mnl(ctx,'0x2A000',670,166,'#2dd4bf',12);
+    lbl(ctx,'+ 偏移',670,184,'#9ca3af',11);
+    mnl(ctx,'0x2A???',670,202,'#22c55e',12);
+    arr(ctx,582,172,618,172,'#60a5fa',2);
+  }
+
+  // CR3寄存器
+  if(phase>=1){
+    rr(ctx,30,380,150,30,6,'#1e2a3a','#f87171');
+    lbl(ctx,'CR3: 页目录基址',105,395,'#f87171',11,'center');
+    arr(ctx,105,378,105,368,'#f87171',2);
+  }
+
+  // 节省说明
+  if(phase>=5){
+    rr(ctx,620,240,100,120,8,'rgba(34,197,94,0.1)','#22c55e');
+    lbl(ctx,'内存节省',670,258,'#22c55e',11,'center',true);
+    lbl(ctx,'若只用底部',670,278,'#9ca3af',10);
+    lbl(ctx,'4MB空间：',670,295,'#9ca3af',10);
+    lbl(ctx,'只需1目录页',670,315,'#22c55e',11);
+    lbl(ctx,'+1页表页',670,332,'#22c55e',11);
+    lbl(ctx,'= 8 KB ✓',670,352,'#fbbf24',12,'center',true);
+  }
+}
+
+// ========= 场景2：TLB原理 =========
+let anim2=null;
+function resetScene2(){cancelAnimationFrame(anim2);const ctx=document.getElementById('c2').getContext('2d');bg(ctx);drawTLBBase(ctx,0);}
+function animScene2(){
+  cancelAnimationFrame(anim2);let t=null,p=0;
+  const ctx=document.getElementById('c2').getContext('2d');
+  function step(){drawTLBBase(ctx,p);p++;if(p<=8)t=setTimeout(step,600);}step();
+}
+function drawTLBBase(ctx,phase){
+  bg(ctx);lbl(ctx,'TLB快表（Translation Lookaside Buffer）',370,26,'#60a5fa',15,'center',true);
+
+  // CPU
+  rr(ctx,30,60,120,80,8,'#1e293b','#60a5fa');
+  lbl(ctx,'CPU',90,90,'#60a5fa',14,'center',true);
+  lbl(ctx,'发出逻辑地址',90,110,'#9ca3af',10);
+  mnl(ctx,'页号=42',90,126,'#fbbf24',11);
+
+  // TLB (CPU内部)
+  rr(ctx,200,45,240,300,10,'#1e3a2e','#22c55e',2);
+  lbl(ctx,'TLB (CPU内部缓存)',320,64,'#22c55e',13,'center',true);
+  lbl(ctx,'全相联结构，~64-1024项',320,80,'#9ca3af',10);
+  const tlbEntries=[
+    {page:5,frame:'0x3A',valid:true},{page:12,frame:'0x7B',valid:true},
+    {page:42,frame:'0x55',valid:true,highlight:phase>=2},{page:18,frame:'0x2C',valid:true},
+    {page:99,frame:'0x01',valid:false},{page:7,frame:'0x4F',valid:true},
+  ];
+  lbl(ctx,'页号','#fbbf24',270,96,'#60a5fa',10,'center');
+  mnl(ctx,'帧号',385,96,'#60a5fa',10);
+  mnl(ctx,'V',440,96,'#60a5fa',10);
+  tlbEntries.forEach((e,i)=>{
+    const ry=108+i*36;
+    const isHit=(e.page===42&&e.valid&&phase>=2);
+    rr(ctx,210,ry,260,32,4,isHit?'rgba(34,197,94,0.3)':'#0d1117',isHit?'#22c55e':'#3b4252');
+    mnl(ctx,String(e.page).padStart(3,' '),270,ry+16,isHit?'#fbbf24':'#9ca3af',11);
+    mnl(ctx,e.valid?e.frame:'---',385,ry+16,isHit?'#2dd4bf':'#6b7280',11);
+    mnl(ctx,e.valid?'1':'0',440,ry+16,e.valid?'#22c55e':'#f87171',11);
+    if(isHit){lbl(ctx,'命中!',480,ry+16,'#22c55e',12,'center',true);}
+  });
+
+  // 内存中的页表
+  rr(ctx,490,45,220,200,10,'#1e1e2e','#a78bfa');
+  lbl(ctx,'内存页表（慢速）',600,64,'#a78bfa',13,'center',true);
+  lbl(ctx,'访问需100ns',600,80,'#9ca3af',10);
+  for(let i=0;i<5;i++){
+    rr(ctx,500,95+i*28,200,24,3,i===2&&phase>=5?'rgba(167,139,250,0.2)':'#0d1117',i===2&&phase>=5?'#a78bfa':'#3b4252');
+    mnl(ctx,`页${[5,12,42,18,7][i]} → 帧${['0x3A','0x7B','0x55','0x2C','0x4F'][i]}`,600,95+i*28+12,i===2&&phase>=5?'#a78bfa':'#6b7280',10);
+  }
+
+  // 箭头
+  if(phase>=1){arr(ctx,152,100,198,100,'#fbbf24',2);lbl(ctx,'查TLB',175,90,'#fbbf24',10);}
+  if(phase>=2){
+    // 命中路径（绿色）
+    rr(ctx,200,360,240,40,8,'rgba(34,197,94,0.15)','#22c55e');
+    lbl(ctx,'TLB命中: 直接得帧号0x55 (1 ns)',320,380,'#22c55e',12,'center',true);
+    arr(ctx,320,344,320,358,'#22c55e',2);
+  }
+  if(phase>=4&&phase<6){
+    // 缺失路径（橙色）
+    rr(ctx,490,260,220,50,8,'rgba(249,115,22,0.15)','#f97316');
+    lbl(ctx,'TLB缺失：需访问内存页表',600,285,'#f97316',12,'center',true);
+    arr(ctx,450,180,488,180,'#f97316',2);lbl(ctx,'TLB Miss',468,168,'#f97316',10);
+  }
+
+  // 性能数字
+  if(phase>=6){
+    rr(ctx,490,260,220,120,8,'#1a1f2e','#fbbf24');
+    lbl(ctx,'有效访问时间(EAT)',600,278,'#fbbf24',12,'center',true);
+    lbl(ctx,'命中率h=0.95，TLB=1ns，内存=100ns',600,300,'#9ca3af',10,'center');
+    mnl(ctx,'EAT=0.95×101+0.05×201',600,324,'#fbbf24',11);
+    mnl(ctx,'= 95.95 + 10.05',600,344,'#fbbf24',11);
+    mnl(ctx,'≈ 106 ns',600,364,'#22c55e',12);
+  }
+}
+
+// ========= 场景3：命中vs缺失步进 =========
+let s3Idx=0;
+const tlbSteps=[
+  {mode:'hit',step:'CPU请求逻辑地址（页号=42）',info:'CPU发出逻辑地址，提取页号42，同时查询TLB'},
+  {mode:'hit',step:'TLB并行搜索 → 找到页号42',info:'TLB采用全相联，所有表项同时比较，命中页号42'},
+  {mode:'hit',step:'TLB命中 → 直接返回帧号0x55',info:'命中！直接得到物理帧号，跳过内存访问'},
+  {mode:'hit',step:'计算物理地址 = 0x55000 + offset',info:'物理地址 = 帧号×页大小 + 页内偏移，耗时约1ns'},
+  {mode:'miss',step:'---另一次访问---页号=100',info:'重置为TLB缺失情况，页号100不在TLB中'},
+  {mode:'miss',step:'TLB搜索 → 未命中（Miss）',info:'遍历TLB所有项，未找到页号100'},
+  {mode:'miss',step:'访问内存中的页表（+100ns）',info:'TLB缺失，必须访问内存中的页表，额外耗时100ns'},
+  {mode:'miss',step:'从页表得到帧号0x9B',info:'内存页表查询成功，得到帧号0x9B'},
+  {mode:'miss',step:'TLB更新：写入(页100→帧0x9B)',info:'将新映射写入TLB（可能替换LRU项），下次直接命中'},
+  {mode:'miss',step:'计算物理地址（总耗时~201ns）',info:'相比命中多了一次内存访问（100ns额外开销）'},
+];
+function resetScene3(){s3Idx=0;document.getElementById('step3').textContent='等待开始...';document.getElementById('info3').textContent='点击"单步模拟"对比两种情况';const ctx=document.getElementById('c3').getContext('2d');drawS3(ctx,-1,'');}
+function stepScene3(){
+  if(s3Idx>=tlbSteps.length)s3Idx=0;
+  const s=tlbSteps[s3Idx];
+  document.getElementById('step3').textContent=`Step${s3Idx+1}: ${s.step}`;
+  document.getElementById('info3').textContent=s.info;
+  drawS3(document.getElementById('c3').getContext('2d'),s3Idx,s.mode);
+  s3Idx++;
+}
+function drawS3(ctx,phase,mode){
+  bg(ctx);lbl(ctx,'TLB命中路径 vs TLB缺失路径',370,26,'#60a5fa',15,'center',true);
+  const isHit=mode==='hit';const isMiss=mode==='miss';
+  // 命中路径（左）
+  rr(ctx,20,55,330,350,10,isHit?'rgba(34,197,94,0.08)':'#0d0d0d',isHit?'#22c55e':'#2d3748');
+  lbl(ctx,'TLB命中路径',185,74,'#22c55e',13,'center',true);
+  lbl(ctx,'总耗时: 101 ns',185,92,'#22c55e',11);
+  const hitNodes=[{l:'CPU逻辑地址',y:120,c:'#60a5fa'},{l:'TLB查找(1ns)',y:175,c:'#22c55e'},{l:'命中! 得帧号',y:230,c:'#22c55e'},{l:'计算物理地址',y:285,c:'#fbbf24'},{l:'访问物理内存(100ns)',y:340,c:'#60a5fa'}];
+  hitNodes.forEach((n,i)=>{
+    const active=isHit&&phase>=i;
+    rr(ctx,60,n.y-15,250,30,6,active?n.c+'33':'#1e293b',active?n.c:'#3b4252');
+    lbl(ctx,n.l,185,n.y,active?n.c:'#6b7280',12);
+    if(i<hitNodes.length-1&&active)arr(ctx,185,n.y+15,185,hitNodes[i+1].y-15,n.c,1.5);
+  });
+
+  // 缺失路径（右）
+  rr(ctx,390,55,330,350,10,isMiss?'rgba(249,115,22,0.08)':'#0d0d0d',isMiss?'#f97316':'#2d3748');
+  lbl(ctx,'TLB缺失路径',555,74,'#f97316',13,'center',true);
+  lbl(ctx,'总耗时: 201 ns',555,92,'#f97316',11);
+  const missNodes=[{l:'CPU逻辑地址',y:120,c:'#60a5fa'},{l:'TLB查找(1ns)',y:163,c:'#f97316'},{l:'Miss! 访问页表(100ns)',y:206,c:'#f87171'},{l:'得帧号(内存取回)',y:249,c:'#fbbf24'},{l:'TLB更新',y:292,c:'#f97316'},{l:'计算物理地址',y:335,c:'#fbbf24'},{l:'访问物理内存(100ns)',y:378,c:'#60a5fa'}];
+  missNodes.forEach((n,i)=>{
+    const sidx=i+(mode==='miss'?-(tlbSteps.findIndex(s=>s.mode==='miss')):100);
+    const active=isMiss&&phase>=(i+4);
+    rr(ctx,410,n.y-15,270,28,6,active?n.c+'33':'#1e293b',active?n.c:'#3b4252');
+    lbl(ctx,n.l,555,n.y,active?n.c:'#6b7280',11);
+    if(i<missNodes.length-1&&active)arr(ctx,555,n.y+13,555,missNodes[i+1].y-13,n.c,1.5);
+  });
+}
+
+function switchTab(i){
+  document.querySelectorAll('.tab').forEach((t,j)=>t.classList.toggle('active',i===j));
+  document.querySelectorAll('.scene').forEach((s,j)=>s.classList.toggle('active',i===j));
+}
+window.onload=()=>{
+  drawS0(document.getElementById('c0').getContext('2d'),0);
+  drawS1(document.getElementById('c1').getContext('2d'),0);
+  drawTLBBase(document.getElementById('c2').getContext('2d'),0);
+  drawS3(document.getElementById('c3').getContext('2d'),-1,'');
+};
+</script>
+</body>
+</html>

@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>请求分段内存管理 - OS动画学习</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Microsoft YaHei',sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+header{background:linear-gradient(135deg,#1a0a2a,#2a0a1a);padding:20px 40px;display:flex;align-items:center;gap:16px;border-bottom:2px solid #c084fc}
+header h1{font-size:1.6rem;color:#c084fc}
+header p{color:#94a3b8;font-size:.9rem;margin-top:4px}
+.back-btn{background:#1e40af;color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:.85rem;text-decoration:none}
+.back-btn:hover{background:#2563eb}
+.container{max-width:1200px;margin:0 auto;padding:30px 20px}
+.desc-box{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px;margin-bottom:20px;border-left:4px solid #c084fc}
+.desc-box h3{color:#c084fc;margin-bottom:8px}
+.desc-box p{color:#94a3b8;line-height:1.7;font-size:.92rem}
+.canvas-area{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px;margin-bottom:20px}
+.canvas-area h3{color:#e2e8f0;margin-bottom:16px}
+canvas{display:block;margin:0 auto;border-radius:8px;background:#0a0f1e}
+.controls{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;justify-content:center}
+.btn{padding:9px 20px;border:none;border-radius:8px;cursor:pointer;font-size:.85rem;font-weight:600;transition:all .2s}
+.btn-primary{background:#7e22ce;color:#fff}.btn-primary:hover{background:#6b21a8}
+.btn-success{background:#16a34a;color:#fff}.btn-success:hover{background:#15803d}
+.btn-warning{background:#d97706;color:#fff}.btn-warning:hover{background:#b45309}
+.btn-reset{background:#475569;color:#fff}.btn-reset:hover{background:#334155}
+.info-panel{background:#0f172a;border:1px solid #334155;border-radius:10px;padding:14px;margin-top:16px;min-height:56px;font-size:.88rem;line-height:1.7;color:#94a3b8}
+.info-panel .step{color:#c084fc;font-weight:600}
+.tabs{display:flex;gap:8px;margin-bottom:24px;flex-wrap:wrap}
+.tab{padding:10px 22px;border:2px solid #334155;border-radius:10px;cursor:pointer;background:transparent;color:#94a3b8;font-size:.9rem;transition:all .2s}
+.tab.active{background:#581c87;border-color:#c084fc;color:#fff}
+.tab:hover:not(.active){border-color:#64748b;color:#e2e8f0}
+.section{display:none}.section.active{display:block}
+</style>
+</head>
+<body>
+<header>
+  <a href="index.html" class="back-btn">← 返回首页</a>
+  <div>
+    <h1>📐 请求分段内存管理</h1>
+    <p>段式虚拟内存 · 段缺失异常 · 换段机制 · 段表结构动画</p>
+  </div>
+</header>
+<div class="container">
+  <div class="tabs">
+    <button class="tab active" onclick="activateTab('concept')">基本概念</button>
+    <button class="tab" onclick="activateTab('table')">段表结构</button>
+    <button class="tab" onclick="activateTab('fault')">段缺失处理</button>
+    <button class="tab" onclick="activateTab('compare')">与请求分页对比</button>
+  </div>
+
+  <div id="tab-concept" class="section active">
+    <div class="desc-box">
+      <h3>请求分段（Demand Segmentation）</h3>
+      <p>请求分段是分段内存管理的扩展，允许进程的段<strong style="color:#c084fc">按需调入</strong>内存。不需要将所有段同时装入，仅在访问某段时发现该段不在内存时，才触发<strong>段缺失异常（Segment Fault）</strong>，由OS负责将该段从磁盘调入内存。</p>
+      <p style="margin-top:10px">与请求分页的区别：分段以<strong>逻辑段</strong>为单位（大小可变），分页以<strong>固定大小页</strong>为单位。</p>
+    </div>
+    <div class="canvas-area">
+      <h3>🎬 请求分段基本原理动画</h3>
+      <canvas id="conceptCanvas" width="820" height="380"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="conceptDraw()">▶ 展示原理</button>
+        <button class="btn btn-success" onclick="conceptAccess()">模拟段访问</button>
+        <button class="btn btn-reset" onclick="conceptCtx.clearRect(0,0,820,380)">重置</button>
+      </div>
+      <div class="info-panel" id="conceptInfo">点击「展示原理」了解请求分段内存管理基本概念</div>
+    </div>
+  </div>
+
+  <div id="tab-table" class="section">
+    <div class="desc-box">
+      <h3>扩展段表结构</h3>
+      <p>请求分段的段表在普通段表基础上增加了<strong style="color:#c084fc">存在位、修改位、访问位、外存地址</strong>等字段，用于判断段是否在内存以及换段时的处理。</p>
+    </div>
+    <div class="canvas-area">
+      <h3>🎬 请求分段段表详解</h3>
+      <canvas id="tableCanvas" width="820" height="360"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="tableDraw()">▶ 显示段表</button>
+        <button class="btn btn-success" onclick="tableHighlight()">高亮扩展字段</button>
+        <button class="btn btn-reset" onclick="tableCtx.clearRect(0,0,820,360)">重置</button>
+      </div>
+      <div class="info-panel" id="tableInfo">点击「显示段表」查看完整段表结构</div>
+    </div>
+  </div>
+
+  <div id="tab-fault" class="section">
+    <div class="desc-box">
+      <h3>段缺失异常处理流程</h3>
+      <p>当访问一个段时，若段表中该段的<strong style="color:#c084fc">存在位P=0</strong>，则触发段缺失异常（类似页缺失）。OS处理流程：①保存现场→②查磁盘地址→③检查内存空间→④调入该段→⑤更新段表→⑥重新执行指令。</p>
+    </div>
+    <div class="canvas-area">
+      <h3>🎬 段缺失处理6步流程动画</h3>
+      <canvas id="faultCanvas" width="820" height="400"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="faultAnimate()">▶ 模拟段缺失</button>
+        <button class="btn btn-success" onclick="faultStep()">单步</button>
+        <button class="btn btn-reset" onclick="faultReset()">重置</button>
+      </div>
+      <div class="info-panel" id="faultInfo">点击「模拟段缺失」查看完整处理流程</div>
+    </div>
+  </div>
+
+  <div id="tab-compare" class="section">
+    <div class="desc-box">
+      <h3>请求分段 vs 请求分页</h3>
+      <p>两种虚拟内存技术的核心区别在于单位大小——分段按逻辑语义划分（可变长），分页按固定物理大小划分。</p>
+    </div>
+    <div class="canvas-area">
+      <h3>🎬 分段 vs 分页对比图</h3>
+      <canvas id="cmpCanvas" width="820" height="380"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="cmpDraw()">▶ 显示对比</button>
+      </div>
+      <div class="info-panel" id="cmpInfo">点击显示对比图</div>
+    </div>
+  </div>
+</div>
+
+<script>
+function activateTab(name){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('tab-'+name).classList.add('active');
+}
+function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
+function setInfo(id,html){document.getElementById(id).innerHTML=html;}
+
+// ======= 概念 =======
+const conceptCtx=document.getElementById('conceptCanvas').getContext('2d');
+
+async function conceptDraw(){
+  const c=conceptCtx; c.clearRect(0,0,820,380);
+  // 逻辑地址空间
+  c.fillStyle='#c084fc'; c.font='bold 13px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('逻辑地址空间（进程视图）',150,22);
+  const segs=[
+    {name:'代码段\nCode',size:80,color:'#0ea5e9',inMem:true},
+    {name:'数据段\nData',size:60,color:'#10b981',inMem:true},
+    {name:'堆 Heap',size:70,color:'#f59e0b',inMem:false},
+    {name:'栈 Stack',size:50,color:'#a855f7',inMem:true},
+    {name:'共享库',size:55,color:'#ef4444',inMem:false},
+  ];
+  let y=34;
+  segs.forEach((s,i)=>{
+    c.fillStyle=s.color+(s.inMem?'33':'11');
+    c.strokeStyle=s.color; c.lineWidth=s.inMem?2:1;
+    c.setLineDash(s.inMem?[]:[5,4]);
+    c.beginPath(); c.roundRect(10,y,280,s.size-4,4); c.fill(); c.stroke();
+    c.setLineDash([]);
+    c.fillStyle=s.inMem?s.color:'#64748b'; c.font='11px Microsoft YaHei'; c.textAlign='center';
+    s.name.split('\n').forEach((l,li)=>c.fillText(l,150,y+16+li*14));
+    c.fillStyle='#475569'; c.font='9px Microsoft YaHei';
+    c.fillText(s.inMem?'(已在内存)':'(在磁盘)',150,y+s.size-14);
+    y+=s.size;
+  });
+  
+  // 内存
+  c.fillStyle='#c084fc'; c.font='bold 13px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('物理内存（实际存储）',560,22);
+  const memSegs=segs.filter(s=>s.inMem);
+  let my=34;
+  memSegs.forEach(s=>{
+    c.fillStyle=s.color+'33'; c.strokeStyle=s.color; c.lineWidth=2;
+    c.beginPath(); c.roundRect(430,my,280,s.size-4,4); c.fill(); c.stroke();
+    c.fillStyle=s.color; c.font='11px Microsoft YaHei'; c.textAlign='center';
+    c.fillText(s.name.replace('\n',' '),570,my+s.size/2+4);
+    my+=s.size;
+  });
+  // 空闲区
+  c.fillStyle='#1e293b'; c.strokeStyle='#334155'; c.lineWidth=1;
+  c.beginPath(); c.roundRect(430,my,280,60,4); c.fill(); c.stroke();
+  c.fillStyle='#334155'; c.font='11px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('空闲',570,my+30);
+  
+  // 段表指示箭头
+  c.strokeStyle='#c084fc'; c.lineWidth=1.5; c.setLineDash([4,3]);
+  c.beginPath(); c.moveTo(292,80); c.lineTo(428,50); c.stroke();
+  c.beginPath(); c.moveTo(292,160); c.lineTo(428,130); c.stroke();
+  c.beginPath(); c.moveTo(292,270); c.lineTo(428,210); c.stroke();
+  c.setLineDash([]);
+  
+  // 磁盘
+  c.fillStyle='#64748b22'; c.strokeStyle='#64748b'; c.lineWidth=1;
+  c.beginPath(); c.roundRect(750,140,60,100,6); c.fill(); c.stroke();
+  c.fillStyle='#64748b'; c.font='10px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('磁盘',780,168); c.fillText('Heap',780,190); c.fillText('共享库',780,210);
+  c.strokeStyle='#f59e0b44'; c.lineWidth=1.5;
+  c.beginPath(); c.moveTo(292,210); c.lineTo(748,170); c.stroke();
+  c.beginPath(); c.moveTo(292,300); c.lineTo(748,200); c.stroke();
+  
+  setInfo('conceptInfo','<span class="step">请求分段原理：</span>进程的各个段可以分散存储，已在内存的段（代码、数据、栈）可直接访问；未在内存的段（堆、共享库）存放在磁盘，访问时触发段缺失异常，OS负责调入。');
+}
+
+async function conceptAccess(){
+  const c=conceptCtx;
+  // 模拟访问堆（缺失）
+  c.fillStyle='#ef4444'; c.font='bold 13px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('→ 访问堆段！存在位P=0 → 段缺失异常！',410,370);
+  await sleep(500);
+  c.fillStyle='#4ade80'; c.font='bold 13px Microsoft YaHei';
+  c.fillText('OS处理：磁盘→内存，更新段表P=1，重新执行指令',410,370);
+  setInfo('conceptInfo','<span class="step">段缺失：</span>访问堆段时，段表中存在位P=0，CPU触发段缺失异常，OS将堆段从磁盘装入内存，更新段表，程序继续执行——对程序透明！');
+}
+
+// ======= 段表 =======
+const tableCtx=document.getElementById('tableCanvas').getContext('2d');
+
+async function tableDraw(){
+  const c=tableCtx; c.clearRect(0,0,820,360);
+  // 段表头
+  const headers=['段号','段长','基址','存在位P','修改位M','访问位A','保护位','外存地址'];
+  const widths=[50,70,80,70,70,70,70,130];
+  const hColors=['#94a3b8','#94a3b8','#94a3b8','#c084fc','#f59e0b','#22d3ee','#94a3b8','#10b981'];
+  let x=10, y=30;
+  headers.forEach((h,i)=>{
+    c.fillStyle='#0f172a'; c.strokeStyle='#334155'; c.lineWidth=1;
+    c.fillRect(x,y,widths[i],28); c.strokeRect(x,y,widths[i],28);
+    c.fillStyle=hColors[i]; c.font='bold 10px Microsoft YaHei'; c.textAlign='center';
+    c.fillText(h,x+widths[i]/2,y+18);
+    x+=widths[i];
+  });
+  
+  // 段表数据
+  const rows=[
+    [0,'4KB','0x1000',1,0,1,'RX','—'],
+    [1,'2KB','0x5000',1,1,1,'RW','—'],
+    [2,'8KB','—',0,0,0,'RW','0x800000'],
+    [3,'1KB','0x7000',1,0,0,'RW','—'],
+    [4,'3KB','—',0,0,0,'RX','0xA00000'],
+  ];
+  const rowColors=['#0ea5e9','#10b981','#f59e0b','#a855f7','#ef4444'];
+  
+  for(let ri=0;ri<rows.length;ri++){
+    const row=rows[ri];
+    let rx=10, ry=y+28+ri*40;
+    const isInMem=row[3]===1;
+    
+    row.forEach((cell,ci)=>{
+      c.fillStyle=isInMem?ri%2===0?'#1e293b':'#162032':'#1a0a0a';
+      c.strokeStyle=isInMem?'#334155':'#5a1010'; c.lineWidth=1;
+      c.fillRect(rx,ry,widths[ci],34); c.strokeRect(rx,ry,widths[ci],34);
+      
+      let fc='#94a3b8';
+      if(ci===3) fc=cell===1?'#4ade80':'#ef4444';
+      else if(ci===4) fc=cell===1?'#f59e0b':'#94a3b8';
+      else if(ci===5) fc=cell===1?'#22d3ee':'#94a3b8';
+      else if(ci===0) fc=rowColors[ri];
+      c.fillStyle=fc; c.font=ci===0?'bold 11px monospace':'10px monospace'; c.textAlign='center';
+      c.fillText(String(cell),rx+widths[ci]/2,ry+20);
+      rx+=widths[ci];
+    });
+    await sleep(200);
+  }
+  setInfo('tableInfo','<span class="step">扩展段表：</span>P(存在位)=1表示在内存，=0在磁盘；M(修改位)=1表示段被修改过（换出时需回写磁盘）；A(访问位)用于LRU替换；外存地址记录磁盘存储位置。');
+}
+
+async function tableHighlight(){
+  const c=tableCtx;
+  const highlights=[
+    {header:'存在位P',x:270,info:'P=1: 在内存可直接访问  P=0: 在磁盘，访问触发段缺失中断',color:'#c084fc'},
+    {header:'修改位M',x:340,info:'M=1: 段内容已修改，换出时必须写回磁盘（写回策略）',color:'#f59e0b'},
+    {header:'访问位A',x:410,info:'A=1: 近期被访问过，可用于LRU替换算法（保留A=1的段）',color:'#22d3ee'},
+    {header:'外存地址',x:620,info:'P=0时有效，记录该段在磁盘中的物理位置，用于换入时寻址',color:'#10b981'},
+  ];
+  for(const hl of highlights){
+    c.fillStyle=hl.color+'33'; c.strokeStyle=hl.color; c.lineWidth=2;
+    c.beginPath(); c.roundRect(hl.x-2,28,widthOf(hl.header)+4,200,3); c.fill(); c.stroke();
+    setInfo('tableInfo',`<span class="step">${hl.header}：</span>${hl.info}`);
+    await sleep(1500);
+  }
+}
+function widthOf(h){const ws={'存在位P':70,'修改位M':70,'访问位A':70,'外存地址':130};return ws[h]||70;}
+tableDraw();
+
+// ======= 段缺失 =======
+const faultCtx=document.getElementById('faultCanvas').getContext('2d');
+let faultStep_=0, faultBusy=false;
+const faultSteps=[
+  {title:'①CPU访问代码段中的指令',desc:'CPU发出地址访问请求，逻辑地址=（段号2, 偏移0x100）',color:'#0ea5e9'},
+  {title:'②查段表，发现P=0（段缺失）',desc:'段表中段号2的存在位P=0，段不在内存，CPU产生段缺失异常',color:'#ef4444'},
+  {title:'③保存现场（CPU状态→PCB）',desc:'OS中断处理程序保存当前进程的寄存器、PC等状态到PCB',color:'#f59e0b'},
+  {title:'④查段表获取磁盘地址',desc:'从段表的"外存地址"字段读取该段在磁盘中的位置（0x800000）',color:'#a855f7'},
+  {title:'⑤内存空间检查/置换',desc:'检查内存是否有足够空间。若不足，按LRU选择换出段（若M=1先写回磁盘）',color:'#f59e0b'},
+  {title:'⑥调入段 + 更新段表',desc:'将磁盘中该段数据读入内存，更新段表：基址=新地址、P=1、A=1，重新执行指令',color:'#4ade80'},
+];
+
+function faultReset(){faultStep_=0;faultBusy=false;faultCtx.clearRect(0,0,820,400);setInfo('faultInfo','已重置，点击「模拟段缺失」或「单步」');}
+
+function drawFaultStep(step){
+  const c=faultCtx; c.clearRect(0,0,820,400);
+  c.fillStyle='#c084fc'; c.font='bold 13px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('段缺失处理流程（6步）',410,22);
+  
+  // 绘制所有步骤
+  faultSteps.forEach((fs,i)=>{
+    const sx=10+(i%3)*272, sy=40+Math.floor(i/3)*170;
+    const isDone=i<step, isCurrent=i===step;
+    c.fillStyle=isCurrent?fs.color+'33':isDone?'#0a2a0a':'#1e293b';
+    c.strokeStyle=isCurrent?fs.color:isDone?'#4ade80':'#334155';
+    c.lineWidth=isCurrent?3:isDone?2:1;
+    c.beginPath(); c.roundRect(sx,sy,260,140,8); c.fill(); c.stroke();
+    c.fillStyle=isCurrent?fs.color:isDone?'#4ade80':'#64748b';
+    c.font='bold 11px Microsoft YaHei'; c.textAlign='center';
+    c.fillText(fs.title,sx+130,sy+22);
+    c.fillStyle='#94a3b8'; c.font='10px Microsoft YaHei';
+    // 自动换行
+    const words=fs.desc;
+    const lines=[];
+    let cur='';
+    for(const ch of words){cur+=ch;if(cur.length>18){lines.push(cur);cur='';}}
+    if(cur) lines.push(cur);
+    lines.forEach((l,li)=>c.fillText(l,sx+130,sy+44+li*18));
+    if(isDone){
+      c.fillStyle='#4ade80'; c.font='bold 16px monospace';
+      c.fillText('✓',sx+240,sy+22);
+    }
+    // 连接箭头
+    if(i<5){
+      const nx=10+((i+1)%3)*272, ny=40+Math.floor((i+1)/3)*170;
+      c.strokeStyle='#475569'; c.lineWidth=1.5;
+      if(Math.floor(i/3)===Math.floor((i+1)/3)){
+        // 同行
+        c.beginPath(); c.moveTo(sx+260,sy+70); c.lineTo(nx,ny+70); c.stroke();
+        c.fillStyle='#475569'; c.beginPath(); c.moveTo(nx,ny+70); c.lineTo(nx-8,ny+64); c.lineTo(nx-8,ny+76); c.fill();
+      } else {
+        c.beginPath(); c.moveTo(sx+130,sy+140); c.lineTo(nx+130,ny); c.stroke();
+      }
+    }
+  });
+}
+
+function faultStep(){
+  if(faultBusy) return;
+  if(faultStep_<faultSteps.length){
+    drawFaultStep(faultStep_);
+    setInfo('faultInfo',`<span class="step">${faultSteps[faultStep_].title}</span>：${faultSteps[faultStep_].desc}`);
+    faultStep_++;
+  } else {
+    setInfo('faultInfo','<span class="step">✅ 段缺失处理完成！</span>程序从步骤①重新执行，这次段已在内存，访问成功。');
+  }
+}
+
+async function faultAnimate(){
+  if(faultBusy)return; faultBusy=true;
+  faultStep_=0;
+  for(let i=0;i<=faultSteps.length;i++){
+    drawFaultStep(i);
+    if(i<faultSteps.length) setInfo('faultInfo',`<span class="step">${faultSteps[i].title}</span>：${faultSteps[i].desc}`);
+    else setInfo('faultInfo','<span class="step">✅ 段缺失处理完成！</span>重新执行原指令，访问成功。');
+    await sleep(1500);
+  }
+  faultBusy=false;
+}
+faultReset();
+
+// ======= 对比 =======
+const cmpCtx=document.getElementById('cmpCanvas').getContext('2d');
+function cmpDraw(){
+  const c=cmpCtx; c.clearRect(0,0,820,380);
+  const rows=[
+    ['对比项','请求分段','请求分页'],
+    ['单位大小','可变（段的逻辑大小）','固定（如4KB/页）'],
+    ['内部碎片','无','有（最后一页可能浪费）'],
+    ['外部碎片','有（段大小不一）','无'],
+    ['地址结构','段号+段内偏移','页号+页内偏移'],
+    ['共享/保护','方便（按语义共享代码段）','较难（需要多页对齐）'],
+    ['缺失异常','段缺失（Segment Fault）','缺页（Page Fault）'],
+    ['换出单位','整个逻辑段','一页（固定大小）'],
+    ['实现复杂度','较高（变长段管理）','较低'],
+    ['现代OS应用','少（Linux用分页+分段组合）','广泛使用（Linux/Windows）'],
+  ];
+  
+  rows.forEach((row,ri)=>{
+    const y=10+ri*35;
+    const isHeader=ri===0;
+    row.forEach((cell,ci)=>{
+      const x=10+[0,200,510][ci], w=[180,300,300][ci];
+      c.fillStyle=isHeader?'#0f172a':ri%2===0?'#1e293b':'#162032';
+      c.strokeStyle='#334155'; c.lineWidth=1;
+      c.fillRect(x,y,w,32); c.strokeRect(x,y,w,32);
+      c.fillStyle=isHeader?['#94a3b8','#c084fc','#0ea5e9'][ci]:ci===0?'#94a3b8':ci===1?'#c084fc':'#0ea5e9';
+      c.font=isHeader||ci===0?'bold 10px Microsoft YaHei':'10px Microsoft YaHei';
+      c.textAlign='center';
+      c.fillText(cell,x+w/2,y+20);
+    });
+  });
+  setInfo('cmpInfo','<span class="step">核心区别：</span>请求分段按逻辑语义分段，天然适合代码/数据共享，但有外部碎片；请求分页用固定大小页，实现简单，但有内部碎片。现代OS通常用"段页式"结合两者优点。');
+}
+</script>
+</body>
+</html>

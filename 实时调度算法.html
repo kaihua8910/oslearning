@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>实时调度算法 - OS动画学习</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Microsoft YaHei',sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+header{background:linear-gradient(135deg,#2a0a1a,#1a0a2a);padding:20px 40px;display:flex;align-items:center;gap:16px;border-bottom:2px solid #e879f9}
+header h1{font-size:1.6rem;color:#e879f9}
+header p{color:#94a3b8;font-size:.9rem;margin-top:4px}
+.back-btn{background:#1e40af;color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:.85rem;text-decoration:none}
+.back-btn:hover{background:#2563eb}
+.container{max-width:1200px;margin:0 auto;padding:30px 20px}
+.desc-box{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px;margin-bottom:20px;border-left:4px solid #e879f9}
+.desc-box h3{color:#e879f9;margin-bottom:8px}
+.desc-box p{color:#94a3b8;line-height:1.7;font-size:.92rem}
+.canvas-area{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px;margin-bottom:20px}
+.canvas-area h3{color:#e2e8f0;margin-bottom:16px}
+canvas{display:block;margin:0 auto;border-radius:8px;background:#0a0f1e}
+.controls{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;justify-content:center}
+.btn{padding:9px 20px;border:none;border-radius:8px;cursor:pointer;font-size:.85rem;font-weight:600;transition:all .2s}
+.btn-primary{background:#86198f;color:#fff}.btn-primary:hover{background:#701a75}
+.btn-success{background:#16a34a;color:#fff}.btn-success:hover{background:#15803d}
+.btn-info{background:#0284c7;color:#fff}.btn-info:hover{background:#0369a1}
+.btn-reset{background:#475569;color:#fff}.btn-reset:hover{background:#334155}
+.info-panel{background:#0f172a;border:1px solid #334155;border-radius:10px;padding:14px;margin-top:16px;min-height:56px;font-size:.88rem;line-height:1.7;color:#94a3b8}
+.info-panel .step{color:#e879f9;font-weight:600}
+.tabs{display:flex;gap:8px;margin-bottom:24px;flex-wrap:wrap}
+.tab{padding:10px 22px;border:2px solid #334155;border-radius:10px;cursor:pointer;background:transparent;color:#94a3b8;font-size:.9rem;transition:all .2s}
+.tab.active{background:#581c87;border-color:#e879f9;color:#fff}
+.tab:hover:not(.active){border-color:#64748b;color:#e2e8f0}
+.section{display:none}.section.active{display:block}
+</style>
+</head>
+<body>
+<header>
+  <a href="index.html" class="back-btn">← 返回首页</a>
+  <div>
+    <h1>⏱️ 实时调度算法</h1>
+    <p>EDF（最早截止时限优先）· RMS（速率单调调度）· 实时系统概念</p>
+  </div>
+</header>
+<div class="container">
+  <div class="tabs">
+    <button class="tab active" onclick="activateTab('concept')">实时系统概念</button>
+    <button class="tab" onclick="activateTab('edf')">EDF算法</button>
+    <button class="tab" onclick="activateTab('rms')">RMS算法</button>
+    <button class="tab" onclick="activateTab('compare')">对比分析</button>
+  </div>
+
+  <div id="tab-concept" class="section active">
+    <div class="desc-box">
+      <h3>实时操作系统与实时调度</h3>
+      <p>实时系统要求任务在<strong style="color:#e879f9">截止时限（Deadline）</strong>内完成，否则系统失效。分为<strong>硬实时</strong>（绝对不能错过，如飞机控制）和<strong>软实时</strong>（偶尔错过可接受，如视频播放）。关键参数：周期（Period T）、执行时间（Computation C）、截止时限（Deadline D，通常D=T）。</p>
+    </div>
+    <div class="canvas-area">
+      <h3>🎬 实时任务参数与周期示意</h3>
+      <canvas id="conceptCanvas" width="820" height="360"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="conceptDraw()">▶ 播放动画</button>
+        <button class="btn btn-reset" onclick="conceptCtx.clearRect(0,0,820,360)">重置</button>
+      </div>
+      <div class="info-panel" id="conceptInfo">点击「播放动画」了解实时任务参数</div>
+    </div>
+  </div>
+
+  <div id="tab-edf" class="section">
+    <div class="desc-box">
+      <h3>EDF — 最早截止时限优先（Earliest Deadline First）</h3>
+      <p>EDF是一种<strong style="color:#e879f9">动态优先级</strong>调度算法：截止时限越早的任务优先级越高。EDF是最优的实时调度算法，在单处理器上，只要CPU利用率U=Σ(Ci/Ti)≤1，所有任务都能满足截止时限。</p>
+    </div>
+    <div class="canvas-area">
+      <h3>🎬 EDF调度甘特图动画</h3>
+      <canvas id="edfCanvas" width="820" height="400"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="edfRun()">▶ 运行EDF调度</button>
+        <button class="btn btn-success" onclick="edfStep()">单步</button>
+        <button class="btn btn-reset" onclick="edfReset()">重置</button>
+      </div>
+      <div class="info-panel" id="edfInfo">点击「运行EDF调度」查看EDF动态优先级分配</div>
+    </div>
+  </div>
+
+  <div id="tab-rms" class="section">
+    <div class="desc-box">
+      <h3>RMS — 速率单调调度（Rate Monotonic Scheduling）</h3>
+      <p>RMS是一种<strong style="color:#e879f9">静态优先级</strong>算法：任务周期越短，优先级越高（速率越快=优先级越高）。RMS最优性结论：若CPU利用率U≤n(2^(1/n)-1)（n趋∞时≈69.3%），则所有任务都能被调度。</p>
+    </div>
+    <div class="canvas-area">
+      <h3>🎬 RMS调度甘特图动画</h3>
+      <canvas id="rmsCanvas" width="820" height="400"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="rmsRun()">▶ 运行RMS调度</button>
+        <button class="btn btn-success" onclick="rmsStep()">单步</button>
+        <button class="btn btn-reset" onclick="rmsReset()">重置</button>
+      </div>
+      <div class="info-panel" id="rmsInfo">点击「运行RMS调度」查看静态优先级分配</div>
+    </div>
+  </div>
+
+  <div id="tab-compare" class="section">
+    <div class="desc-box">
+      <h3>EDF vs RMS 对比</h3>
+      <p>两种算法都是经典实时调度算法，各有优劣。</p>
+    </div>
+    <div class="canvas-area">
+      <h3>📊 对比分析</h3>
+      <canvas id="cmpCanvas" width="820" height="340"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="drawCompare()">▶ 显示对比</button>
+      </div>
+      <div class="info-panel" id="cmpInfo">点击显示对比图</div>
+    </div>
+  </div>
+</div>
+
+<script>
+function activateTab(name){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('tab-'+name).classList.add('active');
+}
+function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
+function setInfo(id,html){document.getElementById(id).innerHTML=html;}
+
+// 任务定义: T=周期, C=执行时间
+const tasks=[
+  {name:'τ1',T:4,C:1,color:'#e879f9'},
+  {name:'τ2',T:6,C:2,color:'#22d3ee'},
+  {name:'τ3',T:12,C:3,color:'#4ade80'},
+];
+const totalTime=12; // LCM(4,6,12)=12
+
+// ======= 概念动画 =======
+const conceptCtx=document.getElementById('conceptCanvas').getContext('2d');
+
+async function conceptDraw(){
+  const c=conceptCtx; c.clearRect(0,0,820,360);
+  c.fillStyle='#e879f9'; c.font='bold 14px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('实时周期任务参数示意',410,22);
+  
+  const gX=60, scale=28;
+  // 画τ1的多个周期
+  for(let i=0;i<tasks.length;i++){
+    const t=tasks[i], ty=50+i*90;
+    c.fillStyle=t.color; c.font='bold 12px Microsoft YaHei'; c.textAlign='left';
+    c.fillText(`${t.name}（T=${t.T}, C=${t.C}）`,10,ty+14);
+    // 时间轴
+    c.strokeStyle='#334155'; c.lineWidth=1;
+    c.beginPath(); c.moveTo(gX,ty+30); c.lineTo(gX+totalTime*scale,ty+30); c.stroke();
+    // 周期
+    for(let k=0;k*t.T<totalTime;k++){
+      const x=gX+k*t.T*scale;
+      // 执行块
+      c.fillStyle=t.color+'44'; c.strokeStyle=t.color; c.lineWidth=1.5;
+      c.fillRect(x,ty,t.C*scale,25); c.strokeRect(x,ty,t.C*scale,25);
+      c.fillStyle=t.color; c.font='bold 10px Microsoft YaHei'; c.textAlign='center';
+      c.fillText('C='+t.C,x+t.C*scale/2,ty+16);
+      // 截止时限箭头
+      const deadX=x+t.T*scale;
+      if(deadX<=gX+totalTime*scale){
+        c.strokeStyle='#ef4444'; c.lineWidth=1.5;
+        c.beginPath(); c.moveTo(deadX,ty-5); c.lineTo(deadX,ty+30); c.stroke();
+        c.fillStyle='#ef4444'; c.font='9px Microsoft YaHei';
+        c.fillText('D',deadX,ty-8);
+      }
+      // 周期刻度
+      c.strokeStyle='#334155'; c.lineWidth=1;
+      c.beginPath(); c.moveTo(x,ty+28); c.lineTo(x,ty+35); c.stroke();
+      c.fillStyle='#475569'; c.font='9px monospace'; c.textAlign='center';
+      c.fillText(k*t.T,x,ty+44);
+    }
+    await sleep(500);
+  }
+  // 利用率计算
+  const U=tasks.reduce((s,t)=>s+t.C/t.T,0);
+  c.fillStyle='#e879f9'; c.font='bold 13px Microsoft YaHei'; c.textAlign='center';
+  c.fillText(`CPU利用率 U = Σ(Ci/Ti) = ${tasks.map(t=>`${t.C}/${t.T}`).join(' + ')} = ${U.toFixed(3)} (${(U*100).toFixed(1)}%)`,410,340);
+  c.fillStyle=U<=1?'#4ade80':'#ef4444'; c.font='12px Microsoft YaHei';
+  c.fillText(U<=1?'✅ U≤1，理论上可调度':'❌ U>1，不可调度',410,358);
+  setInfo('conceptInfo',`<span class="step">实时任务参数：</span>每个任务在每个周期T开始时到来，需要C个时间单位执行，必须在截止时限D（=T）前完成。CPU利用率U=${U.toFixed(3)}。`);
+}
+
+// ======= EDF =======
+const edfCtx=document.getElementById('edfCanvas').getContext('2d');
+let edfSchedule=[], edfStep_=0, edfBusy=false;
+
+function computeEDF(){
+  // 生成每个任务的所有实例
+  const instances=[];
+  tasks.forEach(t=>{
+    for(let k=0;k*t.T<totalTime;k++){
+      instances.push({name:t.name,color:t.color,arrive:k*t.T,deadline:(k+1)*t.T,remain:t.C,C:t.C});
+    }
+  });
+  const schedule=[];
+  for(let t=0;t<totalTime;t++){
+    // 获取所有已到达且未完成的任务
+    const ready=instances.filter(i=>i.arrive<=t&&i.remain>0);
+    if(ready.length===0){schedule.push({t,name:'空',color:'#334155'});continue;}
+    // EDF: 截止时限最早的
+    ready.sort((a,b)=>a.deadline-b.deadline);
+    const chosen=ready[0];
+    schedule.push({t,name:chosen.name,color:chosen.color,deadline:chosen.deadline});
+    chosen.remain--;
+  }
+  return schedule;
+}
+
+function drawEDFGantt(schedule,step){
+  const c=edfCtx; c.clearRect(0,0,820,400);
+  const gX=60, gY=80, gH=36, scale=40;
+  
+  c.fillStyle='#e879f9'; c.font='bold 13px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('EDF调度甘特图（最早截止时限优先，动态优先级）',410,22);
+  
+  // 任务信息
+  tasks.forEach((t,i)=>{
+    c.fillStyle=t.color+'33'; c.strokeStyle=t.color; c.lineWidth=1;
+    c.beginPath(); c.roundRect(10+i*260,34,250,30,4); c.fill(); c.stroke();
+    c.fillStyle=t.color; c.font='11px Microsoft YaHei'; c.textAlign='center';
+    c.fillText(`${t.name}: T=${t.T}, C=${t.C}, U=${(t.C/t.T).toFixed(2)}`,135+i*260,53);
+  });
+  
+  // 绘制截止时限线
+  const allDeadlines=[];
+  tasks.forEach(t=>{ for(let k=1;k*t.T<=totalTime;k++) allDeadlines.push({t:k*t.T,task:t}); });
+  allDeadlines.forEach(d=>{
+    const x=gX+d.t*scale;
+    c.strokeStyle=d.task.color+'77'; c.lineWidth=1; c.setLineDash([3,3]);
+    c.beginPath(); c.moveTo(x,gY-16); c.lineTo(x,gY+gH+4); c.stroke();
+    c.setLineDash([]);
+    c.fillStyle=d.task.color; c.font='9px Microsoft YaHei'; c.textAlign='center';
+    c.fillText('↓D',x,gY-18);
+  });
+  
+  // 时间轴
+  for(let t=0;t<=totalTime;t++){
+    const x=gX+t*scale;
+    c.strokeStyle='#475569'; c.lineWidth=1;
+    c.beginPath(); c.moveTo(x,gY+gH); c.lineTo(x,gY+gH+8); c.stroke();
+    c.fillStyle='#94a3b8'; c.font='11px monospace'; c.textAlign='center';
+    c.fillText(t,x,gY+gH+20);
+  }
+  
+  // 甘特条（到step）
+  const limit=Math.min(step,schedule.length);
+  for(let t=0;t<limit;t++){
+    const s=schedule[t];
+    c.fillStyle=s.color; c.strokeStyle=s.color+'aa'; c.lineWidth=1;
+    c.fillRect(gX+t*scale+1,gY+1,scale-2,gH-2);
+    c.strokeRect(gX+t*scale+1,gY+1,scale-2,gH-2);
+    c.fillStyle='#fff'; c.font='bold 11px Microsoft YaHei'; c.textAlign='center';
+    c.fillText(s.name,gX+t*scale+scale/2,gY+gH/2+4);
+  }
+  
+  // 当前时刻指示
+  if(step<schedule.length){
+    c.strokeStyle='#fff'; c.lineWidth=2;
+    c.beginPath(); c.moveTo(gX+step*scale,gY-5); c.lineTo(gX+step*scale,gY+gH+5); c.stroke();
+    const s=schedule[step];
+    // 就绪队列
+    const allReady=tasks.flatMap(t=>{
+      const insts=[];
+      for(let k=0;k*t.T<totalTime;k++){
+        if(k*t.T<=step) insts.push({name:t.name,color:t.color,deadline:(k+1)*t.T});
+      }
+      return insts;
+    }).filter(i=>i.deadline>step);
+    allReady.sort((a,b)=>a.deadline-b.deadline);
+    c.fillStyle='#94a3b8'; c.font='11px Microsoft YaHei'; c.textAlign='left';
+    c.fillText(`t=${step} 就绪队列（按截止时限排序）: `+allReady.map(i=>`${i.name}(D=${i.deadline})`).join(' → '),gX,gY+gH+40);
+  }
+  
+  // 错过截止时限标记
+  const missed=schedule.filter((s,t)=>{
+    if(s.name==='空') return false;
+    const task=tasks.find(tk=>tk.name===s.name);
+    return false; // EDF完美调度
+  });
+  
+  c.fillStyle='#e879f9'; c.font='12px Microsoft YaHei'; c.textAlign='left';
+  c.fillText(`EDF利用率 U=${tasks.reduce((s,t)=>s+t.C/t.T,0).toFixed(3)} ≤ 1.0 → ✅ 完全可调度，无截止时限错过`,gX,380);
+}
+
+function edfReset(){edfSchedule=computeEDF();edfStep_=0;drawEDFGantt(edfSchedule,0);setInfo('edfInfo','已重置');}
+async function edfRun(){
+  if(edfBusy)return; edfBusy=true;
+  edfSchedule=computeEDF(); edfStep_=0;
+  for(let i=0;i<=edfSchedule.length;i++){
+    drawEDFGantt(edfSchedule,i);
+    const s=i<edfSchedule.length?edfSchedule[i]:null;
+    if(s) setInfo('edfInfo',`<span class="step">t=${i}: 调度 ${s.name}</span>（截止时限最早=D${s.deadline}）`);
+    await sleep(500);
+  }
+  setInfo('edfInfo','<span class="step">✅ EDF调度完成！</span>所有任务均在截止时限内完成。EDF是最优实时调度算法。');
+  edfBusy=false;
+}
+function edfStep(){
+  if(!edfSchedule.length) edfSchedule=computeEDF();
+  if(edfStep_<=edfSchedule.length){
+    drawEDFGantt(edfSchedule,edfStep_);
+    if(edfStep_<edfSchedule.length){
+      const s=edfSchedule[edfStep_];
+      setInfo('edfInfo',`<span class="step">t=${edfStep_}: 选择 ${s.name}</span>，截止时限D=${s.deadline}（最小）`);
+    }
+    edfStep_++;
+  }
+}
+edfReset();
+
+// ======= RMS =======
+const rmsCtx=document.getElementById('rmsCanvas').getContext('2d');
+let rmsSchedule=[], rmsStep_=0, rmsBusy=false;
+
+// RMS静态优先级: 周期越短=优先级越高
+const rmsTasksSorted=[...tasks].sort((a,b)=>a.T-b.T);
+// 优先级: τ1(T=4)>τ2(T=6)>τ3(T=12)
+
+function computeRMS(){
+  const instances=[];
+  tasks.forEach(t=>{
+    for(let k=0;k*t.T<totalTime;k++){
+      instances.push({name:t.name,color:t.color,T:t.T,arrive:k*t.T,deadline:(k+1)*t.T,remain:t.C});
+    }
+  });
+  const schedule=[];
+  for(let t=0;t<totalTime;t++){
+    const ready=instances.filter(i=>i.arrive<=t&&i.remain>0);
+    if(ready.length===0){schedule.push({t,name:'空',color:'#334155'});continue;}
+    // RMS: 周期最短=优先级最高
+    ready.sort((a,b)=>a.T-b.T);
+    const chosen=ready[0];
+    schedule.push({t,name:chosen.name,color:chosen.color,T:chosen.T,deadline:chosen.deadline});
+    chosen.remain--;
+  }
+  return schedule;
+}
+
+function drawRMSGantt(schedule,step){
+  const c=rmsCtx; c.clearRect(0,0,820,400);
+  const gX=60, gY=80, gH=36, scale=40;
+  c.fillStyle='#4ade80'; c.font='bold 13px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('RMS调度甘特图（速率单调，静态优先级：T越小优先级越高）',410,22);
+  tasks.forEach((t,i)=>{
+    c.fillStyle=t.color+'33'; c.strokeStyle=t.color; c.lineWidth=1;
+    c.beginPath(); c.roundRect(10+i*260,34,250,30,4); c.fill(); c.stroke();
+    c.fillStyle=t.color; c.font='11px Microsoft YaHei'; c.textAlign='center';
+    const pri=tasks.length-tasks.indexOf(t);
+    c.fillText(`${t.name}: T=${t.T}（优先级P${tasks.indexOf(t)+1}）`,135+i*260,53);
+  });
+  for(let t=0;t<=totalTime;t++){
+    const x=gX+t*scale;
+    c.strokeStyle='#475569'; c.lineWidth=1;
+    c.beginPath(); c.moveTo(x,gY+gH); c.lineTo(x,gY+gH+8); c.stroke();
+    c.fillStyle='#94a3b8'; c.font='11px monospace'; c.textAlign='center';
+    c.fillText(t,x,gY+gH+20);
+  }
+  const limit=Math.min(step,schedule.length);
+  for(let t=0;t<limit;t++){
+    const s=schedule[t];
+    c.fillStyle=s.color; c.strokeStyle=s.color+'aa'; c.lineWidth=1;
+    c.fillRect(gX+t*scale+1,gY+1,scale-2,gH-2);
+    c.strokeRect(gX+t*scale+1,gY+1,scale-2,gH-2);
+    c.fillStyle='#fff'; c.font='bold 11px Microsoft YaHei'; c.textAlign='center';
+    c.fillText(s.name,gX+t*scale+scale/2,gY+gH/2+4);
+  }
+  if(step<schedule.length){
+    c.strokeStyle='#fff'; c.lineWidth=2;
+    c.beginPath(); c.moveTo(gX+step*scale,gY-5); c.lineTo(gX+step*scale,gY+gH+5); c.stroke();
+  }
+  const U=tasks.reduce((s,t)=>s+t.C/t.T,0);
+  const n=tasks.length;
+  const bound=n*(Math.pow(2,1/n)-1);
+  c.fillStyle='#94a3b8'; c.font='11px Microsoft YaHei'; c.textAlign='left';
+  c.fillText(`RMS利用率上界: n×(2^(1/n)-1) = ${n}×(2^(1/${n})-1) = ${bound.toFixed(3)}`,gX,350);
+  c.fillStyle=U<=bound?'#4ade80':'#f59e0b'; c.font='12px Microsoft YaHei';
+  c.fillText(`U=${U.toFixed(3)} ${U<=bound?'≤':'>'} ${bound.toFixed(3)} → ${U<=bound?'✅ RMS保证可调度':'⚠ 超出RMS保证范围但可能仍可调度'}`,gX,372);
+}
+
+function rmsReset(){rmsSchedule=computeRMS();rmsStep_=0;drawRMSGantt(rmsSchedule,0);setInfo('rmsInfo','已重置');}
+async function rmsRun(){
+  if(rmsBusy)return; rmsBusy=true;
+  rmsSchedule=computeRMS(); rmsStep_=0;
+  for(let i=0;i<=rmsSchedule.length;i++){
+    drawRMSGantt(rmsSchedule,i);
+    if(i<rmsSchedule.length){
+      const s=rmsSchedule[i];
+      setInfo('rmsInfo',`<span class="step">t=${i}: 调度 ${s.name}</span>（T=${s.T}最小=最高优先级）`);
+    }
+    await sleep(500);
+  }
+  setInfo('rmsInfo','<span class="step">✅ RMS调度完成！</span>静态优先级：τ1(T=4)>τ2(T=6)>τ3(T=12)，始终如一。');
+  rmsBusy=false;
+}
+function rmsStep(){
+  if(!rmsSchedule.length) rmsSchedule=computeRMS();
+  if(rmsStep_<=rmsSchedule.length){
+    drawRMSGantt(rmsSchedule,rmsStep_);
+    if(rmsStep_<rmsSchedule.length){
+      const s=rmsSchedule[rmsStep_];
+      setInfo('rmsInfo',`<span class="step">t=${rmsStep_}: 选 ${s.name}</span>（周期T=${s.T}，静态优先级最高）`);
+    }
+    rmsStep_++;
+  }
+}
+rmsReset();
+
+// ======= 对比 =======
+const cmpCtx=document.getElementById('cmpCanvas').getContext('2d');
+
+function drawCompare(){
+  const c=cmpCtx; c.clearRect(0,0,820,340);
+  
+  const rows=[
+    ['优先级类型','动态优先级\n（截止时限最早）','静态优先级\n（速率最快）'],
+    ['最优性','最优（U≤1即可）','U≤n(2^(1/n)-1)≈69.3%'],
+    ['CPU利用率','最高可达100%','上界≈69.3%'],
+    ['实现复杂度','较高（需动态更新）','低（固定优先级）'],
+    ['抢占性','抢占式','通常抢占式'],
+    ['适用场景','动态工作负载','周期性固定任务'],
+    ['代表系统','Linux CFS实时部分','VxWorks等RTOS'],
+  ];
+  
+  const colX=[10,280,560], colW=[260,260,250];
+  const headers=['对比项','EDF','RMS'];
+  const headerColors=['#64748b','#e879f9','#4ade80'];
+  
+  headers.forEach((h,i)=>{
+    c.fillStyle=headerColors[i]+'33'; c.strokeStyle=headerColors[i]; c.lineWidth=1.5;
+    c.beginPath(); c.roundRect(colX[i],8,colW[i],28,3); c.fill(); c.stroke();
+    c.fillStyle=headerColors[i]; c.font='bold 12px Microsoft YaHei'; c.textAlign='center';
+    c.fillText(h,colX[i]+colW[i]/2,26);
+  });
+  
+  rows.forEach((row,ri)=>{
+    const ry=44+ri*40;
+    row.forEach((cell,ci)=>{
+      c.fillStyle=ri%2===0?'#1e293b':'#162032';
+      c.fillRect(colX[ci],ry,colW[ci],38);
+      c.strokeStyle='#334155'; c.lineWidth=1;
+      c.strokeRect(colX[ci],ry,colW[ci],38);
+      c.fillStyle=ci===0?'#94a3b8':'#e2e8f0'; c.font='10px Microsoft YaHei'; c.textAlign='center';
+      cell.split('\n').forEach((l,li)=>c.fillText(l,colX[ci]+colW[ci]/2,ry+14+li*13));
+    });
+  });
+  setInfo('cmpInfo','<span class="step">EDF vs RMS：</span>EDF是理论最优算法，利用率可达100%，但动态优先级实现复杂；RMS是实践中常用算法，优先级固定实现简单，但利用率上界约69.3%。');
+}
+</script>
+</body>
+</html>

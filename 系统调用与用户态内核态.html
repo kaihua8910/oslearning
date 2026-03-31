@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>系统调用与用户态内核态 - OS动画</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0a0e14;--card:#1a1f2e;--border:#3b4252;--text:#e2e8f0;--muted:#9ca3af;--green:#22c55e;--blue:#60a5fa;--purple:#a78bfa;--orange:#f97316;--yellow:#fbbf24;--red:#f87171;--cyan:#06b6d4;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Noto Sans SC',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+.page-header{background:linear-gradient(135deg,#0f172a,#1e293b);border-bottom:1px solid var(--border);padding:18px 30px;display:flex;align-items:center;gap:16px;}
+.back-btn{display:flex;align-items:center;gap:6px;color:var(--purple);text-decoration:none;font-size:14px;padding:6px 12px;border:1px solid rgba(167,139,250,.3);border-radius:6px;transition:.2s;}
+.back-btn:hover{background:rgba(167,139,250,.1);}
+.page-title{font-size:20px;font-weight:700;color:var(--purple);}
+.page-subtitle{font-size:13px;color:var(--muted);}
+.container{max-width:1100px;margin:0 auto;padding:24px 20px;}
+.tabs{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;}
+.tab{padding:8px 18px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--muted);cursor:pointer;font-size:13px;font-family:'Noto Sans SC',sans-serif;transition:.2s;}
+.tab.active{border-color:var(--purple);color:var(--purple);background:rgba(167,139,250,.1);}
+.scene{display:none;}
+.scene.active{display:block;}
+.layout{display:grid;grid-template-columns:1fr 320px;gap:16px;}
+canvas{border-radius:10px;border:1px solid var(--border);background:#0d1117;display:block;}
+.info-panel{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:12px;}
+.info-title{font-size:14px;font-weight:700;color:var(--purple);border-bottom:1px solid var(--border);padding-bottom:8px;}
+.info-text{font-size:13px;color:var(--text);line-height:1.8;}
+.info-text b{color:var(--yellow);}
+.info-text .em{color:var(--cyan);}
+.step-box{background:#0d1117;border-radius:8px;padding:10px;border-left:3px solid var(--purple);}
+.step-label{font-size:11px;color:var(--muted);margin-bottom:4px;}
+.step-content{font-size:12px;font-family:'JetBrains Mono',monospace;color:var(--purple);}
+.controls{display:flex;gap:8px;margin-top:12px;}
+.btn{padding:7px 16px;border-radius:7px;border:none;cursor:pointer;font-size:13px;font-family:'Noto Sans SC',sans-serif;font-weight:500;transition:.2s;}
+.btn-primary{background:var(--purple);color:#fff;}
+.btn-primary:hover{filter:brightness(1.1);}
+.btn-secondary{background:var(--card);border:1px solid var(--border);color:var(--text);}
+.btn-secondary:hover{border-color:var(--purple);color:var(--purple);}
+.formula-box{background:#0d1117;border-radius:8px;padding:10px;border:1px solid rgba(251,191,36,.2);}
+.formula{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--yellow);line-height:1.8;}
+</style>
+</head>
+<body>
+<div class="page-header">
+  <a href="index.html" class="back-btn">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>返回首页
+  </a>
+  <div>
+    <div class="page-title">系统调用与用户态/内核态</div>
+    <div class="page-subtitle">System Call & User Mode / Kernel Mode Switching</div>
+  </div>
+</div>
+<div class="container">
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab(0)">用户态与内核态</button>
+    <button class="tab" onclick="switchTab(1)">特权级与CPU模式</button>
+    <button class="tab" onclick="switchTab(2)">系统调用过程</button>
+    <button class="tab" onclick="switchTab(3)">常见系统调用类型</button>
+  </div>
+
+  <!-- 场景0：用户态与内核态 -->
+  <div class="scene active" id="scene0">
+    <div class="layout">
+      <canvas id="c0" width="740" height="420"></canvas>
+      <div class="info-panel">
+        <div class="info-title">用户态与内核态</div>
+        <div class="info-text">
+          <b>用户态（User Mode）</b>：应用程序运行状态<br>
+          · 只能访问用户空间<br>
+          · 受限的CPU指令集<br><br>
+          <b>内核态（Kernel Mode）</b>：操作系统运行状态<br>
+          · 可访问全部内存和硬件<br>
+          · 可执行全部CPU指令<br><br>
+          <span class="em">为什么需要两种状态？</span><br>
+          保护系统核心不被用户程序破坏
+        </div>
+        <div class="formula-box">
+          <div class="formula">用户态 → 内核态：<br>通过中断/异常/系统调用触发<br>内核态 → 用户态：<br>通过 iretd 指令返回</div>
+        </div>
+        <div class="controls">
+          <button class="btn btn-primary" onclick="animScene0()">播放动画</button>
+          <button class="btn btn-secondary" onclick="resetScene0()">重置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景1：特权级 -->
+  <div class="scene" id="scene1">
+    <div class="layout">
+      <canvas id="c1" width="740" height="420"></canvas>
+      <div class="info-panel">
+        <div class="info-title">CPU特权级与保护机制</div>
+        <div class="info-text">
+          x86处理器支持 <b>4级特权级</b>（Ring 0-3）：<br><br>
+          <b>Ring 0（内核态）</b>：最高权限，可执行任何指令<br>
+          <b>Ring 1/2</b>：保留给驱动程序<br>
+          <b>Ring 3（用户态）</b>：最低权限，限制指令<br><br>
+          <span class="em">Linux只使用Ring 0和3</span><br>
+          · 内核运行于Ring 0<br>
+          · 用户程序运行于Ring 3
+        </div>
+        <div class="formula-box">
+          <div class="formula">CS寄存器低2位 = CPL<br>当前特权级（Current Privilege Level）<br>控制对关键资源的访问权限</div>
+        </div>
+        <div class="controls">
+          <button class="btn btn-primary" onclick="animScene1()">播放动画</button>
+          <button class="btn btn-secondary" onclick="resetScene1()">重置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景2：系统调用过程 -->
+  <div class="scene" id="scene2">
+    <div class="layout">
+      <canvas id="c2" width="740" height="420"></canvas>
+      <div class="info-panel">
+        <div class="info-title">系统调用执行过程</div>
+        <div class="info-text" id="info2">点击"单步执行"逐步演示read()系统调用</div>
+        <div class="step-box">
+          <div class="step-label">当前步骤</div>
+          <div class="step-content" id="step2">等待开始...</div>
+        </div>
+        <div class="formula-box">
+          <div class="formula">系统调用流程：<br>1. 用户程序调用libc函数<br>2. lib通过syscall触发软中断<br>3. 内核处理，切换到Ring 0<br>4. 执行系统调用服务例程<br>5. 返回用户态</div>
+        </div>
+        <div class="controls">
+          <button class="btn btn-primary" onclick="stepScene2()">单步执行</button>
+          <button class="btn btn-secondary" onclick="resetScene2()">重置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景3：系统调用类型 -->
+  <div class="scene" id="scene3">
+    <div class="layout">
+      <canvas id="c3" width="740" height="420"></canvas>
+      <div class="info-panel">
+        <div class="info-title">常见系统调用类型</div>
+        <div class="info-text">
+          <b>进程控制</b>：fork, exec, exit, wait<br>
+          <b>文件操作</b>：open, read, write, close<br>
+          <b>设备通信</b>：ioctl, read, write<br>
+          <b>信息维护</b>：getpid, alarm, sleep<br>
+          <b>通信</b>：pipe, shmget, mmap<br>
+          <b>保护</b>：chmod, umask, chown<br><br>
+          <span class="em">Linux系统调用号：</span><br>
+          每个系统调用有唯一编号（如read=0, write=1）
+        </div>
+        <div class="formula-box">
+          <div class="formula">x86-64 Linux系统调用：<br>rax = 系统调用号<br>rdi, rsi, rdx, r10, r8, r9 = 参数<br>rax = 返回值</div>
+        </div>
+        <div class="controls">
+          <button class="btn btn-primary" onclick="animScene3()">播放动画</button>
+          <button class="btn btn-secondary" onclick="resetScene3()">重置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ========== 工具函数 ==========
+function rr(ctx,x,y,w,h,r,fill,stroke,lw=1.5){
+  ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.arcTo(x+w,y,x+w,y+r,r);ctx.lineTo(x+w,y+h-r);ctx.arcTo(x+w,y+h,x+w-r,y+h,r);ctx.lineTo(x+r,y+h);ctx.arcTo(x,y+h,x,y+h-r,r);ctx.lineTo(x,y+r);ctx.arcTo(x,y,x+r,y,r);ctx.closePath();
+  if(fill){ctx.fillStyle=fill;ctx.fill();}
+  if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=lw;ctx.stroke();}
+}
+function arr(ctx,x1,y1,x2,y2,color,lw=1.5){
+  const a=Math.atan2(y2-y1,x2-x1),l=10;
+  ctx.strokeStyle=color;ctx.lineWidth=lw;ctx.fillStyle=color;
+  ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(x2,y2);ctx.lineTo(x2-l*Math.cos(a-.4),y2-l*Math.sin(a-.4));ctx.lineTo(x2-l*Math.cos(a+.4),y2-l*Math.sin(a+.4));ctx.closePath();ctx.fill();
+}
+function lbl(ctx,text,x,y,color='#e2e8f0',size=13,align='center',bold=false){
+  ctx.font=`${bold?700:400} ${size}px 'Noto Sans SC',sans-serif`;ctx.fillStyle=color;ctx.textAlign=align;ctx.textBaseline='middle';ctx.fillText(text,x,y);
+}
+function mnl(ctx,text,x,y,color='#fbbf24',size=12,align='center'){
+  ctx.font=`600 ${size}px 'JetBrains Mono',monospace`;ctx.fillStyle=color;ctx.textAlign=align;ctx.textBaseline='middle';ctx.fillText(text,x,y);
+}
+function bg(ctx){ctx.fillStyle='#0d1117';ctx.fillRect(0,0,740,420);}
+
+// ========== 场景0：用户态与内核态 ==========
+let anim0=null;
+function resetScene0(){cancelAnimationFrame(anim0);const ctx=document.getElementById('c0').getContext('2d');bg(ctx);drawS0(ctx,0);}
+function animScene0(){cancelAnimationFrame(anim0);let p=0;const ctx=document.getElementById('c0').getContext('2d');function step(){drawS0(ctx,p);p++;if(p<=6)anim0=setTimeout(step,600);}step();}
+function drawS0(ctx,phase){
+  bg(ctx);lbl(ctx,'用户态与内核态',370,26,'#a78bfa',16,'center',true);
+  
+  // 用户空间
+  if(phase>=0){
+    rr(ctx,30,50,240,320,10,'#1a2332','#3b82f6');
+    lbl(ctx,'用户空间',150,70,'#60a5fa',14,'center',true);
+    lbl(ctx,'User Space',150,90,'#60a5fa',11);
+    // 应用程序
+    if(phase>=1){
+      rr(ctx,60,120,180,50,6,'#1e3a5f','#60a5fa');
+      lbl(ctx,'应用程序',150,138,'#60a5fa',13,'center',true);
+      lbl(ctx,'read(fd, buf, n)',150,158,'#9ca3af',10);
+    }
+    // 库函数
+    if(phase>=3){
+      rr(ctx,60,200,180,40,6,'#2d3748','#9ca3af');
+      lbl(ctx,'C库 (glibc)',150,220,'#9ca3af',12,'center',true);
+      lbl(ctx,'syscall',150,235,'#fbbf24',10);
+    }
+    // 箭头
+    if(phase>=2)arr(ctx,150,172,150,198,'#fbbf24',2);
+  }
+  
+  // 内核空间
+  if(phase>=0){
+    rr(ctx,340,50,370,320,10,'#2d1b3d','#a78bfa');
+    lbl(ctx,'内核空间',525,70,'#a78bfa',14,'center',true);
+    lbl(ctx,'Kernel Space',525,90,'#a78bfa',11);
+    // 内核组件
+    if(phase>=4){
+      rr(ctx,380,120,140,35,6,'#3d2660','#a78bfa');
+      lbl(ctx,'系统调用接口',450,138,'#a78bfa',11,'center');
+      if(phase>=5){
+        rr(ctx,380,170,140,35,6,'#3d2660','#a78bfa');
+        lbl(ctx,'文件系统',450,188,'#a78bfa',11,'center');
+        rr(ctx,380,220,140,35,6,'#3d2660','#a78bfa');
+        lbl(ctx,'进程管理',450,238,'#a78bfa',11,'center');
+        rr(ctx,380,270,140,35,6,'#3d2660','#a78bfa');
+        lbl(ctx,'内存管理',450,288,'#a78bfa',11,'center');
+        rr(ctx,380,320,140,35,6,'#3d2660','#a78bfa');
+        lbl(ctx,'设备驱动',450,338,'#a78bfa',11,'center');
+      }
+    }
+  }
+  
+  // 分界线
+  if(phase>=0){
+    rr(ctx,270,60,50,300,8,'#0d1117','#f87171');
+    lbl(ctx,'特权级边界',295,70,'#f87171',10,'center');
+    for(let i=0;i<12;i++){
+      lbl(ctx,'●',295,95+i*22,'#f87171',8);
+    }
+  }
+  
+  // 切换箭头
+  if(phase>=5){
+    arr(ctx,240,250,340,250,'#a78bfa',3);
+    lbl(ctx,'模式切换',290,240,'#a78bfa',11,'center');
+    // 切换时显示Ring 0
+    rr(ctx,270,260,50,25,4,'rgba(167,139,250,0.3)','#a78bfa');
+    lbl(ctx,'Ring 0',295,272,'#a78bfa',10,'center',true);
+  }
+  
+  // 说明文字
+  if(phase>=6){
+    rr(ctx,30,385,680,25,6,'rgba(167,139,250,0.1)','#a78bfa');
+    lbl(ctx,'应用程序通过系统调用接口进入内核态，完成特权操作后返回用户态',370,398,'#a78bfa',12,'center');
+  }
+}
+
+// ========== 场景1：特权级 ==========
+let anim1=null;
+function resetScene1(){cancelAnimationFrame(anim1);const ctx=document.getElementById('c1').getContext('2d');bg(ctx);drawS1(ctx,0);}
+function animScene1(){cancelAnimationFrame(anim1);let p=0;const ctx=document.getElementById('c1').getContext('2d');function step(){drawS1(ctx,p);p++;if(p<=5)anim1=setTimeout(step,700);}step();}
+function drawS1(ctx,phase){
+  bg(ctx);lbl(ctx,'CPU特权级 (Ring 0-3)',370,26,'#a78bfa',16,'center',true);
+  
+  const rings=[
+    {ring:0,label:'Ring 0',name:'内核态',desc:'最高特权级\n可执行所有指令\n访问全部内存\n控制硬件设备',color:'#f87171'},
+    {ring:1,label:'Ring 1',name:'(保留)',desc:'驱动程序\n设备访问',color:'#fbbf24'},
+    {ring:2,label:'Ring 2',name:'(保留)',desc:'驱动程序\n受限设备访问',color:'#fbbf24'},
+    {ring:3,label:'Ring 3',name:'用户态',desc:'最低特权级\n受限指令集\n用户空间\n应用程序',color:'#60a5fa'},
+  ];
+  
+  rings.forEach((r,i)=>{
+    const y=60+i*80;
+    const active=phase>=i;
+    if(active){
+      rr(ctx,80,y,240,70,8,r.color+'22',r.color);
+      lbl(ctx,r.label,120,y+35,r.color,14,'center',true);
+      lbl(ctx,r.name,200,y+35,r.color,13,'center',true);
+      // 描述
+      const lines=r.desc.split('\n');
+      lines.forEach((ln,j)=>{
+        lbl(ctx,ln,440,y+20+j*18,r.color,11);
+      });
+    }
+  });
+  
+  // CPU寄存器显示
+  if(phase>=3){
+    rr(ctx,350,320,180,40,6,'#1e293b','#a78bfa');
+    lbl(ctx,'CS寄存器 (低2位=CPL)',440,332,'#a78bfa',11,'center');
+    mnl(ctx,'当前特权级',440,348,'#22c55e',11);
+  }
+  
+  // Linux使用说明
+  if(phase>=4){
+    rr(ctx,550,320,170,80,6,'rgba(34,197,94,0.1)','#22c55e');
+    lbl(ctx,'Linux使用',635,340,'#22c55e',11,'center',true);
+    lbl(ctx,'Ring 0 → 内核',635,358,'#22c55e',10);
+    lbl(ctx,'Ring 3 → 用户',635,376,'#22c55e',10);
+  }
+}
+
+// ========== 场景2：系统调用过程 ==========
+let step2Idx=0;
+const sysSteps=[
+  {text:'应用程序调用 read(fd,buf,n)',info:'用户程序调用C库函数read()，参数：文件描述符、缓冲区、读取字节数'},
+  {text:'C库执行 syscall 指令',info:'glibc将系统调用号放入rax寄存器，执行syscall触发软中断（异常）'},
+  {text:'CPU切换到内核态（Ring 0）',info:'syscall使CPU从用户态切换到内核态，保存用户程序计数器等状态'},
+  {text:'内核查找系统调用表',info:'根据rax中的系统调用号（如read=0），在内核_SYSCALL_TABLE中查找处理函数'},
+  {text:'执行内核服务例程 sys_read',info:'内核检查文件描述符、权限，从磁盘读取数据复制到用户缓冲区'},
+  {text:'返回用户态，应用程序继续',info:'执行iret/sysexit返回用户态，rax包含读取的字节数或错误码'}
+];
+function resetScene2(){step2Idx=0;document.getElementById('step2').textContent='等待开始...';document.getElementById('info2').textContent='点击"单步执行"逐步演示read()系统调用';drawS2(document.getElementById('c2').getContext('2d'),-1);}
+function stepScene2(){
+  if(step2Idx>=sysSteps.length)step2Idx=0;
+  const s=sysSteps[step2Idx];
+  document.getElementById('step2').textContent='步骤'+(step2Idx+1)+': '+s.text;
+  document.getElementById('info2').textContent=s.info;
+  drawS2(document.getElementById('c2').getContext('2d'),step2Idx);
+  step2Idx++;
+}
+function drawS2(ctx,phase){
+  bg(ctx);lbl(ctx,'read() 系统调用完整流程',370,24,'#a78bfa',15,'center',true);
+  
+  // 用户空间
+  rr(ctx,30,50,200,360,10,'#1a2332','#60a5fa');
+  lbl(ctx,'用户空间',130,70,'#60a5fa',12,'center',true);
+  if(phase>=0){
+    rr(ctx,50,100,160,40,6,'#1e3a5f','#60a5fa');
+    lbl(ctx,'应用程序',130,120,'#60a5fa',11,'center');
+    mnl(ctx,'read(fd,buf,n)',130,140,'#9ca3af',10);
+  }
+  if(phase>=1){
+    rr(ctx,50,160,160,40,6,'#2d3748','#9ca3af');
+    lbl(ctx,'C库 (glibc)',130,180,'#9ca3af',11,'center');
+    mnl(ctx,'syscall',130,200,'#fbbf24',11);
+  }
+  if(phase>=5){
+    rr(ctx,50,220,160,30,6,'rgba(34,197,94,0.2)','#22c55e');
+    lbl(ctx,'返回结果',130,235,'#22c55e',11,'center');
+    mnl(ctx,'n=读取字节数',130,250,'#22c55e',10);
+  }
+  
+  // 切换边界
+  rr(ctx,230,50,40,360,8,'#0d1117','#f87171');
+  lbl(ctx,'切换',250,70,'#f87171',10,'center');
+  for(let i=0;i<14;i++)lbl(ctx,'●',250,95+i*20,'#f87171',8);
+  
+  // 内核空间
+  rr(ctx,270,50,440,360,10,'#2d1b3d','#a78bfa');
+  lbl(ctx,'内核空间 (Ring 0)',490,70,'#a78bfa',12,'center',true);
+  
+  // 内核各阶段
+  const ksteps=[
+    {y:110,label:'CPU状态切换',desc:'保存用户RIP/CSR',act:2},
+    {y:180,label:'查找系统调用表',desc:'sys_call_table[rax]',act:3},
+    {y:250,label:'执行sys_read',desc:'检查权限，读取磁盘',act:4},
+    {y:320,label:'返回用户态',desc:'恢复用户状态',act:5},
+  ];
+  ksteps.forEach((ks,i)=>{
+    const active=phase>=ks.act;
+    rr(ctx,300,ks.y,140,50,6,active?'rgba(167,139,250,0.2)':'#1a1f2e',active?'#a78bfa':'#3b4252');
+    lbl(ctx,ks.label,370,ks.y+16,active?'#a78bfa':'#6b7280',11,'center',true);
+    mnl(ctx,ks.desc,370,ks.y+34,active?'#fbbf24':'#4b5563',9);
+    // 连接线
+    if(i<ksteps.length-1 && phase>=ks.act){
+      arr(ctx,370,ks.y+50,370,ksteps[i+1].y,'#a78bfa',1.5);
+    }
+  });
+  
+  // 软中断触发
+  if(phase>=1){
+    rr(ctx,460,90,150,30,6,'rgba(248,113,113,0.2)','#f87171');
+    lbl(ctx,'软中断 0x80 / syscall',535,105,'#f87171',10,'center');
+    arr(ctx,130,202,268,105,'#f87171',2);
+  }
+  
+  // 寄存器信息
+  if(phase>=1){
+    rr(ctx,460,130,150,80,6,'#1e293b','#fbbf24');
+    lbl(ctx,'寄存器',535,145,'#fbbf24',10,'center',true);
+    mnl(ctx,'rax=0 (read)',535,160,'#e2e8f0',10);
+    mnl(ctx,'rdi=fd',535,175,'#e2e8f0',10);
+    mnl(ctx,'rsi=buf',535,190,'#e2e8f0',10);
+  }
+  
+  // 磁盘访问
+  if(phase>=4){
+    rr(ctx,460,230,150,60,6,'rgba(34,197,94,0.15)','#22c55e');
+    lbl(ctx,'磁盘/设备',535,245,'#22c55e',11,'center',true);
+    lbl(ctx,'读取数据到缓冲区',535,268,'#9ca3af',10);
+    arr(ctx,410,275,458,260,'#22c55e',1.5);
+  }
+  
+  // 步骤提示
+  if(phase>=0){
+    lbl(ctx,'步骤'+(phase+1)+': '+sysSteps[phase]?.text||'',370,400,'#fbbf24',11,'center');
+  }
+}
+
+// ========== 场景3：系统调用类型 ==========
+let anim3=null;
+function resetScene3(){cancelAnimationFrame(anim3);const ctx=document.getElementById('c3').getContext('2d');bg(ctx);drawS3(ctx,0);}
+function animScene3(){cancelAnimationFrame(anim3);let p=0;const ctx=document.getElementById('c3').getContext('2d');function step(){drawS3(ctx,p);p++;if(p<=4)anim3=setTimeout(step,800);}step();}
+function drawS3(ctx,phase){
+  bg(ctx);lbl(ctx,'常见系统调用分类与编号',370,26,'#a78bfa',16,'center',true);
+  
+  const categories=[
+    {name:'进程控制',color:'#f87171',calls:[['fork','2'],['execve','59'],['exit','60'],['wait4','61']]},
+    {name:'文件操作',color:'#fbbf24',calls:[['open','2'],['read','0'],['write','1'],['close','3']]},
+    {name:'设备通信',color:'#22c55e',calls:[['ioctl','16'],['read','0'],['write','1']]},
+    {name:'信息维护',color:'#60a5fa',calls:[['getpid','39'],['uname','63'],['alarm','37']]},
+    {name:'通信',color:'#a78bfa',calls:[['pipe','22'],['shmget','29'],['mmap','9']]},
+  ];
+  
+  categories.forEach((cat,i)=>{
+    const x=30+i*140;
+    if(phase>=i){
+      rr(ctx,x,55,130,340,8,cat.color+'15',cat.color);
+      lbl(ctx,cat.name,x+65,78,cat.color,13,'center',true);
+      cat.calls.forEach((c,j)=>{
+        const y=105+j*55;
+        rr(ctx,x+8,y,114,45,4,'#0d1117',cat.color);
+        mnl(ctx,c[0],x+65,y+15,cat.color,12);
+        mnl(ctx,'sys_'+c[0],x+65,y+32,'#9ca3af',9);
+        lbl(ctx,'#'+c[1],x+115,y+15,cat.color,10,'right');
+      });
+    }
+  });
+  
+  // x86-64调用约定
+  if(phase>=3){
+    rr(ctx,30,385,680,25,6,'rgba(167,139,250,0.1)','#a78bfa');
+    lbl(ctx,'x86-64: rax=调用号, rdi/rsi/rdx/r10/r8/r9=参数, rax=返回值',370,398,'#a78bfa',12,'center');
+  }
+}
+
+function switchTab(i){
+  document.querySelectorAll('.tab').forEach((t,j)=>t.classList.toggle('active',i===j));
+  document.querySelectorAll('.scene').forEach((s,j)=>s.classList.toggle('active',i===j));
+}
+window.onload=()=>{
+  drawS0(document.getElementById('c0').getContext('2d'),0);
+  drawS1(document.getElementById('c1').getContext('2d'),0);
+  drawS2(document.getElementById('c2').getContext('2d'),-1);
+  drawS3(document.getElementById('c3').getContext('2d'),0);
+};
+</script>
+</body>
+</html>

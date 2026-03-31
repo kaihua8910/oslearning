@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>内存抖动与工作集 - OS动画</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0a0e14;--card:#1a1f2e;--border:#3b4252;--text:#e2e8f0;--muted:#9ca3af;--green:#22c55e;--blue:#60a5fa;--purple:#a78bfa;--orange:#f97316;--yellow:#fbbf24;--red:#f87171;--cyan:#06b6d4;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Noto Sans SC',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+.page-header{background:linear-gradient(135deg,#0f172a,#1e293b);border-bottom:1px solid var(--border);padding:18px 30px;display:flex;align-items:center;gap:16px;}
+.back-btn{display:flex;align-items:center;gap:6px;color:var(--green);text-decoration:none;font-size:14px;padding:6px 12px;border:1px solid rgba(34,197,94,.3);border-radius:6px;transition:.2s;}
+.back-btn:hover{background:rgba(34,197,94,.1);}
+.page-title{font-size:20px;font-weight:700;color:var(--green);}
+.page-subtitle{font-size:13px;color:var(--muted);}
+.container{max-width:1100px;margin:0 auto;padding:24px 20px;}
+.tabs{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;}
+.tab{padding:8px 18px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--muted);cursor:pointer;font-size:13px;font-family:'Noto Sans SC',sans-serif;transition:.2s;}
+.tab.active{border-color:var(--green);color:var(--green);background:rgba(34,197,94,.1);}
+.scene{display:none;}
+.scene.active{display:block;}
+.layout{display:grid;grid-template-columns:1fr 320px;gap:16px;}
+canvas{border-radius:10px;border:1px solid var(--border);background:#0d1117;display:block;}
+.info-panel{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:12px;}
+.info-title{font-size:14px;font-weight:700;color:var(--green);border-bottom:1px solid var(--border);padding-bottom:8px;}
+.info-text{font-size:13px;color:var(--text);line-height:1.8;}
+.info-text b{color:var(--yellow);}
+.info-text .em{color:var(--cyan);}
+.step-box{background:#0d1117;border-radius:8px;padding:10px;border-left:3px solid var(--green);}
+.step-label{font-size:11px;color:var(--muted);margin-bottom:4px;}
+.step-content{font-size:12px;font-family:'JetBrains Mono',monospace;color:var(--green);}
+.controls{display:flex;gap:8px;margin-top:12px;}
+.btn{padding:7px 16px;border-radius:7px;border:none;cursor:pointer;font-size:13px;font-family:'Noto Sans SC',sans-serif;font-weight:500;transition:.2s;}
+.btn-primary{background:var(--green);color:#000;}
+.btn-primary:hover{filter:brightness(1.1);}
+.btn-secondary{background:var(--card);border:1px solid var(--border);color:var(--text);}
+.btn-secondary:hover{border-color:var(--green);color:var(--green);}
+.formula-box{background:#0d1117;border-radius:8px;padding:10px;border:1px solid rgba(251,191,36,.2);}
+.formula{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--yellow);line-height:1.8;}
+</style>
+</head>
+<body>
+<div class="page-header">
+  <a href="index.html" class="back-btn">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>返回首页
+  </a>
+  <div>
+    <div class="page-title">内存抖动与工作集模型</div>
+    <div class="page-subtitle">Thrashing & Working Set Model</div>
+  </div>
+</div>
+<div class="container">
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab(0)">什么是抖动</button>
+    <button class="tab" onclick="switchTab(1)">抖动成因</button>
+    <button class="tab" onclick="switchTab(2)">工作集模型</button>
+    <button class="tab" onclick="switchTab(3)">抖动检测与预防</button>
+  </div>
+
+  <!-- 场景0：什么是抖动 -->
+  <div class="scene active" id="scene0">
+    <div class="layout">
+      <canvas id="c0" width="740" height="420"></canvas>
+      <div class="info-panel">
+        <div class="info-title">什么是内存抖动</div>
+        <div class="info-text">
+          <b>抖动（Thrashing）</b>：<br>
+          进程频繁发生缺页异常，大量时间花在页面置换上，实际执行时间很少。<br><br>
+          <span class="em">现象：</span><br>
+          · CPU利用率急剧下降<br>
+          · 磁盘IO活动急剧上升<br>
+          · 系统吞吐量暴跌<br>
+          · 进程似乎在"跑"但实际没前进<br><br>
+          就像一个人整理文件：刚整理好又需要找别的，导致一直在整理
+        </div>
+        <div class="formula-box">
+          <div class="formula">抖动 = 缺页率极高<br>     = 大部分时间<br>       在置换页面</div>
+        </div>
+        <div class="controls">
+          <button class="btn btn-primary" onclick="animScene0()">播放动画</button>
+          <button class="btn-secondary" onclick="resetScene0()">重置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景1：抖动成因 -->
+  <div class="scene" id="scene1">
+    <div class="layout">
+      <canvas id="c1" width="740" height="420"></canvas>
+      <div class="info-panel">
+        <div class="info-title">抖动成因分析</div>
+        <div class="info-text" id="info1">点击"单步演示"逐步展示抖动形成过程</div>
+        <div class="step-box">
+          <div class="step-label">当前状态</div>
+          <div class="step-content" id="step1">等待开始...</div>
+        </div>
+        <div class="formula-box">
+          <div class="formula">根本原因：<br>进程工作集 > 物理内存<br>→ 频繁缺页 → 抖动</div>
+        </div>
+        <div class="controls">
+          <button class="btn btn-primary" onclick="stepScene1()">单步演示</button>
+          <button class="btn-secondary" onclick="resetScene1()">重置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景2：工作集模型 -->
+  <div class="scene" id="scene2">
+    <div class="layout">
+      <canvas id="c2" width="740" height="420"></canvas>
+      <div class="info-panel">
+        <div class="info-title">工作集模型</div>
+        <div class="info-text">
+          <b>工作集 W(t, Δ)</b>：<br>
+          进程在时间窗口 Δ 内访问过的页面集合。<br><br>
+          <span class="em">工作集理论：</span><br>
+          · 要有效运行，进程工作集必须在内存中<br>
+          · |W(t,Δ)| 决定了需要的最小物理帧数<br>
+          · Δ 越大，工作集越大（包含更多历史页面）<br><br>
+          <span class="em">应用：</span><br>
+          通过跟踪进程工作集，操作系统可以决定是否将进程换入/换出内存
+        </div>
+        <div class="formula-box">
+          <div class="formula">W(t,Δ) = {最近Δ时间内<br>           访问过的页面}<br><br>工作集大小 = 所需物理帧数</div>
+        </div>
+        <div class="controls">
+          <button class="btn btn-primary" onclick="animScene2()">播放动画</button>
+          <button class="btn-secondary" onclick="resetScene2()">重置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景3：抖动检测与预防 -->
+  <div class="scene" id="scene3">
+    <div class="layout">
+      <canvas id="c3" width="740" height="420"></canvas>
+      <div class="info-panel">
+        <div class="info-title">抖动检测与预防策略</div>
+        <div class="info-text">
+          <b>检测方法：</b><br>
+          · 监控缺页频率（PF：Page Fault Rate）<br>
+          · PF > 阈值 → 可能发生抖动<br><br>
+          <b>预防策略：</b><br>
+          · <b>局部置换</b>：只从本进程页面置换<br>
+          · <b>调整多道程序度</b>：减少并发进程数<br>
+          · <b>挂起进程</b>：换出部分进程到磁盘<br>
+          · <b>工作集算法</b>：基于工作集大小分配帧
+        </div>
+        <div class="formula-box">
+          <div class="formula">PF = 缺页次数 / 访问总次数<br><br>PF高 → 工作集不足<br→减少并发 → 缓解抖动</div>
+        </div>
+        <div class="controls">
+          <button class="btn btn-primary" onclick="animScene3()">播放动画</button>
+          <button class="btn-secondary" onclick="resetScene3()">重置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ========== 工具函数 ==========
+function rr(ctx,x,y,w,h,r,fill,stroke,lw=1.5){
+  ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.arcTo(x+w,y,x+w,y+r,r);ctx.lineTo(x+w,y+h-r);ctx.arcTo(x+w,y+h,x+w-r,y+h,r);ctx.lineTo(x+r,y+h);ctx.arcTo(x,y+h,x,y+h-r,r);ctx.lineTo(x,y+r);ctx.arcTo(x,y,x+r,y,r);ctx.closePath();
+  if(fill){ctx.fillStyle=fill;ctx.fill();}
+  if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=lw;ctx.stroke();}
+}
+function arr(ctx,x1,y1,x2,y2,color,lw=1.5){
+  const a=Math.atan2(y2-y1,x2-x1),l=10;
+  ctx.strokeStyle=color;ctx.lineWidth=lw;ctx.fillStyle=color;
+  ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(x2,y2);ctx.lineTo(x2-l*Math.cos(a-.4),y2-l*Math.sin(a-.4));ctx.lineTo(x2-l*Math.cos(a+.4),y2-l*Math.sin(a+.4));ctx.closePath();ctx.fill();
+}
+function lbl(ctx,text,x,y,color='#e2e8f0',size=13,align='center',bold=false){
+  ctx.font=`${bold?700:400} ${size}px 'Noto Sans SC',sans-serif`;ctx.fillStyle=color;ctx.textAlign=align;ctx.textBaseline='middle';ctx.fillText(text,x,y);}
+function mnl(ctx,text,x,y,color='#fbbf24',size=12,align='center'){
+  ctx.font=`600 ${size}px 'JetBrains Mono',monospace`;ctx.fillStyle=color;ctx.textAlign=align;ctx.textBaseline='middle';ctx.fillText(text,x,y);}
+function bg(ctx){ctx.fillStyle='#0d1117';ctx.fillRect(0,0,740,420);}
+
+// ========== 场景0：什么是抖动 ==========
+let anim0=null;
+function resetScene0(){cancelAnimationFrame(anim0);const ctx=document.getElementById('c0').getContext('2d');bg(ctx);drawS0(ctx,0);}
+function animScene0(){cancelAnimationFrame(anim0);let p=0;const ctx=document.getElementById('c0').getContext('2d');function step(){drawS0(ctx,p);p++;if(p<=6)anim0=setTimeout(step,700);}step();}
+function drawS0(ctx,phase){
+  bg(ctx);lbl(ctx,'内存抖动 Thrashing',370,26,'#22c55e',16,'center',true);
+  
+  // 正常情况
+  rr(ctx,30,60,220,340,10,'#1a2332','#22c55e');
+  lbl(ctx,'正常情况',140,85,'#22c55e',14,'center',true);
+  if(phase>=1){
+    lbl(ctx,'CPU工作 70%',140,120,'#22c55e',12,'center');
+    lbl(ctx,'磁盘IO 30%',140,150,'#9ca3af',12,'center');
+    rr(ctx,50,170,180,25,6,'#22c55e','#22c55e');
+    mnl(ctx,'70%',140,182,'#000',12);
+    rr(ctx,50,200,180,25,6,'#3b4252','#3b4252');
+    mnl(ctx,'30%',140,212,'#9ca3af',12);
+  }
+  if(phase>=3){
+    rr(ctx,50,250,180,120,6,'#0d1117','#3b4252');
+    lbl(ctx,'吞吐量: 高',140,275,'#22c55e',12,'center');
+    lbl(ctx,'响应时间: 快',140,305,'#22c55e',12,'center');
+    lbl(ctx,'用户体验: 流畅',140,335,'#22c55e',12,'center');
+  }
+  
+  // 抖动情况
+  if(phase>=0){
+    rr(ctx,490,60,220,340,10,'#1a2332','#f87171');
+    lbl(ctx,'发生抖动',600,85,'#f87171',14,'center',true);
+  }
+  if(phase>=2){
+    lbl(ctx,'CPU工作 10%',600,120,'#f87171',12,'center');
+    lbl(ctx,'磁盘IO 90%',600,150,'#f87171',12,'center');
+    rr(ctx,510,170,180,25,6,'#f87171','#f87171');
+    mnl(ctx,'10%',600,182,'#000',12);
+    rr(ctx,510,200,180,25,6,'#3b4252','#3b4252');
+    mnl(ctx,'90%',600,212,'#9ca3af',12);
+  }
+  if(phase>=4){
+    rr(ctx,510,250,180,120,6,'#0d1117','#3b4252');
+    lbl(ctx,'吞吐量: 暴跌',600,275,'#f87171',12,'center');
+    lbl(ctx,'响应时间: 极慢',600,305,'#f87171',12,'center');
+    lbl(ctx,'用户体验: 卡死',600,335,'#f87171',12,'center');
+  }
+  
+  // 原因说明
+  if(phase>=5){
+    rr(ctx,250,360,240,45,6,'rgba(248,113,113,0.15)','#f87171');
+    lbl(ctx,'原因：进程不断换入换出',370,382,'#f87171',12,'center');
+    arr(ctx,250,340,340,330,'#f87171',1.5);
+    arr(ctx,490,340,400,330,'#f87171',1.5);
+  }
+  
+  // CPU/磁盘图标
+  if(phase>=1){
+    rr(ctx,270,80,50,40,4,'#1e293b','#22c55e');
+    lbl(ctx,'CPU',295,100,'#22c55e',9,'center');
+    rr(ctx,330,80,50,40,4,'#1e293b','#f97316');
+    lbl(ctx,'磁盘',355,100,'#f97316',9,'center');
+  }
+}
+
+// ========== 场景1：抖动成因 ==========
+let step1Idx=0;
+const thrashSteps=[
+  {s:'初始：内存充足',info:'进程P需要3帧，内存有5帧可用',p:0,m:5},
+  {s:'新进程加入',info:'内存紧张，仅剩2帧',p:1,m:2},
+  {s:'P工作集增长',info:'需要访问更多页面（缺页增加）',p:2,m:1},
+  {s:'频繁缺页异常',info:'磁盘频繁读写，大量时间在页面置换',p:3,m:1},
+  {s:'发生抖动！',info:'CPU等待磁盘，效率极低',p:4,m:1},
+];
+function resetScene1(){step1Idx=0;document.getElementById('step1').textContent='等待开始...';document.getElementById('info1').textContent='点击"单步演示"逐步展示抖动形成过程';drawS1(document.getElementById('c1').getContext('2d'),-1,0,5);}
+function stepScene1(){
+  if(step1Idx>=thrashSteps.length)step1Idx=0;
+  const s=thrashSteps[step1Idx];
+  document.getElementById('step1').textContent=s.s;
+  document.getElementById('info1').textContent=s.info;
+  drawS1(document.getElementById('c1').getContext('2d'),step1Idx,s.p,s.m);
+  step1Idx++;
+}
+function drawS1(ctx,phase,procCount,memLeft){
+  bg(ctx);lbl(ctx,'抖动成因演示',370,24,'#22c55e',15,'center',true);
+  
+  // 物理内存
+  rr(ctx,30,60,300,340,10,'#1a2332','#3b4252');
+  lbl(ctx,'物理内存 (总100帧)',180,82,'#9ca3af',12,'center',true);
+  // 帧格
+  const totalFrames=100;
+  for(let i=0;i<20;i++){
+    for(let j=0;j<5;j++){
+      const fidx=i*5+j;
+      const occupied=phase>=1 && fidx<(95-procCount*3);
+      const swapping=phase>=3 && fidx>=(95-procCount*3) && fidx<100;
+      rr(ctx,40+j*56,100+i*14,50,12,2,occupied?'rgba(34,197,94,0.4)':(swapping?'rgba(248,113,113,0.4)':'#0d1117'),occupied?'#22c55e':(swapping?'#f87171':'#2d3748'));
+    }
+  }
+  // 内存使用率
+  const usage=Math.min(100,95-procCount*3+phase*2);
+  rr(ctx,30,385,300,25,6,usage>85?'rgba(248,113,113,0.3)':'rgba(34,197,94,0.3)',usage>85?'#f87171':'#22c55e');
+  mnl(ctx,`使用率: ${usage}%`,180,397,'#e2e8f0',11);
+  
+  // 进程
+  rr(ctx,370,60,340,200,10,'#1a2332','#60a5fa');
+  lbl(ctx,'进程',540,82,'#60a5fa',12,'center',true);
+  for(let i=0;i<4;i++){
+    const py=110+i*45;
+    const active=i<procCount;
+    rr(ctx,390,py,300,38,6,active?'rgba(96,165,250,0.3)':'#0d1117',active?'#60a5fa':'#3b4252');
+    if(active){
+      lbl(ctx,`进程P${i+1}`,420,py+19,'#60a5fa',12,'center',true);
+      lbl(ctx,`工作集: {${i*3+1},${i*3+2},${i*3+3}}页`,500,py+19,'#9ca3af',11);
+    }
+  }
+  
+  // 缺页/置换指示
+  if(phase>=2){
+    rr(ctx,370,280,340,100,6,'#1a2332','#f97316');
+    lbl(ctx,'页面置换活动',540,300,'#f97316',12,'center',true);
+    lbl(ctx,phase>=3?'频繁缺页异常!':'缺页率上升',540,330,'#f97316',14,'center',true);
+    mnl(ctx,phase>=3?'███████ 90%':'███ 30%',540,360,'#f97316',12);
+  }
+  
+  // 箭头
+  if(phase>=0){
+    arr(ctx,332,150,368,150,'#60a5fa',2);
+  }
+  
+  // 说明
+  if(phase>=0){
+    lbl(ctx,'步骤'+(phase+1)+': '+(thrashSteps[phase]?.s||''),370,400,'#fbbf24',11,'center');
+  }
+}
+
+// ========== 场景2：工作集模型 ==========
+let anim2=null;
+function resetScene2(){cancelAnimationFrame(anim2);const ctx=document.getElementById('c2').getContext('2d');bg(ctx);drawS2(ctx,0);}
+function animScene2(){cancelAnimationFrame(anim2);let p=0;const ctx=document.getElementById('c2').getContext('2d');function step(){drawS2(ctx,p);p++;if(p<=5)anim2=setTimeout(step,800);}step();}
+function drawS2(ctx,phase){
+  bg(ctx);lbl(ctx,'工作集模型 Working Set',370,26,'#22c55e',16,'center',true);
+  
+  // 时间轴
+  rr(ctx,30,55,680,30,6,'#1e293b','#3b4252');
+  for(let i=0;i<8;i++){
+    const x=60+i*85;
+    lbl(ctx,`T${i}`,x,70,'#9ca3af',10,'center');
+  }
+  
+  // 工作集窗口
+  if(phase>=0){
+    rr(ctx,50,95,200,30,6,'rgba(34,197,94,0.2)','#22c55e');
+    lbl(ctx,'Δ = 时间窗口',150,110,'#22c55e',11,'center');
+    if(phase>=3){
+      rr(ctx,270,95,200,30,6,'rgba(34,197,94,0.2)','#22c55e');
+      lbl(ctx,'Δ = 时间窗口',370,110,'#22c55e',11,'center');
+    }
+  }
+  
+  // 访问序列
+  const accesses=[1,3,5,2,4,6,1,2,3,5,7,2,4,6,8,1];
+  if(phase>=1){
+    lbl(ctx,'进程访问序列：',80,145,'#9ca3af',12);
+    for(let i=0;i<16;i++){
+      const x=80+(i%8)*40;
+      const y=165+Math.floor(i/8)*35;
+      const page=accesses[i];
+      const inWS=phase>=2 && [accesses[Math.max(0,i-2)],accesses[Math.max(0,i-1)],accesses[i]].includes(page);
+      const highlight=phase>=4 && i>=10 && i<=13;
+      rr(ctx,x,y,34,28,4,highlight?'rgba(34,197,94,0.4)':(inWS?'rgba(34,197,94,0.2)':'#0d1117'),highlight?'#22c55e':(inWS?'#22c55e':'#3b4252'));
+      mnl(ctx,page,x+17,y+14,highlight?'#22c55e':'#9ca3af',11);
+    }
+  }
+  
+  // 工作集计算
+  if(phase>=2){
+    rr(ctx,40,230,320,170,8,'#1a2332','#22c55e');
+    lbl(ctx,'工作集计算 W(t,Δ)',200,248,'#22c55e',13,'center',true);
+    lbl(ctx,'Δ=3（最近3次访问）',200,275,'#9ca3af',11,'center');
+    lbl(ctx,'当前访问: 页面4',200,300,'#fbbf24',12,'center');
+    lbl(ctx,'工作集: {1,2,3,4,5,6}',200,330,'#22c55e',14,'center',true);
+    lbl(ctx,'|W| = 6帧',200,360,'#f97316',13,'center',true);
+  }
+  
+  // 物理内存分配
+  if(phase>=3){
+    rr(ctx,380,230,320,170,8,'#1a2332','#60a5fa');
+    lbl(ctx,'物理内存分配',540,248,'#60a5fa',13,'center',true);
+    lbl(ctx,'进程工作集大小 = 6帧',540,280,'#60a5fa',12,'center');
+    lbl(ctx,'内存充足: 分配 ≥6帧',540,310,'#22c55e',12,'center');
+    lbl(ctx,'内存不足: 缺页→抖动!',540,340,'#f87171',12,'center');
+    lbl(ctx,'→ 需要 >6帧才能流畅',540,370,'#fbbf24',11,'center');
+  }
+  
+  // 公式
+  if(phase>=4){
+    rr(ctx,40,385,660,25,6,'rgba(34,197,94,0.1)','#22c55e');
+    lbl(ctx,'工作集理论：保证 |W(t,Δ)| 帧在内存中 → 避免抖动',370,397,'#22c55e',12,'center');
+  }
+}
+
+// ========== 场景3：抖动检测与预防 ==========
+let anim3=null;
+function resetScene3(){cancelAnimationFrame(anim3);const ctx=document.getElementById('c3').getContext('2d');bg(ctx);drawS3(ctx,0);}
+function animScene3(){cancelAnimationFrame(anim3);let p=0;const ctx=document.getElementById('c3').getContext('2d');function step(){drawS3(ctx,p);p++;if(p<=4)anim3=setTimeout(step,800);}step();}
+function drawS3(ctx,phase){
+  bg(ctx);lbl(ctx,'抖动检测与预防策略',370,26,'#22c55e',16,'center',true);
+  
+  // 检测方法
+  if(phase>=0){
+    rr(ctx,30,60,220,180,8,'#1a2332','#f97316');
+    lbl(ctx,'抖动检测',140,82,'#f97316',14,'center',true);
+    const det=['监控缺页频率 PF','PF > 阈值 → 预警','计算: PF=缺页/总访问','PF>50% 可能抖动'];
+    det.forEach((d,i)=>{
+      lbl(ctx,d,140,110+i*28,'#fbbf24',11,'center');
+    });
+  }
+  
+  // 预防策略
+  const strategies=[
+    {name:'局部置换',desc:'只从本进程\n置换页面',c:'#60a5fa'},
+    {name:'调整多道\n程序度',desc:'减少并发\n进程数',c:'#22c55e'},
+    {name:'挂起进程',desc:'换出部分\n进程到磁盘',c:'#a78bfa'},
+    {name:'工作集\n算法',desc:'按工作集\n分配帧数',c:'#f97316'},
+  ];
+  strategies.forEach((s,i)=>{
+    const x=270+i*115;
+    if(phase>=i/2+0.5){
+      rr(ctx,x,60,105,180,8,s.c+'22',s.c);
+      lbl(ctx,s.name.replace('\n',' '),x+52,85,s.c,12,'center',true);
+      const lines=s.desc.split('\n');
+      lines.forEach((ln,j)=>{
+        lbl(ctx,ln,x+52,115+j*25,s.c,11,'center');
+      });
+    }
+  });
+  
+  // 曲线图
+  if(phase>=2){
+    rr(ctx,30,260,680,145,8,'#1a1f2e','#3b4252');
+    lbl(ctx,'缺页率 vs 多道程序度',370,278,'#9ca3af',12,'center',true);
+    // 绘制曲线
+    ctx.beginPath();
+    ctx.strokeStyle='#f97316';ctx.lineWidth=2;
+    ctx.moveTo(60,380);
+    ctx.quadraticCurveTo(200,300,300,200);
+    ctx.quadraticCurveTo(400,120,500,130);
+    ctx.quadraticCurveTo(580,150,650,180);
+    ctx.stroke();
+    // 标记抖动区
+    rr(ctx,280,300,180,40,6,'rgba(248,113,113,0.2)','#f87171');
+    lbl(ctx,'抖动区',370,320,'#f87171',11,'center');
+    // 最佳点
+    rr(ctx,465,105,30,30,4,'rgba(34,197,94,0.3)','#22c55e');
+    lbl(ctx,'最佳',480,120,'#22c55e',9,'center');
+    // 标签
+    lbl(ctx,'缺\n页\n率',45,330,'#f97316',10,'center');
+    lbl(ctx,'多道程序度 →',620,390,'#9ca3af',10,'center');
+  }
+  
+  // 总结
+  if(phase>=3){
+    rr(ctx,30,385,680,25,6,'rgba(34,197,94,0.1)','#22c55e');
+    lbl(ctx,'策略核心：让每个进程有足够物理帧容纳其工作集 → 消除抖动',370,397,'#22c55e',12,'center');
+  }
+}
+
+function switchTab(i){
+  document.querySelectorAll('.tab').forEach((t,j)=>t.classList.toggle('active',i===j));
+  document.querySelectorAll('.scene').forEach((s,j)=>s.classList.toggle('active',i===j));
+}
+window.onload=()=>{
+  drawS0(document.getElementById('c0').getContext('2d'),0);
+  drawS1(document.getElementById('c1').getContext('2d'),-1,0,5);
+  drawS2(document.getElementById('c2').getContext('2d'),0);
+  drawS3(document.getElementById('c3').getContext('2d'),0);
+};
+</script>
+</body>
+</html>

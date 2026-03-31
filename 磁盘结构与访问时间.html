@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>磁盘结构与访问时间 - OS动画</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0a0e14;--card:#1a1f2e;--border:#3b4252;--text:#e2e8f0;--muted:#9ca3af;--green:#22c55e;--blue:#60a5fa;--purple:#a78bfa;--orange:#f97316;--yellow:#fbbf24;--red:#f87171;--cyan:#06b6d4;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Noto Sans SC',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+.page-header{background:linear-gradient(135deg,#0f172a,#1e293b);border-bottom:1px solid var(--border);padding:18px 30px;display:flex;align-items:center;gap:16px;}
+.back-btn{display:flex;align-items:center;gap:6px;color:var(--cyan);text-decoration:none;font-size:14px;padding:6px 12px;border:1px solid rgba(6,182,212,.3);border-radius:6px;transition:.2s;}
+.back-btn:hover{background:rgba(6,182,212,.1);}
+.page-title{font-size:20px;font-weight:700;color:var(--cyan);}
+.page-subtitle{font-size:13px;color:var(--muted);}
+.container{max-width:1100px;margin:0 auto;padding:24px 20px;}
+.tabs{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;}
+.tab{padding:8px 18px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--muted);cursor:pointer;font-size:13px;font-family:'Noto Sans SC',sans-serif;transition:.2s;}
+.tab.active{border-color:var(--cyan);color:var(--cyan);background:rgba(6,182,212,.1);}
+.scene{display:none;}
+.scene.active{display:block;}
+.layout{display:grid;grid-template-columns:1fr 320px;gap:16px;}
+canvas{border-radius:10px;border:1px solid var(--border);background:#0d1117;display:block;}
+.info-panel{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:12px;}
+.info-title{font-size:14px;font-weight:700;color:var(--cyan);border-bottom:1px solid var(--border);padding-bottom:8px;}
+.info-text{font-size:13px;color:var(--text);line-height:1.8;}
+.info-text b{color:var(--yellow);}
+.info-text .em{color:var(--cyan);}
+.step-box{background:#0d1117;border-radius:8px;padding:10px;border-left:3px solid var(--cyan);}
+.step-label{font-size:11px;color:var(--muted);margin-bottom:4px;}
+.step-content{font-size:12px;font-family:'JetBrains Mono',monospace;color:var(--cyan);}
+.controls{display:flex;gap:8px;margin-top:12px;}
+.btn{padding:7px 16px;border-radius:7px;border:none;cursor:pointer;font-size:13px;font-family:'Noto Sans SC',sans-serif;font-weight:500;transition:.2s;}
+.btn-primary{background:var(--cyan);color:#000;}
+.btn-primary:hover{filter:brightness(1.1);}
+.btn-secondary{background:var(--card);border:1px solid var(--border);color:var(--text);}
+.btn-secondary:hover{border-color:var(--cyan);color:var(--cyan);}
+.formula-box{background:#0d1117;border-radius:8px;padding:10px;border:1px solid rgba(251,191,36,.2);}
+.formula{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--yellow);line-height:1.8;}
+</style>
+</head>
+<body>
+<div class="page-header">
+  <a href="index.html" class="back-btn">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>返回首页
+  </a>
+  <div>
+    <div class="page-title">磁盘结构与访问时间</div>
+    <div class="page-subtitle">Disk Structure & Access Time</div>
+  </div>
+</div>
+<div class="container">
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab(0)">磁盘物理结构</button>
+    <button class="tab" onclick="switchTab(1)">磁盘访问时间</button>
+    <button class="tab" onclick="switchTab(2)">访问时间计算</button>
+    <button class="tab" onclick="switchTab(3)">性能优化</button>
+  </div>
+
+  <!-- 场景0：磁盘物理结构 -->
+  <div class="scene active" id="scene0">
+    <div class="layout">
+      <canvas id="c0" width="740" height="420"></canvas>
+      <div class="info-panel">
+        <div class="info-title">磁盘物理结构</div>
+        <div class="info-text">
+          <b>磁盘结构层次：</b><br><br>
+          · <b>盘片（Platter）</b>：圆形磁性介质<br>
+          · <b>磁道（Track）</b>：同心圆<br>
+          · <b>扇区（Sector）</b>：磁道弧段（通常512B-4KB）<br>
+          · <b>柱面（Cylinder）</b>：所有盘片同一半径的磁道<br>
+          · <b>磁头（Head）</b>：读写数据的探头<br><br>
+          <span class="em">现代磁盘：</span><br>
+          多盘片、多磁头，垂直记录技术
+        </div>
+        <div class="formula-box">
+          <div class="formula">磁盘编址：<br>(柱面号, 盘面号, 扇区号)<br>= CHS地址</div>
+        </div>
+        <div class="controls">
+          <button class="btn btn-primary" onclick="animScene0()">播放动画</button>
+          <button class="btn-secondary" onclick="resetScene0()">重置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景1：磁盘访问时间 -->
+  <div class="scene" id="scene1">
+    <div class="layout">
+      <canvas id="c1" width="740" height="420"></canvas>
+      <div class="info-panel">
+        <div class="info-title">磁盘访问时间组成</div>
+        <div class="info-text">
+          <b>1. 寻道时间 Ts</b><br>
+          磁头移动到目标磁道的时间<br>
+          通常 3-15ms，平均约 8ms<br><br>
+          <b>2. 旋转延迟 Tr</b><br>
+          等待目标扇区旋转到磁头下方<br>
+          平均 ½ 转速时间 (约 4-8ms)<br><br>
+          <b>3. 传输时间 Tt</b><br>
+          数据实际传输的时间<br>
+          取决于传输数据量和速度
+        </div>
+        <div class="formula-box">
+          <div class="formula">T访问 = Ts + Tr + Tt<br><br>典型HDD：10-20ms<br>典型SSD：0.1ms</div>
+        </div>
+        <div class="controls">
+          <button class="btn btn-primary" onclick="animScene1()">播放动画</button>
+          <button class="btn-secondary" onclick="resetScene1()">重置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景2：访问时间计算 -->
+  <div class="scene" id="scene2">
+    <div class="layout">
+      <canvas id="c2" width="740" height="420"></canvas>
+      <div class="info-panel">
+        <div class="info-title">访问时间计算示例</div>
+        <div class="info-text" id="info2">点击"单步计算"演示时间分解</div>
+        <div class="step-box">
+          <div class="step-label">计算过程</div>
+          <div class="step-content" id="step2">等待开始...</div>
+        </div>
+        <div class="formula-box">
+          <div class="formula">示例参数：<br>Ts=8ms, 转速=7200RPM<br>每道扇区=100, 读取10扇区</div>
+        </div>
+        <div class="controls">
+          <button class="btn btn-primary" onclick="stepScene2()">单步计算</button>
+          <button class="btn-secondary" onclick="resetScene2()">重置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景3：性能优化 -->
+  <div class="scene" id="scene3">
+    <div class="layout">
+      <canvas id="c3" width="740" height="420"></canvas>
+      <div class="info-panel">
+        <div class="info-title">磁盘性能优化策略</div>
+        <div class="info-text">
+          <b>1. 磁盘调度算法</b><br>
+          优化寻道顺序，减少寻道时间<br>
+          FCFS, SSTF, SCAN, C-SCAN...<br><br>
+          <b>2. 缓存/缓冲区</b><br>
+          内存缓存热点数据<br><br>
+          <b>3. 预读策略</b><br>
+          提前读取可能需要的数据<br><br>
+          <b>4. 磁盘碎片整理</b>
+          连续存放减少寻道
+        </div>
+        <div class="formula-box">
+          <div class="formula">优化效果：<br>合理调度 → 减少50%寻道<br>SSD → 消除寻道时间</div>
+        </div>
+        <div class="controls">
+          <button class="btn btn-primary" onclick="animScene3()">播放动画</button>
+          <button class="btn-secondary" onclick="resetScene3()">重置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ========== 工具函数 ==========
+function rr(ctx,x,y,w,h,r,fill,stroke,lw=1.5){
+  ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.arcTo(x+w,y,x+w,y+r,r);ctx.lineTo(x+w,y+h-r);ctx.arcTo(x+w,y+h,x+w-r,y+h,r);ctx.lineTo(x+r,y+h);ctx.arcTo(x,y+h,x,y+h-r,r);ctx.lineTo(x,y+r);ctx.arcTo(x,y,x+r,y,r);ctx.closePath();
+  if(fill){ctx.fillStyle=fill;ctx.fill();}
+  if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=lw;ctx.stroke();}
+}
+function arr(ctx,x1,y1,x2,y2,color,lw=1.5){
+  const a=Math.atan2(y2-y1,x2-x1),l=10;
+  ctx.strokeStyle=color;ctx.lineWidth=lw;ctx.fillStyle=color;
+  ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(x2,y2);ctx.lineTo(x2-l*Math.cos(a-.4),y2-l*Math.sin(a-.4));ctx.lineTo(x2-l*Math.cos(a+.4),y2-l*Math.sin(a+.4));ctx.closePath();ctx.fill();
+}
+function lbl(ctx,text,x,y,color='#e2e8f0',size=13,align='center',bold=false){
+  ctx.font=`${bold?700:400} ${size}px 'Noto Sans SC',sans-serif`;ctx.fillStyle=color;ctx.textAlign=align;ctx.textBaseline='middle';ctx.fillText(text,x,y);}
+function mnl(ctx,text,x,y,color='#fbbf24',size=12,align='center'){
+  ctx.font=`600 ${size}px 'JetBrains Mono',monospace`;ctx.fillStyle=color;ctx.textAlign=align;ctx.textBaseline='middle';ctx.fillText(text,x,y);}
+function bg(ctx){ctx.fillStyle='#0d1117';ctx.fillRect(0,0,740,420);}
+
+// ========== 场景0：磁盘物理结构 ==========
+let anim0=null;
+function resetScene0(){cancelAnimationFrame(anim0);const ctx=document.getElementById('c0').getContext('2d');bg(ctx);drawS0(ctx,0);}
+function animScene0(){cancelAnimationFrame(anim0);let p=0;const ctx=document.getElementById('c0').getContext('2d');function step(){drawS0(ctx,p);p++;if(p<=5)anim0=setTimeout(step,700);}step();}
+function drawS0(ctx,phase){
+  bg(ctx);lbl(ctx,'磁盘物理结构',370,26,'#06b6d4',16,'center',true);
+  
+  // 磁盘俯视图
+  if(phase>=0){
+    const cx=250, cy=220, r=150;
+    ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.strokeStyle='#06b6d4';ctx.lineWidth=2;ctx.stroke();
+    ctx.beginPath();ctx.arc(cx,cy,r*0.7,0,Math.PI*2);ctx.strokeStyle='#3b4252';ctx.stroke();
+    ctx.beginPath();ctx.arc(cx,cy,r*0.4,0,Math.PI*2);ctx.strokeStyle='#3b4252';ctx.stroke();
+    ctx.beginPath();ctx.arc(cx,cy,r*0.1,0,Math.PI*2);ctx.strokeStyle='#3b4252';ctx.stroke();
+    
+    // 磁道标签
+    lbl(ctx,'外圈磁道',cx+r+30,cy,'#06b6d4',10);
+    lbl(ctx,'内圈磁道',cx+r+30,cy+80,'#9ca3af',10);
+    
+    // 扇区
+    if(phase>=1){
+      for(let i=0;i<12;i++){
+        const angle=(i/12)*Math.PI*2;
+        const x1=cx+Math.cos(angle)*(r*0.1);
+        const y1=cy+Math.sin(angle)*(r*0.1);
+        const x2=cx+Math.cos(angle)*r;
+        const y2=cy+Math.sin(angle)*r;
+        ctx.strokeStyle='#3b4252';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
+      }
+    }
+    
+    // 磁头
+    if(phase>=2){
+      rr(ctx,cx-25,cy-r-30,50,25,4,'#22c55e','#22c55e');
+      lbl(ctx,'磁头',cx,cy-r-18,'#22c55e',10,'center');
+      // 磁头臂
+      ctx.strokeStyle='#22c55e';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(cx,cy-r-5);ctx.lineTo(cx,cy-140);ctx.stroke();
+    }
+    
+    // 标注
+    if(phase>=3){
+      // 扇区放大
+      rr(ctx,450,150,120,80,6,'#1e293b','#fbbf24');
+      lbl(ctx,'扇区 Sector',510,170,'#fbbf24',11,'center',true);
+      lbl(ctx,'512B - 4KB',510,200,'#9ca3af',10,'center');
+      
+      // 磁道放大
+      rr(ctx,450,250,120,60,6,'#1e293b','#06b6d4');
+      lbl(ctx,'磁道 Track',510,270,'#06b6d4',11,'center',true);
+      lbl(ctx,'同心圆',510,295,'#9ca3af',10,'center');
+      
+      // 柱面
+      rr(ctx,450,330,120,60,6,'#1e293b','#a78bfa');
+      lbl(ctx,'柱面 Cylinder',510,350,'#a78bfa',11,'center',true);
+      lbl(ctx,'多盘面同一半径',510,375,'#9ca3af',10,'center');
+    }
+  }
+  
+  // 侧视图
+  if(phase>=1){
+    rr(ctx,30,300,180,100,8,'#1a2332','#3b4252');
+    lbl(ctx,'盘片堆叠',120,330,'#9ca3af',12,'center',true);
+    for(let i=0;i<3;i++){
+      const y=350+i*12;
+      ctx.strokeStyle='#06b6d4';ctx.lineWidth=2;ctx.beginPath();ctx.ellipse(60,y,30,8,0,0,Math.PI*2);ctx.stroke();
+      ctx.strokeStyle='#06b6d4';ctx.lineWidth=2;ctx.beginPath();ctx.ellipse(180,y,30,8,0,0,Math.PI*2);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(90,y);ctx.lineTo(150,y);ctx.stroke();
+    }
+  }
+  
+  // 说明
+  if(phase>=4){
+    rr(ctx,220,380,500,30,6,'rgba(6,182,212,0.1)','#06b6d4');
+    lbl(ctx,'磁盘编址 = (柱面号, 盘面号, 扇区号) = CHS地址',470,395,'#06b6d4',12,'center');
+  }
+}
+
+// ========== 场景1：磁盘访问时间 ==========
+let anim1=null;
+function resetScene1(){cancelAnimationFrame(anim1);const ctx=document.getElementById('c1').getContext('2d');bg(ctx);drawS1(ctx,0);}
+function animScene1(){cancelAnimationFrame(anim1);let p=0;const ctx=document.getElementById('c1').getContext('2d');function step(){drawS1(ctx,p);p++;if(p<=4)anim1=setTimeout(step,800);}step();}
+function drawS1(ctx,phase){
+  bg(ctx);lbl(ctx,'磁盘访问时间组成',370,26,'#06b6d4',16,'center',true);
+  
+  // 时间轴
+  rr(ctx,30,60,680,340,10,'#1a2332','#06b6d4');
+  
+  // 1. 寻道时间
+  if(phase>=0){
+    rr(ctx,50,80,200,100,8,'#f97316','#f97316');
+    lbl(ctx,'1. 寻道时间 Ts',150,105,'#f97316',13,'center',true);
+    lbl(ctx,'磁头移动到目标磁道',150,130,'#9ca3af',11,'center');
+    mnl(ctx,'3-15ms',150,160,'#f97316',14);
+    arr(ctx,150,180,150,200,'#f97316',2);
+  }
+  
+  // 2. 旋转延迟
+  if(phase>=1){
+    rr(ctx,50,200,200,100,8,'#fbbf24','#fbbf24');
+    lbl(ctx,'2. 旋转延迟 Tr',150,225,'#fbbf24',13,'center',true);
+    lbl(ctx,'等待扇区旋转到磁头下',150,250,'#9ca3af',11,'center');
+    mnl(ctx,'½×(60/RPM)秒',150,280,'#fbbf24',12);
+  }
+  
+  // 3. 传输时间
+  if(phase>=2){
+    rr(ctx,50,320,200,60,8,'#22c55e','#22c55e');
+    lbl(ctx,'3. 传输时间 Tt',150,340,'#22c55e',13,'center',true);
+    mnl(ctx,'数据量/传输速率',150,360,'#22c55e',11);
+  }
+  
+  // 公式
+  if(phase>=3){
+    rr(ctx,300,80,400,120,8,'#1e293b','#a78bfa');
+    lbl(ctx,'总访问时间',500,100,'#a78bfa',14,'center',true);
+    mnl(ctx,'T = Ts + Tr + Tt',500,140,'#fbbf24',16);
+    lbl(ctx,'寻道 + 旋转 + 传输',500,165,'#9ca3af',11,'center');
+    mnl(ctx,'典型HDD: 10-20ms',500,185,'#06b6d4',12);
+  }
+  
+  // 旋转示意
+  if(phase>=1){
+    const cx=500, cy=300, r=50;
+    ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.strokeStyle='#fbbf24';ctx.lineWidth=2;ctx.stroke();
+    // 扇区
+    for(let i=0;i<8;i++){
+      const a=(i/8)*Math.PI*2;
+      const x=cx+Math.cos(a)*r, y=cy+Math.sin(a)*r;
+      ctx.fillStyle='#fbbf24';ctx.beginPath();ctx.arc(x,y,3,0,Math.PI*2);ctx.fill();
+    }
+    // 磁头位置
+    rr(ctx,cx-20,cy-r-15,40,20,4,'#22c55e','#22c55e');
+    // 旋转箭头
+    if(phase>=2){
+      ctx.strokeStyle='#fbbf24';ctx.lineWidth=2;ctx.setLineDash([5,5]);
+      ctx.beginPath();ctx.arc(cx,cy,r+20,0,Math.PI*2*0.3);ctx.stroke();
+      ctx.setLineDash([]);
+      arr(ctx,cx+r+25,cy-15,cx+r+10,cy,'#fbbf24',1.5);
+    }
+  }
+}
+
+// ========== 场景2：访问时间计算 ==========
+let step2Idx=0;
+const calcSteps=[
+  {s:'寻道时间 Ts',v:'8 ms',info:'给定参数：Ts=8ms（平均寻道时间）'},
+  {s:'旋转延迟 Tr',v:'4.17 ms',info:'7200RPM = 120转/秒<br>每转时间 = 1000/120 = 8.33ms<br>平均延迟 = 8.33/2 = 4.17ms'},
+  {s:'每道扇区数',v:'100',info:'给定参数：每道100个扇区'},
+  {s:'传输时间 Tt',v:'0.83 ms',info:'读取10扇区 = 10×512B = 5KB<br>每道传输时间 = 8.33ms<br>Tt = 8.33 × (10/100) = 0.83ms'},
+  {s:'总访问时间',v:'13 ms',info:'T = Ts + Tr + Tt = 8 + 4.17 + 0.83 = 13 ms'},
+];
+function resetScene2(){step2Idx=0;document.getElementById('step2').textContent='等待开始...';document.getElementById('info2').textContent='点击"单步计算"演示时间分解';drawS2(document.getElementById('c2').getContext('2d'),-1);}
+function stepScene2(){
+  if(step2Idx>=calcSteps.length)step2Idx=0;
+  const s=calcSteps[step2Idx];
+  document.getElementById('step2').textContent=s.s + ': ' + s.v;
+  document.getElementById('info2').innerHTML=s.info;
+  drawS2(document.getElementById('c2').getContext('2d'),step2Idx);
+  step2Idx++;
+}
+function drawS2(ctx,phase){
+  bg(ctx);lbl(ctx,'磁盘访问时间计算示例',370,24,'#06b6d4',15,'center',true);
+  
+  // 参数
+  rr(ctx,30,60,240,80,8,'#1e293b','#3b4252');
+  lbl(ctx,'磁盘参数',150,80,'#9ca3af',12,'center',true);
+  mnl(ctx,'Ts = 8ms',150,105,'#f97316',12);
+  mnl(ctx,'转速 = 7200RPM',150,125,'#fbbf24',12);
+  
+  // 各时间组件
+  const comps=[
+    {l:'寻道时间 Ts',v:'8 ms',c:'#f97316',y:60},
+    {l:'旋转延迟 Tr',v:'4.17 ms',c:'#fbbf24',y:120},
+    {l:'传输时间 Tt',v:'0.83 ms',c:'#22c55e',y:180},
+    {l:'= 总时间',v:'13 ms',c:'#a78bfa',y:240},
+  ];
+  comps.forEach((c,i)=>{
+    const active=phase>=i;
+    rr(ctx,300,c.y,200,50,8,active?c.c+'22':'#0d1117',active?c.c:'#3b4252');
+    lbl(ctx,c.l,350,c.y+16,active?c.c:'#6b7280',12,'center',true);
+    mnl(ctx,c.v,450,c.y+25,active?c.c:'#6b7280',14);
+    if(i<3 && active)arr(ctx,400,c.y+50,400,c.y+60,c.c,1.5);
+  });
+  
+  // 公式
+  rr(ctx,530,60,190,200,8,'#1a2332','#06b6d4');
+  lbl(ctx,'计算公式',625,80,'#06b6d4',12,'center',true);
+  mnl(ctx,'T = Ts + Tr + Tt',625,120,'#fbbf24',12);
+  mnl(ctx,'Tr = ½×(60/RPM)',625,150,'#fbbf24',10);
+  mnl(ctx,'Tt = Ttrans×(n/N)',625,175,'#22c55e',10);
+  mnl(ctx,'= 8 + 4.17 + 0.83',625,210,'#a78bfa',11);
+  mnl(ctx,'= 13 ms ✓',625,235,'#a78bfa',14);
+  
+  // 说明
+  rr(ctx,30,290,680,115,8,'#0d1117','#3b4252');
+  lbl(ctx,'计算步骤',370,308,'#9ca3af',12,'center',true);
+  const steps=['1. Ts直接给定 = 8ms','','','','','','2. Tr = ½×(1000÷120) = 4.17ms','','','','','','3. Tt = 8.33ms×(10÷100) = 0.83ms','','','','','','4. T = 8 + 4.17 + 0.83 = 13ms'];
+  if(phase>=0){
+    const cur=calcSteps[phase];
+    lbl(ctx,'当前: '+(cur?.s||'')+' = '+(cur?.v||''),370,380,'#fbbf24',12,'center');
+  }
+}
+
+// ========== 场景3：性能优化 ==========
+let anim3=null;
+function resetScene3(){cancelAnimationFrame(anim3);const ctx=document.getElementById('c3').getContext('2d');bg(ctx);drawS3(ctx,0);}
+function animScene3(){cancelAnimationFrame(anim3);let p=0;const ctx=document.getElementById('c3').getContext('2d');function step(){drawS3(ctx,p);p++;if(p<=4)anim3=setTimeout(step,800);}step();}
+function drawS3(ctx,phase){
+  bg(ctx);lbl(ctx,'磁盘性能优化策略',370,26,'#06b6d4',16,'center',true);
+  
+  const opts=[
+    {t:'磁盘调度',d:'优化磁头移动顺序\nFCFS SSTF SCAN C-SCAN\n减少寻道时间',c:'#f97316',x:30},
+    {t:'磁盘缓存',d:'内存缓存热点数据\n预读 / 写回\n减少IO次数',c:'#22c55e',x:200},
+    {t:'预读策略',d:'根据访问模式\n提前加载可能需要的数据\n提高命中率',c:'#60a5fa',x:370},
+    {t:'碎片整理',d:'连续存放文件\n减少磁头跳转\n优化顺序访问',c:'#a78bfa',x:540},
+  ];
+  opts.forEach((o,i)=>{
+    if(phase>=i){
+      rr(ctx,o.x,60,160,180,10,o.c+'22',o.c);
+      lbl(ctx,o.t,o.x+80,85,o.c,14,'center',true);
+      const lines=o.d.split('\n');
+      lines.forEach((ln,j)=>{
+        lbl(ctx,ln,o.x+80,115+j*25,o.c,11,'center');
+      });
+    }
+  });
+  
+  // 效果对比
+  if(phase>=2){
+    rr(ctx,30,260,330,140,8,'#1a2332','#3b4252');
+    lbl(ctx,'HDD vs SSD 性能',195,280,'#9ca3af',12,'center',true);
+    // HDD
+    rr(ctx,50,295,100,40,4,'#f97316','#f97316');
+    lbl(ctx,'HDD',100,315,'#f97316',12,'center',true);
+    mnl(ctx,'10-20ms',100,340,'#f97316',11);
+    // SSD
+    rr(ctx,180,295,100,40,4,'#22c55e','#22c55e');
+    lbl(ctx,'SSD',230,315,'#22c55e',12,'center',true);
+    mnl(ctx,'0.1ms',230,340,'#22c55e',11);
+    // 说明
+    lbl(ctx,'SSD无寻道时间',310,365,'#9ca3af',10,'center');
+  }
+  
+  // 现代技术
+  if(phase>=3){
+    rr(ctx,380,260,330,140,8,'#1a2332','#06b6d4');
+    lbl(ctx,'现代优化技术',545,280,'#06b6d4',12,'center',true);
+    const techs=['NCQ: 原生命令队列','SMART: 故障预测','TRIM: 垃圾回收','RAID: 冗余备份'];
+    techs.forEach((t,i)=>{
+      lbl(ctx,'• '+t,545,310+i*22,'#06b6d4',11,'center');
+    });
+  }
+  
+  // 总结
+  if(phase>=4){
+    rr(ctx,30,385,680,25,6,'rgba(6,182,212,0.1)','#06b6d4');
+    lbl(ctx,'核心优化：减少寻道时间 → 调度算法；消除寻道 → SSD',370,398,'#06b6d4',12,'center');
+  }
+}
+
+function switchTab(i){
+  document.querySelectorAll('.tab').forEach((t,j)=>t.classList.toggle('active',i===j));
+  document.querySelectorAll('.scene').forEach((s,j)=>s.classList.toggle('active',i===j));
+}
+window.onload=()=>{
+  drawS0(document.getElementById('c0').getContext('2d'),0);
+  drawS1(document.getElementById('c1').getContext('2d'),0);
+  drawS2(document.getElementById('c2').getContext('2d'),-1);
+  drawS3(document.getElementById('c3').getContext('2d'),0);
+};
+</script>
+</body>
+</html>

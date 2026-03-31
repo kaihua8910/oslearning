@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>中断与异常处理 - OS动画</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0a0e14;--card:#1a1f2e;--border:#3b4252;--text:#e2e8f0;--muted:#9ca3af;--green:#22c55e;--blue:#60a5fa;--purple:#a78bfa;--orange:#f97316;--yellow:#fbbf24;--red:#f87171;--cyan:#06b6d4;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Noto Sans SC',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+.page-header{background:linear-gradient(135deg,#0f172a,#1e293b);border-bottom:1px solid var(--border);padding:18px 30px;display:flex;align-items:center;gap:16px;}
+.back-btn{display:flex;align-items:center;gap:6px;color:var(--red);text-decoration:none;font-size:14px;padding:6px 12px;border:1px solid rgba(248,113,113,.3);border-radius:6px;transition:.2s;}
+.back-btn:hover{background:rgba(248,113,113,.1);}
+.page-title{font-size:20px;font-weight:700;color:var(--red);}
+.page-subtitle{font-size:13px;color:var(--muted);}
+.container{max-width:1100px;margin:0 auto;padding:24px 20px;}
+.tabs{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;}
+.tab{padding:8px 18px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--muted);cursor:pointer;font-size:13px;font-family:'Noto Sans SC',sans-serif;transition:.2s;}
+.tab.active{border-color:var(--red);color:var(--red);background:rgba(248,113,113,.1);}
+.scene{display:none;}
+.scene.active{display:block;}
+.layout{display:grid;grid-template-columns:1fr 320px;gap:16px;}
+canvas{border-radius:10px;border:1px solid var(--border);background:#0d1117;display:block;}
+.info-panel{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:12px;}
+.info-title{font-size:14px;font-weight:700;color:var(--red);border-bottom:1px solid var(--border);padding-bottom:8px;}
+.info-text{font-size:13px;color:var(--text);line-height:1.8;}
+.info-text b{color:var(--yellow);}
+.info-text .em{color:var(--cyan);}
+.step-box{background:#0d1117;border-radius:8px;padding:10px;border-left:3px solid var(--red);}
+.step-label{font-size:11px;color:var(--muted);margin-bottom:4px;}
+.step-content{font-size:12px;font-family:'JetBrains Mono',monospace;color:var(--red);}
+.controls{display:flex;gap:8px;margin-top:12px;}
+.btn{padding:7px 16px;border-radius:7px;border:none;cursor:pointer;font-size:13px;font-family:'Noto Sans SC',sans-serif;font-weight:500;transition:.2s;}
+.btn-primary{background:var(--red);color:#fff;}
+.btn-primary:hover{filter:brightness(1.1);}
+.btn-secondary{background:var(--card);border:1px solid var(--border);color:var(--text);}
+.btn-secondary:hover{border-color:var(--red);color:var(--red);}
+.formula-box{background:#0d1117;border-radius:8px;padding:10px;border:1px solid rgba(251,191,36,.2);}
+.formula{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--yellow);line-height:1.8;}
+</style>
+</head>
+<body>
+<div class="page-header">
+  <a href="index.html" class="back-btn">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>返回首页
+  </a>
+  <div>
+    <div class="page-title">中断与异常处理机制</div>
+    <div class="page-subtitle">Interrupt & Exception Handling</div>
+  </div>
+</div>
+<div class="container">
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab(0)">中断概述</button>
+    <button class="tab" onclick="switchTab(1)">中断处理流程</button>
+    <button class="tab" onclick="switchTab(2)">异常与陷阱</button>
+    <button class="tab" onclick="switchTab(3)">中断向量表</button>
+  </div>
+
+  <!-- 场景0：中断概述 -->
+  <div class="scene active" id="scene0">
+    <div class="layout">
+      <canvas id="c0" width="740" height="420"></canvas>
+      <div class="info-panel">
+        <div class="info-title">中断概述</div>
+        <div class="info-text">
+          <b>中断（Interrupt）</b>：硬件异步事件，打断CPU正常执行。<br><br>
+          <span class="em">中断类型：</span><br>
+          · <b>硬件中断</b>：外部设备发出的信号（键盘、鼠标、磁盘、网卡）<br>
+          · <b>软件中断</b>：执行特定指令（int n, syscall）<br>
+          · <b>异常（Exception）</b>：指令执行中的错误（除零、缺页）<br>
+          · <b>陷阱（Trap）</b>：主动陷入（系统调用）<br><br>
+          <span class="em">中断的作用：</span><br>
+          实现CPU与设备的并行工作，提高系统效率
+        </div>
+        <div class="formula-box">
+          <div class="formula">中断 = 异步事件<br>异常 = 同步错误<br>陷阱 = 主动陷入</div>
+        </div>
+        <div class="controls">
+          <button class="btn btn-primary" onclick="animScene0()">播放动画</button>
+          <button class="btn-secondary" onclick="resetScene0()">重置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景1：中断处理流程 -->
+  <div class="scene" id="scene1">
+    <div class="layout">
+      <canvas id="c1" width="740" height="420"></canvas>
+      <div class="info-panel">
+        <div class="info-title">中断处理流程</div>
+        <div class="info-text" id="info1">点击"单步执行"演示中断处理6步过程</div>
+        <div class="step-box">
+          <div class="step-label">当前步骤</div>
+          <div class="step-content" id="step1">等待开始...</div>
+        </div>
+        <div class="formula-box">
+          <div class="formula">中断处理6步：<br>1. 接收中断<br>2. 保存状态<br>3. 识别中断源<br>4. 分发处理<br>5. 执行处理程序<br>6. 恢复返回</div>
+        </div>
+        <div class="controls">
+          <button class="btn btn-primary" onclick="stepScene1()">单步执行</button>
+          <button class="btn-secondary" onclick="resetScene1()">重置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景2：异常与陷阱 -->
+  <div class="scene" id="scene2">
+    <div class="layout">
+      <canvas id="c2" width="740" height="420"></canvas>
+      <div class="info-panel">
+        <div class="info-title">异常与陷阱的区别</div>
+        <div class="info-text">
+          <b>异常（Fault）</b>：由错误条件引起，可能被修复后继续执行<br>
+          · 除零错误（#DE）<br>
+          · 缺页异常（#PF）← 可修复！<br>
+          · 段错误（#GP, #PF）<br><br>
+          <b>陷阱（Trap）</b>：主动触发，执行后返回继续<br>
+          · 系统调用（syscall, int 0x80）<br>
+          · 调试断点（int 3）<br>
+          · 溢出检查（into）
+        </div>
+        <div class="formula-box">
+          <div class="formula">异常 → 可能返回<br>     (缺页可修复)<br>陷阱 → 必定返回<br>     (主动触发)</div>
+        </div>
+        <div class="controls">
+          <button class="btn btn-primary" onclick="animScene2()">播放动画</button>
+          <button class="btn-secondary" onclick="resetScene2()">重置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景3：中断向量表 -->
+  <div class="scene" id="scene3">
+    <div class="layout">
+      <canvas id="c3" width="740" height="420"></canvas>
+      <div class="info-panel">
+        <div class="info-title">中断向量表</div>
+        <div class="info-text">
+          <b>中断向量表（IVT）</b>：<br>
+          每个中断号对应一个处理程序的入口地址。<br><br>
+          <span class="em">x86 实模式：</span><br>
+          位于内存 0x00000~0x003FF，共256项<br>
+          每项 4 字节 = (CS:IP)<br><br>
+          <span class="em">IDT（保护模式）</span><br>
+          可位于内存任意位置，每项8字节（64位描述符）
+        </div>
+        <div class="formula-box">
+          <div class="formula">中断号 → 处理程序入口<br>int 0x80 → sys_call<br>int 13h → 磁盘BIOS<br>Page Fault → do_page_fault</div>
+        </div>
+        <div class="controls">
+          <button class="btn btn-primary" onclick="animScene3()">播放动画</button>
+          <button class="btn-secondary" onclick="resetScene3()">重置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ========== 工具函数 ==========
+function rr(ctx,x,y,w,h,r,fill,stroke,lw=1.5){
+  ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.arcTo(x+w,y,x+w,y+r,r);ctx.lineTo(x+w,y+h-r);ctx.arcTo(x+w,y+h,x+w-r,y+h,r);ctx.lineTo(x+r,y+h);ctx.arcTo(x,y+h,x,y+h-r,r);ctx.lineTo(x,y+r);ctx.arcTo(x,y,x+r,y,r);ctx.closePath();
+  if(fill){ctx.fillStyle=fill;ctx.fill();}
+  if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=lw;ctx.stroke();}
+}
+function arr(ctx,x1,y1,x2,y2,color,lw=1.5){
+  const a=Math.atan2(y2-y1,x2-x1),l=10;
+  ctx.strokeStyle=color;ctx.lineWidth=lw;ctx.fillStyle=color;
+  ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(x2,y2);ctx.lineTo(x2-l*Math.cos(a-.4),y2-l*Math.sin(a-.4));ctx.lineTo(x2-l*Math.cos(a+.4),y2-l*Math.sin(a+.4));ctx.closePath();ctx.fill();
+}
+function lbl(ctx,text,x,y,color='#e2e8f0',size=13,align='center',bold=false){
+  ctx.font=`${bold?700:400} ${size}px 'Noto Sans SC',sans-serif`;ctx.fillStyle=color;ctx.textAlign=align;ctx.textBaseline='middle';ctx.fillText(text,x,y);}
+function mnl(ctx,text,x,y,color='#fbbf24',size=12,align='center'){
+  ctx.font=`600 ${size}px 'JetBrains Mono',monospace`;ctx.fillStyle=color;ctx.textAlign=align;ctx.textBaseline='middle';ctx.fillText(text,x,y);}
+function bg(ctx){ctx.fillStyle='#0d1117';ctx.fillRect(0,0,740,420);}
+
+// ========== 场景0：中断概述 ==========
+let anim0=null;
+function resetScene0(){cancelAnimationFrame(anim0);const ctx=document.getElementById('c0').getContext('2d');bg(ctx);drawS0(ctx,0);}
+function animScene0(){cancelAnimationFrame(anim0);let p=0;const ctx=document.getElementById('c0').getContext('2d');function step(){drawS0(ctx,p);p++;if(p<=5)anim0=setTimeout(step,700);}step();}
+function drawS0(ctx,phase){
+  bg(ctx);lbl(ctx,'中断与异常概述',370,26,'#f87171',16,'center',true);
+  
+  // 分类图
+  if(phase>=0){
+    rr(ctx,30,60,340,340,10,'#1a2332','#f87171');
+    lbl(ctx,'中断 Interrupt',200,85,'#f87171',14,'center',true);
+    const cats=[
+      {t:'硬件中断',d:'键盘、鼠标、磁盘、网卡\n异步，CPU被动接收',c:'#60a5fa'},
+      {t:'软件中断',d:'int n、syscall指令\n主动触发',c:'#a78bfa'},
+    ];
+    cats.forEach((c,i)=>{
+      const y=115+i*100;
+      rr(ctx,50,y,300,80,6,c.c+'22',c.c);
+      lbl(ctx,c.t,200,y+20,c.c,13,'center',true);
+      lbl(ctx,c.d,200,y+55,c.c,10,'center');
+    });
+  }
+  
+  // 异常
+  if(phase>=1){
+    rr(ctx,390,60,320,160,10,'#1a2332','#fbbf24');
+    lbl(ctx,'异常 Exception',550,85,'#fbbf24',14,'center',true);
+    const exs=[
+      {t:'故障 Fault',d:'缺页、可修复',c:'#22c55e'},
+      {t:'陷阱 Trap',d:'系统调用、调试',c:'#a78bfa'},
+      {t:'终止 Abort',d:'硬件错误、不可恢复',c:'#f87171'},
+    ];
+    exs.forEach((e,i)=>{
+      const y=110+i*35;
+      rr(ctx,410,y,280,28,4,e.c+'22',e.c);
+      lbl(ctx,e.t,480,y+14,e.c,11,'center',true);
+      lbl(ctx,e.d,600,y+14,e.c,10,'right');
+    });
+  }
+  
+  // 时序图
+  if(phase>=2){
+    rr(ctx,390,240,320,160,10,'#1a2332','#22c55e');
+    lbl(ctx,'中断时序',550,260,'#22c55e',13,'center',true);
+    lbl(ctx,'正常执行 ←→ 中断处理 ←→ 恢复执行',550,300,'#9ca3af',10,'center');
+    // 箭头
+    ctx.strokeStyle='#22c55e';ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(430,310);ctx.lineTo(500,310);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(600,310);ctx.lineTo(670,310);ctx.stroke();
+    lbl(ctx,'执行',465,325,'#22c55e',10,'center');
+    lbl(ctx,'恢复',635,325,'#22c55e',10,'center');
+    arr(ctx,510,310,590,310,'#f97316',2);
+    lbl(ctx,'中断处理',550,295,'#f97316',10,'center');
+  }
+  
+  // 关键点
+  if(phase>=3){
+    rr(ctx,30,385,680,25,6,'rgba(248,113,113,0.1)','#f87171');
+    lbl(ctx,'核心：中断使CPU能够与外设并行工作，实现异步事件处理和系统调用',370,398,'#f87171',12,'center');
+  }
+}
+
+// ========== 场景1：中断处理流程 ==========
+let step1Idx=0;
+const intSteps=[
+  {s:'1. 接收中断信号',i:'硬件线路向CPU发送中断请求信号(IRQ)'},
+  {s:'2. 保存现场',i:'CPU保存当前指令地址(CS:IP)和标志寄存器(EFLAGS)到栈'},
+  {s:'3. 识别中断源',i:'CPU查询中断控制器或IDT，确定中断号'},
+  {s:'4. 分发处理',i:'根据中断号查找中断向量表，得到处理程序入口'},
+  {s:'5. 执行处理程序',i:'跳转到中断处理程序，执行设备相关操作'},
+  {s:'6. 恢复返回',i:'从栈恢复CS:IP和EFLAGS，执行 iret 返回原程序'},
+];
+function resetScene1(){step1Idx=0;document.getElementById('step1').textContent='等待开始...';document.getElementById('info1').textContent='点击"单步执行"演示中断处理6步过程';drawS1(document.getElementById('c1').getContext('2d'),-1);}
+function stepScene1(){
+  if(step1Idx>=intSteps.length)step1Idx=0;
+  const s=intSteps[step1Idx];
+  document.getElementById('step1').textContent=s.s;
+  document.getElementById('info1').textContent=s.i;
+  drawS1(document.getElementById('c1').getContext('2d'),step1Idx);
+  step1Idx++;
+}
+function drawS1(ctx,phase){
+  bg(ctx);lbl(ctx,'中断处理流程（6步）',370,24,'#f87171',15,'center',true);
+  
+  // CPU
+  rr(ctx,30,60,120,100,8,'#1e293b','#60a5fa');
+  lbl(ctx,'CPU',90,90,'#60a5fa',14,'center',true);
+  lbl(ctx,'执行指令中...',90,135,'#9ca3af',10);
+  
+  // 中断控制器
+  rr(ctx,180,60,140,80,8,'#1e293b','#f97316');
+  lbl(ctx,'中断控制器',250,80,'#f97316',12,'center',true);
+  lbl(ctx,'PIC/APIC',250,105,'#9ca3af',10);
+  if(phase>=0){
+    rr(ctx,200,95,30,30,6,'#f97316','#f97316');
+    lbl(ctx,'IRQ',215,110,'#fff',9,'center',true);
+  }
+  
+  // IDT
+  rr(ctx,350,60,150,140,8,'#1e293b','#a78bfa');
+  lbl(ctx,'IDT中断描述符表',425,80,'#a78bfa',12,'center',true);
+  // 表项
+  for(let i=0;i<5;i++){
+    const y=100+i*22;
+    const active=phase>=3 && i===2;
+    rr(ctx,360,y,130,18,3,active?'rgba(167,139,250,0.3)':'#0d1117',active?'#a78bfa':'#3b4252');
+    mnl(ctx,intSteps[3].s.startsWith('3')?'...'+['0','1','2','3','4'][i]:'INT '+i,425,y+9,active?'#a78bfa':'#6b7280',9);
+  }
+  
+  // 内核处理程序
+  rr(ctx,530,60,180,140,8,'#1e293b','#22c55e');
+  lbl(ctx,'中断处理程序',620,80,'#22c55e',12,'center',true);
+  if(phase>=4){
+    rr(ctx,545,100,150,35,6,'rgba(34,197,94,0.3)','#22c55e');
+    lbl(ctx,'处理设备请求',620,118,'#22c55e',11,'center',true);
+  }
+  
+  // 栈（保存现场）
+  rr(ctx,30,180,200,180,8,'#1e293b','#fbbf24');
+  lbl(ctx,'内核栈',130,198,'#fbbf24',12,'center',true);
+  const stackItems=[
+    {l:'CS:IP (返回地址)',a:phase>=1},
+    {l:'EFLAGS',a:phase>=1},
+    {l:'中断号',a:phase>=2},
+    {l:'错误码(可选)',a:phase>=2},
+  ];
+  stackItems.forEach((it,i)=>{
+    const y=220+i*28;
+    if(it.a){
+      rr(ctx,40,y,180,22,3,'rgba(251,191,36,0.2)','#fbbf24');
+      mnl(ctx,it.l,130,y+11,'#fbbf24',10);
+    }
+  });
+  
+  // 流程箭头
+  if(phase>=0)arr(ctx,152,110,178,100,'#f97316',2);
+  if(phase>=1){arr(ctx,250,140,250,180,'#fbbf24',2);lbl(ctx,'保存状态',280,165,'#fbbf24',10,'right');}
+  if(phase>=2)arr(ctx,320,100,348,100,'#a78bfa',2);
+  if(phase>=3)arr(ctx,502,100,528,100,'#a78bfa',2);
+  if(phase>=4)arr(ctx,620,145,620,180,'#22c55e',2);
+  if(phase>=5)arr(ctx,130,362,130,400,'#f87171',2);
+  
+  // 步骤说明
+  if(phase>=0){
+    rr(ctx,250,350,470,55,6,'rgba(248,113,113,0.1)','#f87171');
+    lbl(ctx,'步骤'+(phase+1)+': '+intSteps[phase]?.s||'',485,365,'#f87171',13,'center',true);
+    lbl(ctx,intSteps[phase]?.i||'',485,390,'#9ca3af',10,'center');
+  }
+  
+  // IRET
+  if(phase>=5){
+    rr(ctx,530,220,180,50,8,'rgba(248,113,113,0.2)','#f87171');
+    lbl(ctx,'iret 返回',620,245,'#f87171',12,'center',true);
+  }
+}
+
+// ========== 场景2：异常与陷阱 ==========
+let anim2=null;
+function resetScene2(){cancelAnimationFrame(anim2);const ctx=document.getElementById('c2').getContext('2d');bg(ctx);drawS2(ctx,0);}
+function animScene2(){cancelAnimationFrame(anim2);let p=0;const ctx=document.getElementById('c2').getContext('2d');function step(){drawS2(ctx,p);p++;if(p<=4)anim2=setTimeout(step,800);}step();}
+function drawS2(ctx,phase){
+  bg(ctx);lbl(ctx,'异常与陷阱的区别',370,26,'#f87171',16,'center',true);
+  
+  // 异常
+  if(phase>=0){
+    rr(ctx,30,60,320,340,10,'#1a2332','#fbbf24');
+    lbl(ctx,'异常 Exception',190,85,'#fbbf24',14,'center',true);
+    lbl(ctx,'同步发生，由指令执行触发',190,105,'#9ca3af',11);
+    
+    const faults=[
+      {n:'#PF',d:'Page Fault 缺页',r:'可修复→返回重试',c:'#22c55e'},
+      {n:'#DE',d:'Divide Error 除零',r:'不可恢复→终止',c:'#f87171'},
+      {n:'#GP',d:'General Protection',r:'通常终止',c:'#f87171'},
+      {n:'#UD',d:'Invalid Opcode',r:'终止',c:'#f87171'},
+    ];
+    faults.forEach((f,i)=>{
+      const y=130+i*60;
+      rr(ctx,50,y,280,50,6,f.c+'22',f.c);
+      mnl(ctx,f.n,90,y+25,f.c,14,'center',true);
+      lbl(ctx,f.d,180,y+18,f.c,11,'center');
+      lbl(ctx,f.r,180,y+36,'#9ca3af',10,'center');
+    });
+    
+    lbl(ctx,'可能返回原指令继续执行',190,380,'#22c55e',12,'center',true);
+    arr(ctx,130,380,130,360,'#22c55e',1.5);
+  }
+  
+  // 陷阱
+  if(phase>=1){
+    rr(ctx,370,60,340,340,10,'#1a2332','#a78bfa');
+    lbl(ctx,'陷阱 Trap',540,85,'#a78bfa',14,'center',true);
+    lbl(ctx,'主动触发，执行后返回下一条指令',540,105,'#9ca3af',11);
+    
+    const traps=[
+      {n:'syscall',d:'系统调用',r:'返回下一条',c:'#a78bfa'},
+      {n:'int 3',d:'调试断点',r:'返回下一条',c:'#a78bfa'},
+      {n:'into',d:'溢出检查',r:'条件触发',c:'#a78bfa'},
+      {n:'bound',d:'数组越界',r:'条件触发',c:'#a78bfa'},
+    ];
+    traps.forEach((t,i)=>{
+      const y=130+i*60;
+      rr(ctx,390,y,300,50,6,t.c+'22',t.c);
+      mnl(ctx,t.n,440,y+25,t.c,14,'center',true);
+      lbl(ctx,t.d,540,y+18,t.c,11,'center');
+      lbl(ctx,t.r,540,y+36,'#9ca3af',10,'center');
+    });
+    
+    lbl(ctx,'必定返回下一条指令继续执行',540,380,'#22c55e',12,'center',true);
+    arr(ctx,540,380,540,360,'#22c55e',1.5);
+  }
+  
+  // 对比表格
+  if(phase>=2){
+    rr(ctx,30,385,680,25,6,'rgba(167,139,250,0.1)','#a78bfa');
+    lbl(ctx,'异常：同步，指令执行中发生，可能返回该指令  |  陷阱：同步，主动执行触发指令，返回下一条指令',370,398,'#a78bfa',11,'center');
+  }
+}
+
+// ========== 场景3：中断向量表 ==========
+let anim3=null;
+function resetScene3(){cancelAnimationFrame(anim3);const ctx=document.getElementById('c3').getContext('2d');bg(ctx);drawS3(ctx,0);}
+function animScene3(){cancelAnimationFrame(anim3);let p=0;const ctx=document.getElementById('c3').getContext('2d');function step(){drawS3(ctx,p);p++;if(p<=4)anim3=setTimeout(step,800);}step();}
+function drawS3(ctx,phase){
+  bg(ctx);lbl(ctx,'中断向量表 IDT',370,26,'#f87171',16,'center',true);
+  
+  // IDT表
+  if(phase>=0){
+    rr(ctx,30,60,680,280,10,'#1a2332','#a78bfa');
+    lbl(ctx,'中断描述符表 IDT (Interrupt Descriptor Table)',370,85,'#a78bfa',14,'center',true);
+    lbl(ctx,'每个中断号对应一个门描述符（处理程序入口）',370,105,'#9ca3af',11);
+    
+    // 表头
+    rr(ctx,40,120,100,30,4,'#1e293b','#a78bfa');
+    lbl(ctx,'中断号',90,135,'#a78bfa',11,'center',true);
+    rr(ctx,140,120,200,30,4,'#1e293b','#a78bfa');
+    lbl(ctx,'类型',240,135,'#a78bfa',11,'center',true);
+    rr(ctx,340,120,370,30,4,'#1e293b','#a78bfa');
+    lbl(ctx,'处理程序地址 / 描述',525,135,'#a78bfa',11,'center',true);
+    
+    const entries=[
+      {n:0, t:'Fault', p:'divide_error', d:'do_divide_error', c:'#22c55e'},
+      {n:1, t:'Trap', p:'debug', d:'do_debug', c:'#a78bfa'},
+      {n:2, t:'Int', p:'nmi', d:'do_nmi', c:'#60a5fa'},
+      {n:3, t:'Trap', p:'int3', d:'do_int3', c:'#a78bfa'},
+      {n:6, t:'Fault', p:'invalid_op', d:'do_invalid_op', c:'#22c55e'},
+      {n:13,t:'Fault', p:'general_protection', d:'do_protection', c:'#f87171'},
+      {n:14,t:'Fault', p:'page_fault', d:'do_page_fault', c:'#22c55e'},
+    ];
+    entries.forEach((e,i)=>{
+      const y=155+i*26;
+      const active=phase>=1 && i<5;
+      rr(ctx,40,y,100,22,3,active?e.c+'22':'#0d1117',active?e.c:'#3b4252');
+      mnl(ctx,e.n.toString(),90,y+11,active?e.c:'#6b7280',10);
+      rr(ctx,140,y,200,22,3,active?e.c+'22':'#0d1117',active?e.c:'#3b4252');
+      lbl(ctx,e.t,240,y+11,active?e.c:'#6b7280',10,'center');
+      rr(ctx,340,y,370,22,3,active?e.c+'22':'#0d1117',active?e.c:'#3b4252');
+      lbl(ctx,e.p+' → '+e.d,525,y+11,active?e.c:'#6b7280',9,'center');
+    });
+  }
+  
+  // 内存位置
+  if(phase>=2){
+    rr(ctx,40,360,200,45,6,'#1e293b','#f97316');
+    lbl(ctx,'IDT基址寄存器',140,375,'#f97316',11,'center',true);
+    mnl(ctx,'IDTR: 基址+长度',140,395,'#fbbf24',10);
+  }
+  
+  // CPU查找过程
+  if(phase>=3){
+    rr(ctx,260,360,220,45,6,'#1e293b','#22c55e');
+    lbl(ctx,'CPU查找过程',370,375,'#22c55e',11,'center',true);
+    lbl(ctx,'1. 读取IDTR获取基址',370,393,'#9ca3af',10,'center');
+  }
+  
+  if(phase>=4){
+    rr(ctx,500,360,210,45,6,'#1e293b','#60a5fa');
+    lbl(ctx,'2. 计算: IDT基址 + 中断号×8',605,375,'#60a5fa',10,'center',true);
+    lbl(ctx,'3. 跳转到处理程序',605,393,'#9ca3af',10,'center');
+  }
+}
+
+function switchTab(i){
+  document.querySelectorAll('.tab').forEach((t,j)=>t.classList.toggle('active',i===j));
+  document.querySelectorAll('.scene').forEach((s,j)=>s.classList.toggle('active',i===j));
+}
+window.onload=()=>{
+  drawS0(document.getElementById('c0').getContext('2d'),0);
+  drawS1(document.getElementById('c1').getContext('2d'),-1);
+  drawS2(document.getElementById('c2').getContext('2d'),0);
+  drawS3(document.getElementById('c3').getContext('2d'),0);
+};
+</script>
+</body>
+</html>

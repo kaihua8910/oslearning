@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CPU调度层次 - OS动画学习</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Microsoft YaHei',sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+header{background:linear-gradient(135deg,#2a1a0a,#1a0f2a);padding:20px 40px;display:flex;align-items:center;gap:16px;border-bottom:2px solid #fb923c}
+header h1{font-size:1.6rem;color:#fb923c}
+header p{color:#94a3b8;font-size:.9rem;margin-top:4px}
+.back-btn{background:#1e40af;color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:.85rem;text-decoration:none}
+.back-btn:hover{background:#2563eb}
+.container{max-width:1200px;margin:0 auto;padding:30px 20px}
+.desc-box{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px;margin-bottom:20px;border-left:4px solid #fb923c}
+.desc-box h3{color:#fb923c;margin-bottom:8px}
+.desc-box p{color:#94a3b8;line-height:1.7;font-size:.92rem}
+.canvas-area{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px;margin-bottom:20px}
+.canvas-area h3{color:#e2e8f0;margin-bottom:16px}
+canvas{display:block;margin:0 auto;border-radius:8px;background:#0a0f1e}
+.controls{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;justify-content:center}
+.btn{padding:9px 20px;border:none;border-radius:8px;cursor:pointer;font-size:.85rem;font-weight:600;transition:all .2s}
+.btn-primary{background:#c2410c;color:#fff}.btn-primary:hover{background:#9a3412}
+.btn-success{background:#16a34a;color:#fff}.btn-success:hover{background:#15803d}
+.btn-info{background:#0284c7;color:#fff}.btn-info:hover{background:#0369a1}
+.btn-reset{background:#475569;color:#fff}.btn-reset:hover{background:#334155}
+.info-panel{background:#0f172a;border:1px solid #334155;border-radius:10px;padding:14px;margin-top:16px;min-height:56px;font-size:.88rem;line-height:1.7;color:#94a3b8}
+.info-panel .step{color:#fb923c;font-weight:600}
+.tabs{display:flex;gap:8px;margin-bottom:24px;flex-wrap:wrap}
+.tab{padding:10px 22px;border:2px solid #334155;border-radius:10px;cursor:pointer;background:transparent;color:#94a3b8;font-size:.9rem;transition:all .2s}
+.tab.active{background:#7c2d12;border-color:#fb923c;color:#fff}
+.tab:hover:not(.active){border-color:#64748b;color:#e2e8f0}
+.section{display:none}.section.active{display:block}
+</style>
+</head>
+<body>
+<header>
+  <a href="index.html" class="back-btn">← 返回首页</a>
+  <div>
+    <h1>🎯 CPU调度层次</h1>
+    <p>高级调度（作业调度）· 中级调度（内存调度）· 低级调度（进程调度）</p>
+  </div>
+</header>
+<div class="container">
+  <div class="tabs">
+    <button class="tab active" onclick="activateTab('overview')">三级调度总览</button>
+    <button class="tab" onclick="activateTab('high')">高级调度</button>
+    <button class="tab" onclick="activateTab('mid')">中级调度</button>
+    <button class="tab" onclick="activateTab('low')">低级调度</button>
+    <button class="tab" onclick="activateTab('algo')">调度算法</button>
+  </div>
+
+  <div id="tab-overview" class="section active">
+    <div class="desc-box">
+      <h3>CPU调度的三个层次</h3>
+      <p>操作系统调度体系从粗粒度到细粒度分为三层：<strong style="color:#fb923c">高级调度</strong>（作业→内存，频率最低）、<strong style="color:#f59e0b">中级调度</strong>（内存↔磁盘换入换出）、<strong style="color:#10b981">低级调度</strong>（从就绪队列选进程上CPU，频率最高）。</p>
+    </div>
+    <div class="canvas-area">
+      <h3>🎬 三级调度关系总览动画</h3>
+      <canvas id="overviewCanvas" width="820" height="420"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="overviewAnimate()">▶ 播放动画</button>
+        <button class="btn btn-reset" onclick="overviewReset()">重置</button>
+      </div>
+      <div class="info-panel" id="overviewInfo">点击「播放动画」查看三级调度完整示意图</div>
+    </div>
+  </div>
+
+  <div id="tab-high" class="section">
+    <div class="desc-box">
+      <h3>高级调度（作业调度 / 长程调度）</h3>
+      <p>决定哪些<strong style="color:#fb923c">外存上的作业</strong>可以调入内存参与竞争CPU。调用频率最低（秒级到分钟级）。主要目标：控制多道程序度（同时在内存的作业数量），合理利用资源。常用算法：FCFS、SJF、优先级。</p>
+    </div>
+    <div class="canvas-area">
+      <h3>🎬 高级调度：作业调入动画</h3>
+      <canvas id="highCanvas" width="820" height="360"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="highSubmit()">提交新作业</button>
+        <button class="btn btn-success" onclick="highSchedule()">高级调度选中作业</button>
+        <button class="btn btn-reset" onclick="highReset()">重置</button>
+      </div>
+      <div class="info-panel" id="highInfo">模拟批处理系统中作业从外存到内存的调度过程</div>
+    </div>
+  </div>
+
+  <div id="tab-mid" class="section">
+    <div class="desc-box">
+      <h3>中级调度（内存调度 / 中程调度）</h3>
+      <p>负责<strong style="color:#f59e0b">内存与外存之间的进程换入换出</strong>。当内存紧张时，将暂时不需要运行的进程换出到磁盘（挂起，Suspended）；当内存充裕时，将换出的进程重新换入。引入了两个新状态：<strong>挂起就绪</strong>和<strong>挂起阻塞</strong>。</p>
+    </div>
+    <div class="canvas-area">
+      <h3>🎬 中级调度：进程换入换出动画</h3>
+      <canvas id="midCanvas" width="820" height="380"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="midSwapOut()">换出进程（Swap Out）</button>
+        <button class="btn btn-success" onclick="midSwapIn()">换入进程（Swap In）</button>
+        <button class="btn btn-reset" onclick="midReset()">重置</button>
+      </div>
+      <div class="info-panel" id="midInfo">中级调度管理进程在内存和磁盘之间的转移</div>
+    </div>
+  </div>
+
+  <div id="tab-low" class="section">
+    <div class="desc-box">
+      <h3>低级调度（进程调度 / 短程调度）</h3>
+      <p>频率最高（毫秒级），从<strong style="color:#10b981">就绪队列</strong>中选择一个进程，分配CPU执行。是OS中最核心的调度层次。包含：①调度时机（何时发生）②调度方式（抢占/非抢占）③调度算法（FCFS/SJF/RR/优先级）。</p>
+    </div>
+    <div class="canvas-area">
+      <h3>🎬 低级调度：就绪队列与CPU分配动画</h3>
+      <canvas id="lowCanvas" width="820" height="380"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="lowAddProcess()">添加进程到就绪队列</button>
+        <button class="btn btn-success" onclick="lowSchedule()">调度（时间片轮转）</button>
+        <button class="btn btn-info" onclick="lowBlock()">进程阻塞（I/O）</button>
+        <button class="btn btn-reset" onclick="lowReset()">重置</button>
+      </div>
+      <div class="info-panel" id="lowInfo">时间片轮转(RR)调度演示——最常用的低级调度算法</div>
+    </div>
+  </div>
+
+  <div id="tab-algo" class="section">
+    <div class="desc-box">
+      <h3>调度算法对比</h3>
+      <p>不同调度算法适用于不同场景，权衡CPU利用率、吞吐量、响应时间、公平性等指标。</p>
+    </div>
+    <div class="canvas-area">
+      <h3>🎬 甘特图可视化对比调度算法</h3>
+      <canvas id="algoCanvas" width="820" height="380"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="showFCFS()">FCFS</button>
+        <button class="btn btn-success" onclick="showSJF()">SJF</button>
+        <button class="btn btn-info" onclick="showRR()">轮转RR(q=2)</button>
+        <button class="btn btn-primary" onclick="showPriority()">优先级调度</button>
+        <button class="btn btn-reset" onclick="algoReset()">清空</button>
+      </div>
+      <div class="info-panel" id="algoInfo">选择一个调度算法查看甘特图</div>
+    </div>
+  </div>
+</div>
+
+<script>
+function activateTab(name){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('tab-'+name).classList.add('active');
+}
+function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
+function setInfo(id,html){document.getElementById(id).innerHTML=html;}
+
+// ======= 总览 =======
+const ovCtx=document.getElementById('overviewCanvas').getContext('2d');
+function overviewReset(){ovCtx.clearRect(0,0,820,420);setInfo('overviewInfo','已重置');}
+
+async function overviewAnimate(){
+  const c=ovCtx; c.clearRect(0,0,820,420);
+  // 层次图
+  const regions=[
+    {label:'磁盘\n（作业/后备队列）',x:10,y:20,w:150,h:380,color:'#64748b'},
+    {label:'内存\n（就绪/阻塞队列）',x:280,y:60,w:200,h:300,color:'#0ea5e9'},
+    {label:'CPU',x:600,y:160,w:120,h:100,color:'#10b981'},
+    {label:'磁盘\n（换出区）',x:600,y:300,w:120,h:90,color:'#f59e0b'},
+  ];
+  
+  for(const r of regions){
+    c.fillStyle=r.color+'22'; c.strokeStyle=r.color; c.lineWidth=2;
+    c.beginPath(); c.roundRect(r.x,r.y,r.w,r.h,8); c.fill(); c.stroke();
+    c.fillStyle=r.color; c.font='bold 12px Microsoft YaHei'; c.textAlign='center';
+    r.label.split('\n').forEach((l,i)=>c.fillText(l,r.x+r.w/2,r.y+22+i*16));
+    await sleep(400);
+  }
+  
+  // 箭头和标签
+  const arrows=[
+    {x1:162,y1:180,x2:278,y2:160,label:'高级调度\n(作业→内存)',color:'#fb923c'},
+    {x1:480,y1:160,x2:598,y2:200,label:'低级调度\n(→CPU)',color:'#10b981'},
+    {x1:598,y1:220,x2:482,y2:220,label:'←抢占/时间片到',color:'#10b981'},
+    {x1:480,y1:240,x2:280,y2:280,label:'阻塞\n(I/O等待)',color:'#ef4444'},
+    {x1:280,y1:310,x2:478,y2:240,label:'I/O完成\n重新就绪',color:'#0ea5e9'},
+    {x1:380,y1:180,x2:598,y2:320,label:'中级调度\n(换出)',color:'#f59e0b'},
+    {x1:598,y1:340,x2:380,y2:200,label:'中级调度\n(换入)',color:'#f59e0b'},
+  ];
+  
+  function drawArr(x1,y1,x2,y2,label,color){
+    c.strokeStyle=color; c.lineWidth=1.5;
+    c.beginPath(); c.moveTo(x1,y1); c.lineTo(x2,y2); c.stroke();
+    const a=Math.atan2(y2-y1,x2-x1);
+    c.fillStyle=color;
+    c.beginPath(); c.moveTo(x2,y2);
+    c.lineTo(x2-9*Math.cos(a-0.4),y2-9*Math.sin(a-0.4));
+    c.lineTo(x2-9*Math.cos(a+0.4),y2-9*Math.sin(a+0.4));
+    c.fill();
+    const mx=(x1+x2)/2, my=(y1+y2)/2;
+    c.fillStyle=color; c.font='9px Microsoft YaHei'; c.textAlign='center';
+    label.split('\n').forEach((l,i)=>c.fillText(l,mx,my+i*12-6));
+  }
+  
+  for(const a of arrows){ drawArr(a.x1,a.y1,a.x2,a.y2,a.label,a.color); await sleep(400); }
+  
+  // 说明框
+  const infos=[
+    {label:'高级调度',color:'#fb923c',x:10,y:408,desc:'频率最低，决定哪些作业调入内存'},
+    {label:'中级调度',color:'#f59e0b',x:230,y:408,desc:'中频，管理内存-磁盘换入换出'},
+    {label:'低级调度',color:'#10b981',x:460,y:408,desc:'频率最高，决定哪个进程上CPU'},
+  ];
+  infos.forEach(i=>{
+    c.fillStyle=i.color; c.font='bold 11px Microsoft YaHei'; c.textAlign='left';
+    c.fillText('■ '+i.label+': ',i.x,i.y);
+    c.fillStyle='#94a3b8'; c.font='10px Microsoft YaHei';
+    c.fillText(i.desc,i.x+80,i.y);
+  });
+  setInfo('overviewInfo','<span class="step">三级调度关系：</span>高级调度决定作业能否进内存；低级调度决定哪个就绪进程上CPU；中级调度在内存不足时将进程换出磁盘（挂起），缓解内存压力。');
+}
+overviewAnimate();
+
+// ======= 高级调度 =======
+const highCtx=document.getElementById('highCanvas').getContext('2d');
+let highState={spoolQueue:[],memQueue:[],busy:false};
+const jobColors=['#0ea5e9','#a855f7','#10b981','#f59e0b','#ef4444'];
+const jobNames=['编译','数据库','Web服务','排序','AI训练'];
+
+function highDraw(){
+  const c=highCtx; c.clearRect(0,0,820,360);
+  // 磁盘后备队列
+  c.fillStyle='#1e293b'; c.strokeStyle='#64748b'; c.lineWidth=2;
+  c.beginPath(); c.roundRect(10,40,300,280,8); c.fill(); c.stroke();
+  c.fillStyle='#94a3b8'; c.font='bold 12px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('外存后备队列（等待调入）',160,34);
+  highState.spoolQueue.forEach((j,i)=>{
+    const jy=56+i*46;
+    c.fillStyle=j.color+'22'; c.strokeStyle=j.color; c.lineWidth=1.5;
+    c.beginPath(); c.roundRect(18,jy,284,38,4); c.fill(); c.stroke();
+    c.fillStyle=j.color; c.font='bold 11px Microsoft YaHei'; c.textAlign='left';
+    c.fillText(j.name,28,jy+15);
+    c.fillStyle='#94a3b8'; c.font='10px Microsoft YaHei';
+    c.fillText(`优先级:${j.pri}  大小:${j.size}MB  到达:${j.arrive}s`,28,jy+30);
+  });
+  // 内存队列
+  c.fillStyle='#1e293b'; c.strokeStyle='#0ea5e9'; c.lineWidth=2;
+  c.beginPath(); c.roundRect(380,40,420,280,8); c.fill(); c.stroke();
+  c.fillStyle='#0ea5e9'; c.font='bold 12px Microsoft YaHei'; c.textAlign='center';
+  c.fillText(`内存就绪队列（多道程序度: ${highState.memQueue.length}/3）`,590,34);
+  highState.memQueue.forEach((j,i)=>{
+    const jy=56+i*80;
+    c.fillStyle=j.color+'22'; c.strokeStyle=j.color; c.lineWidth=1.5;
+    c.beginPath(); c.roundRect(388,jy,404,70,4); c.fill(); c.stroke();
+    c.fillStyle=j.color; c.font='bold 12px Microsoft YaHei'; c.textAlign='center';
+    c.fillText(j.name+' (已在内存)',590,jy+22);
+    c.fillStyle='#94a3b8'; c.font='10px Microsoft YaHei';
+    c.fillText(`PCB创建 | 分配内存 ${j.size}MB | 加入就绪队列`,590,jy+42);
+  });
+  // 箭头
+  if(highState.memQueue.length>0||highState.spoolQueue.length>0){
+    c.strokeStyle='#fb923c'; c.lineWidth=2; c.setLineDash([6,4]);
+    c.beginPath(); c.moveTo(314,180); c.lineTo(378,180); c.stroke();
+    c.setLineDash([]);
+    c.fillStyle='#fb923c';
+    c.beginPath(); c.moveTo(378,180); c.lineTo(368,174); c.lineTo(368,186); c.fill();
+    c.fillStyle='#fb923c'; c.font='bold 10px Microsoft YaHei'; c.textAlign='center';
+    c.fillText('高级调度',346,168); c.fillText('(作业调度)',346,182);
+  }
+}
+
+async function highSubmit(){
+  if(highState.busy)return; highState.busy=true;
+  if(highState.spoolQueue.length>=5){setInfo('highInfo','后备队列已满');highState.busy=false;return;}
+  const i=highState.spoolQueue.length;
+  highState.spoolQueue.push({name:jobNames[i],color:jobColors[i],pri:Math.floor(Math.random()*5)+1,size:Math.floor(Math.random()*200)+50,arrive:i*3});
+  highDraw();
+  setInfo('highInfo',`<span class="step">作业 ${jobNames[i]} 提交</span>，加入外存后备队列等待高级调度选中调入内存。`);
+  highState.busy=false;
+}
+
+async function highSchedule(){
+  if(highState.busy||highState.spoolQueue.length===0){setInfo('highInfo','后备队列为空');return;}
+  if(highState.memQueue.length>=3){setInfo('highInfo','内存已满（多道程序度=3），等待有进程完成后才能调入');return;}
+  highState.busy=true;
+  // 选优先级最高
+  highState.spoolQueue.sort((a,b)=>b.pri-a.pri);
+  const job=highState.spoolQueue.shift();
+  highState.memQueue.push(job);
+  highDraw();
+  setInfo('highInfo',`<span class="step">高级调度选中 ${job.name}</span>（优先级=${job.pri}），从外存调入内存，创建PCB，加入就绪队列。`);
+  highState.busy=false;
+}
+
+function highReset(){highState={spoolQueue:[],memQueue:[],busy:false};highDraw();setInfo('highInfo','已重置');}
+highDraw();
+
+// ======= 中级调度 =======
+const midCtx=document.getElementById('midCanvas').getContext('2d');
+let midState={memory:[
+  {name:'进程A',color:'#0ea5e9',state:'就绪'},
+  {name:'进程B',color:'#10b981',state:'运行'},
+  {name:'进程C',color:'#a855f7',state:'阻塞'},
+],swapped:[],busy:false};
+
+function midDraw(){
+  const c=midCtx; c.clearRect(0,0,820,380);
+  // 内存区
+  c.fillStyle='#1e293b'; c.strokeStyle='#0ea5e9'; c.lineWidth=2;
+  c.beginPath(); c.roundRect(10,40,380,300,8); c.fill(); c.stroke();
+  c.fillStyle='#0ea5e9'; c.font='bold 12px Microsoft YaHei'; c.textAlign='center';
+  c.fillText(`物理内存（${midState.memory.length}个进程）`,200,34);
+  midState.memory.forEach((p,i)=>{
+    const py=56+i*80;
+    const stateColors={'就绪':'#f59e0b','运行':'#10b981','阻塞':'#ef4444','挂起就绪':'#64748b'};
+    c.fillStyle=p.color+'22'; c.strokeStyle=p.color; c.lineWidth=1.5;
+    c.beginPath(); c.roundRect(18,py,364,68,4); c.fill(); c.stroke();
+    c.fillStyle=p.color; c.font='bold 12px Microsoft YaHei'; c.textAlign='center';
+    c.fillText(p.name,200,py+18);
+    c.fillStyle=stateColors[p.state]||'#64748b'; c.font='11px Microsoft YaHei';
+    c.fillText('状态: '+p.state,200,py+40);
+    c.fillStyle='#475569'; c.font='9px Microsoft YaHei';
+    c.fillText('物理内存占用中 — 竞争CPU资源',200,py+58);
+  });
+  // 磁盘换出区
+  c.fillStyle='#1e293b'; c.strokeStyle='#f59e0b'; c.lineWidth=2;
+  c.beginPath(); c.roundRect(440,40,360,300,8); c.fill(); c.stroke();
+  c.fillStyle='#f59e0b'; c.font='bold 12px Microsoft YaHei'; c.textAlign='center';
+  c.fillText(`磁盘换出区（挂起）（${midState.swapped.length}个进程）`,620,34);
+  midState.swapped.forEach((p,i)=>{
+    const py=56+i*80;
+    c.fillStyle=p.color+'11'; c.strokeStyle=p.color+'66'; c.lineWidth=1.5;
+    c.beginPath(); c.roundRect(448,py,344,68,4); c.fill(); c.stroke();
+    c.fillStyle=p.color+'88'; c.font='bold 12px Microsoft YaHei'; c.textAlign='center';
+    c.fillText(p.name+'（已挂起）',620,py+18);
+    c.fillStyle='#64748b'; c.font='11px Microsoft YaHei';
+    c.fillText('状态: 挂起'+p.state,620,py+40);
+    c.fillStyle='#475569'; c.font='9px Microsoft YaHei';
+    c.fillText('镜像保存在磁盘，释放物理内存',620,py+58);
+  });
+  // 双向箭头
+  c.strokeStyle='#f59e0b'; c.lineWidth=2;
+  c.beginPath(); c.moveTo(400,180); c.lineTo(440,180); c.stroke();
+  c.fillStyle='#f59e0b'; c.font='10px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('←换入', 420, 165); c.fillText('换出→', 420, 196);
+  c.beginPath(); c.moveTo(440,170); c.lineTo(400,170); c.stroke();
+}
+
+async function midSwapOut(){
+  if(midState.busy)return; midState.busy=true;
+  if(midState.memory.length===0){setInfo('midInfo','内存为空');midState.busy=false;return;}
+  // 选阻塞进程换出
+  const idx=midState.memory.findIndex(p=>p.state==='阻塞');
+  const pi=idx>=0?idx:midState.memory.length-1;
+  const p=midState.memory.splice(pi,1)[0];
+  midState.swapped.push(p);
+  midDraw();
+  setInfo('midInfo',`<span class="step">换出进程 ${p.name}</span>：内存紧张时，将阻塞/低优先级进程的内存镜像写入磁盘，释放物理内存供其他进程使用。状态变为"挂起${p.state}"。`);
+  midState.busy=false;
+}
+
+async function midSwapIn(){
+  if(midState.busy||midState.swapped.length===0){setInfo('midInfo','无挂起进程');return;}
+  midState.busy=true;
+  if(midState.memory.length>=4){setInfo('midInfo','内存已满，无法换入');midState.busy=false;return;}
+  const p=midState.swapped.shift();
+  p.state='就绪';
+  midState.memory.push(p);
+  midDraw();
+  setInfo('midInfo',`<span class="step">换入进程 ${p.name}</span>：将磁盘中的进程镜像读回内存，恢复进程状态为"就绪"，重新参与CPU竞争。`);
+  midState.busy=false;
+}
+
+function midReset(){
+  midState={memory:[{name:'进程A',color:'#0ea5e9',state:'就绪'},{name:'进程B',color:'#10b981',state:'运行'},{name:'进程C',color:'#a855f7',state:'阻塞'}],swapped:[],busy:false};
+  midDraw(); setInfo('midInfo','已重置');
+}
+midDraw();
+
+// ======= 低级调度 =======
+const lowCtx=document.getElementById('lowCanvas').getContext('2d');
+let lowState={ready:[],blocked:[],running:null,finished:[],busy:false,tick:0};
+let lowProcNames=['P1','P2','P3','P4','P5'];
+let lowProcColors=['#0ea5e9','#a855f7','#10b981','#f59e0b','#ef4444'];
+let lowPCnt=0;
+
+function lowDraw(){
+  const c=lowCtx; c.clearRect(0,0,820,380);
+  // 就绪队列
+  c.fillStyle='#1e293b'; c.strokeStyle='#f59e0b'; c.lineWidth=2;
+  c.beginPath(); c.roundRect(10,30,360,130,6); c.fill(); c.stroke();
+  c.fillStyle='#f59e0b'; c.font='bold 12px Microsoft YaHei'; c.textAlign='center';
+  c.fillText(`就绪队列 (${lowState.ready.length}个进程)`,190,24);
+  lowState.ready.forEach((p,i)=>{
+    const px=20+i*68, py=44;
+    c.fillStyle=p.color+'33'; c.strokeStyle=p.color; c.lineWidth=1.5;
+    c.beginPath(); c.roundRect(px,py,60,100,4); c.fill(); c.stroke();
+    c.fillStyle=p.color; c.font='bold 12px Microsoft YaHei'; c.textAlign='center';
+    c.fillText(p.name,px+30,py+20);
+    c.fillStyle='#94a3b8'; c.font='9px Microsoft YaHei';
+    c.fillText('优先级'+p.pri,px+30,py+38);
+    c.fillText('剩余:'+p.remain,px+30,py+54);
+    c.fillText('时间片:'+p.slice,px+30,py+70);
+  });
+  // CPU
+  c.fillStyle=lowState.running?lowState.running.color+'22':'#1e293b';
+  c.strokeStyle=lowState.running?lowState.running.color:'#10b981'; c.lineWidth=2;
+  c.beginPath(); c.roundRect(400,30,200,130,8); c.fill(); c.stroke();
+  c.fillStyle=lowState.running?lowState.running.color:'#10b981'; c.font='bold 13px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('CPU',500,56);
+  if(lowState.running){
+    const p=lowState.running;
+    c.fillText(p.name,500,80);
+    c.fillStyle='#94a3b8'; c.font='10px Microsoft YaHei';
+    c.fillText(`剩余${p.remain}ms  时间片剩余${p.slice}ms`,500,100);
+  } else {
+    c.fillStyle='#475569'; c.font='11px Microsoft YaHei';
+    c.fillText('（空闲）',500,80);
+  }
+  // 阻塞队列
+  c.fillStyle='#1e293b'; c.strokeStyle='#ef4444'; c.lineWidth=2;
+  c.beginPath(); c.roundRect(10,200,360,130,6); c.fill(); c.stroke();
+  c.fillStyle='#ef4444'; c.font='bold 12px Microsoft YaHei'; c.textAlign='center';
+  c.fillText(`阻塞队列 (${lowState.blocked.length}个进程)`,190,194);
+  lowState.blocked.forEach((p,i)=>{
+    const px=20+i*68, py=214;
+    c.fillStyle=p.color+'22'; c.strokeStyle=p.color+'66'; c.lineWidth=1.5;
+    c.beginPath(); c.roundRect(px,py,60,100,4); c.fill(); c.stroke();
+    c.fillStyle=p.color+'88'; c.font='bold 11px Microsoft YaHei'; c.textAlign='center';
+    c.fillText(p.name,px+30,py+20);
+    c.fillStyle='#64748b'; c.font='9px Microsoft YaHei';
+    c.fillText('等待I/O',px+30,py+38); c.fillText(p.ioLeft+'ms',px+30,py+54);
+  });
+  // 已完成
+  c.fillStyle='#1e293b'; c.strokeStyle='#4ade80'; c.lineWidth=1.5;
+  c.beginPath(); c.roundRect(400,200,200,130,6); c.fill(); c.stroke();
+  c.fillStyle='#4ade80'; c.font='bold 11px Microsoft YaHei'; c.textAlign='center';
+  c.fillText(`已完成 (${lowState.finished.length})`,500,194);
+  lowState.finished.forEach((p,i)=>{
+    c.fillStyle=p.color; c.font='10px Microsoft YaHei'; c.textAlign='center';
+    c.fillText(p.name,500,218+i*18);
+  });
+  // 调度统计
+  c.fillStyle='#94a3b8'; c.font='11px Microsoft YaHei'; c.textAlign='left';
+  c.fillText(`调度次数: ${lowState.tick}  完成: ${lowState.finished.length}  就绪: ${lowState.ready.length}  阻塞: ${lowState.blocked.length}`,10,355);
+  // 箭头
+  c.strokeStyle='#f59e0b'; c.lineWidth=1.5;
+  c.beginPath(); c.moveTo(372,90); c.lineTo(398,90); c.stroke();
+  c.fillStyle='#f59e0b'; c.beginPath(); c.moveTo(398,90); c.lineTo(388,84); c.lineTo(388,96); c.fill();
+}
+
+async function lowAddProcess(){
+  if(lowState.busy)return; lowState.busy=true;
+  if(lowPCnt>=lowProcNames.length){setInfo('lowInfo','已添加所有演示进程');lowState.busy=false;return;}
+  const p={name:lowProcNames[lowPCnt],color:lowProcColors[lowPCnt],pri:Math.floor(Math.random()*5)+1,remain:20+Math.floor(Math.random()*20),slice:3};
+  lowPCnt++;
+  lowState.ready.push(p);
+  lowDraw();
+  setInfo('lowInfo',`<span class="step">进程 ${p.name} 加入就绪队列</span>，优先级=${p.pri}，需要${p.remain}ms CPU时间，时间片=3ms。`);
+  lowState.busy=false;
+}
+
+async function lowSchedule(){
+  if(lowState.busy)return; lowState.busy=true;
+  lowState.tick++;
+  // 处理阻塞队列（减少I/O等待）
+  lowState.blocked.forEach(p=>{p.ioLeft=Math.max(0,p.ioLeft-1);});
+  const woken=lowState.blocked.filter(p=>p.ioLeft===0);
+  woken.forEach(p=>lowState.ready.push(p));
+  lowState.blocked=lowState.blocked.filter(p=>p.ioLeft>0);
+  
+  if(lowState.running){
+    const p=lowState.running;
+    p.remain--; p.slice--;
+    if(p.remain<=0){ lowState.finished.push(p); lowState.running=null; }
+    else if(p.slice<=0){ p.slice=3; lowState.ready.push(p); lowState.running=null; }
+  }
+  if(!lowState.running&&lowState.ready.length>0){
+    // RR选第一个
+    lowState.running=lowState.ready.shift();
+  }
+  lowDraw();
+  const r=lowState.running;
+  setInfo('lowInfo',`<span class="step">时间片 #${lowState.tick}：</span>${r?'运行 '+r.name+`（剩余${r.remain}ms，时间片${r.slice}ms）`:'CPU空闲'}`+(woken.length?'，进程'+woken.map(p=>p.name).join(',')+' I/O完成→就绪':''));
+  lowState.busy=false;
+}
+
+async function lowBlock(){
+  if(lowState.busy||!lowState.running)return; lowState.busy=true;
+  const p=lowState.running;
+  p.ioLeft=3+Math.floor(Math.random()*5);
+  lowState.blocked.push(p);
+  lowState.running=null;
+  if(lowState.ready.length>0) lowState.running=lowState.ready.shift();
+  lowDraw();
+  setInfo('lowInfo',`<span class="step">进程 ${p.name} 请求I/O阻塞</span>，等待${p.ioLeft}个时间片后唤醒。${lowState.running?'CPU切换到'+lowState.running.name:'CPU空闲等待。'}`);
+  lowState.busy=false;
+}
+
+function lowReset(){
+  lowState={ready:[],blocked:[],running:null,finished:[],busy:false,tick:0};lowPCnt=0;
+  lowDraw(); setInfo('lowInfo','已重置。添加进程后点击「调度」运行。');
+}
+lowDraw();
+
+// ======= 调度算法甘特图 =======
+const algoCtx=document.getElementById('algoCanvas').getContext('2d');
+// 进程: 到达时间, 服务时间
+const testProcs=[
+  {name:'P1',arrive:0,burst:8,pri:3,color:'#0ea5e9'},
+  {name:'P2',arrive:1,burst:4,pri:1,color:'#a855f7'},
+  {name:'P3',arrive:2,burst:9,pri:2,color:'#10b981'},
+  {name:'P4',arrive:3,burst:5,pri:4,color:'#f59e0b'},
+];
+
+function drawGantt(schedule,title,avgWT,avgTAT){
+  const c=algoCtx; c.clearRect(0,0,820,380);
+  c.fillStyle='#fb923c'; c.font='bold 14px Microsoft YaHei'; c.textAlign='center';
+  c.fillText(title,410,22);
+  
+  // 时间轴
+  const gX=60, gY=60, gH=40, scale=16;
+  const totalTime=schedule[schedule.length-1].end;
+  c.fillStyle='#94a3b8'; c.font='10px monospace'; c.textAlign='center';
+  for(let t=0;t<=totalTime;t+=2){
+    c.fillText(t,gX+t*scale,gY+gH+16);
+    c.strokeStyle='#334155'; c.lineWidth=1;
+    c.beginPath(); c.moveTo(gX+t*scale,gY+gH); c.lineTo(gX+t*scale,gY+gH+5); c.stroke();
+  }
+  
+  // 甘特条
+  schedule.forEach(s=>{
+    const p=testProcs.find(p=>p.name===s.name);
+    const x=gX+s.start*scale, w=(s.end-s.start)*scale;
+    c.fillStyle=p?p.color+'55':'#33334444';
+    c.strokeStyle=p?p.color:'#555'; c.lineWidth=1.5;
+    c.fillRect(x,gY,w,gH);
+    c.strokeRect(x,gY,w,gH);
+    c.fillStyle=p?p.color:'#aaa'; c.font='bold 11px Microsoft YaHei'; c.textAlign='center';
+    c.fillText(s.name,x+w/2,gY+gH/2+4);
+  });
+  
+  // 进程信息
+  c.fillStyle='#64748b'; c.font='11px Microsoft YaHei'; c.textAlign='left';
+  c.fillText('进程信息：',10,130);
+  testProcs.forEach((p,i)=>{
+    const ex=10+i*190;
+    c.fillStyle=p.color; c.font='10px Microsoft YaHei';
+    c.fillText(`${p.name} 到达=${p.arrive} 服务=${p.burst} 优先级=${p.pri}`,ex,148);
+  });
+  
+  // 计算等待时间表
+  c.fillStyle='#e2e8f0'; c.font='bold 12px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('各进程完成时间：',410,175);
+  testProcs.forEach((p,i)=>{
+    const finTime=Math.max(...schedule.filter(s=>s.name===p.name).map(s=>s.end));
+    const tat=finTime-p.arrive;
+    const wt=tat-p.burst;
+    const ex=10+i*200;
+    c.fillStyle=p.color; c.font='10px Microsoft YaHei'; c.textAlign='left';
+    c.fillText(`${p.name}: 完成=${finTime} TAT=${tat} 等待=${wt}`,ex,194);
+  });
+  
+  c.fillStyle='#22d3ee'; c.font='bold 12px Microsoft YaHei'; c.textAlign='center';
+  c.fillText(`平均等待时间: ${avgWT.toFixed(2)}ms    平均周转时间: ${avgTAT.toFixed(2)}ms`,410,220);
+  
+  setInfo('algoInfo',`<span class="step">${title}：</span>甘特图已绘制，平均等待=${avgWT.toFixed(2)}ms，平均周转=${avgTAT.toFixed(2)}ms。`);
+}
+
+function showFCFS(){
+  // FCFS: 按到达顺序
+  const procs=[...testProcs].sort((a,b)=>a.arrive-b.arrive);
+  const sch=[]; let t=0;
+  procs.forEach(p=>{ const s=Math.max(t,p.arrive); sch.push({name:p.name,start:s,end:s+p.burst}); t=s+p.burst; });
+  const wts=procs.map(p=>sch.find(s=>s.name===p.name).start-p.arrive);
+  const tats=procs.map(p=>sch.find(s=>s.name===p.name).end-p.arrive);
+  drawGantt(sch,'先来先服务 FCFS',wts.reduce((a,b)=>a+b)/procs.length,tats.reduce((a,b)=>a+b)/procs.length);
+}
+
+function showSJF(){
+  // SJF非抢占
+  const procs=[...testProcs].map(p=>({...p,remaining:p.burst,done:false}));
+  const sch=[]; let t=0; let done=0;
+  while(done<procs.length){
+    const avail=procs.filter(p=>!p.done&&p.arrive<=t);
+    if(avail.length===0){t++;continue;}
+    avail.sort((a,b)=>a.burst-b.burst);
+    const p=avail[0]; p.done=true; done++;
+    sch.push({name:p.name,start:t,end:t+p.burst}); t+=p.burst;
+  }
+  const wts=testProcs.map(p=>sch.find(s=>s.name===p.name).start-p.arrive);
+  const tats=testProcs.map(p=>sch.find(s=>s.name===p.name).end-p.arrive);
+  drawGantt(sch,'短作业优先 SJF（非抢占）',wts.reduce((a,b)=>a+b)/4,tats.reduce((a,b)=>a+b)/4);
+}
+
+function showRR(){
+  // 时间片轮转 q=2
+  const q=2;
+  const procs=[...testProcs].map(p=>({...p,remain:p.burst}));
+  const sch=[]; let t=0; let done=0;
+  const queue=[];
+  procs.sort((a,b)=>a.arrive-b.arrive);
+  let procIdx=0;
+  while(done<procs.length){
+    // 加入就绪队列
+    while(procIdx<procs.length&&procs[procIdx].arrive<=t) queue.push(procs[procIdx++]);
+    if(queue.length===0){t++;while(procIdx<procs.length&&procs[procIdx].arrive<=t)queue.push(procs[procIdx++]);continue;}
+    const p=queue.shift();
+    const run=Math.min(q,p.remain);
+    sch.push({name:p.name,start:t,end:t+run}); t+=run; p.remain-=run;
+    while(procIdx<procs.length&&procs[procIdx].arrive<=t) queue.push(procs[procIdx++]);
+    if(p.remain>0) queue.push(p); else done++;
+  }
+  const wts=testProcs.map(p=>{
+    const segs=sch.filter(s=>s.name===p.name);
+    return segs[0].start-p.arrive+(segs.length>1?segs.slice(0,-1).reduce((s,sg)=>s+(sg.end-sg.start),0):0)-p.burst;
+  });
+  const tats=testProcs.map(p=>Math.max(...sch.filter(s=>s.name===p.name).map(s=>s.end))-p.arrive);
+  const avgWT=testProcs.reduce((sum,p,i)=>{
+    const finTime=Math.max(...sch.filter(s=>s.name===p.name).map(s=>s.end));
+    return sum+(finTime-p.arrive-p.burst);
+  },0)/4;
+  const avgTAT=tats.reduce((a,b)=>a+b)/4;
+  drawGantt(sch,`时间片轮转 RR (q=${q})`,avgWT,avgTAT);
+}
+
+function showPriority(){
+  // 优先级调度（优先级数字小=高优先级，非抢占）
+  const procs=[...testProcs].map(p=>({...p,done:false}));
+  const sch=[]; let t=0; let done=0;
+  while(done<procs.length){
+    const avail=procs.filter(p=>!p.done&&p.arrive<=t);
+    if(avail.length===0){t++;continue;}
+    avail.sort((a,b)=>a.pri-b.pri); // 小优先级数=高优先级
+    const p=avail[0]; p.done=true; done++;
+    sch.push({name:p.name,start:t,end:t+p.burst}); t+=p.burst;
+  }
+  const wts=testProcs.map(p=>sch.find(s=>s.name===p.name).start-p.arrive);
+  const tats=testProcs.map(p=>sch.find(s=>s.name===p.name).end-p.arrive);
+  drawGantt(sch,'优先级调度（数字小=高优先级）',wts.reduce((a,b)=>a+b)/4,tats.reduce((a,b)=>a+b)/4);
+}
+
+function algoReset(){algoCtx.clearRect(0,0,820,380);setInfo('algoInfo','已清空');}
+</script>
+</body>
+</html>

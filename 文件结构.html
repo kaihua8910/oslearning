@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>文件结构 - OS动画学习</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Microsoft YaHei',sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+header{background:linear-gradient(135deg,#1a1a3a,#0a2a1a);padding:20px 40px;display:flex;align-items:center;gap:16px;border-bottom:2px solid #60a5fa}
+header h1{font-size:1.6rem;color:#60a5fa}
+header p{color:#94a3b8;font-size:.9rem;margin-top:4px}
+.back-btn{background:#1e40af;color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:.85rem;text-decoration:none}
+.back-btn:hover{background:#2563eb}
+.container{max-width:1200px;margin:0 auto;padding:30px 20px}
+.desc-box{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px;margin-bottom:20px;border-left:4px solid #60a5fa}
+.desc-box h3{color:#60a5fa;margin-bottom:8px}
+.desc-box p{color:#94a3b8;line-height:1.7;font-size:.92rem}
+.canvas-area{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px;margin-bottom:20px}
+.canvas-area h3{color:#e2e8f0;margin-bottom:16px}
+canvas{display:block;margin:0 auto;border-radius:8px;background:#0a0f1e}
+.controls{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;justify-content:center}
+.btn{padding:9px 20px;border:none;border-radius:8px;cursor:pointer;font-size:.85rem;font-weight:600;transition:all .2s}
+.btn-primary{background:#1d4ed8;color:#fff}.btn-primary:hover{background:#1e40af}
+.btn-success{background:#16a34a;color:#fff}.btn-success:hover{background:#15803d}
+.btn-warning{background:#d97706;color:#fff}.btn-warning:hover{background:#b45309}
+.btn-info{background:#7c3aed;color:#fff}.btn-info:hover{background:#6d28d9}
+.btn-reset{background:#475569;color:#fff}.btn-reset:hover{background:#334155}
+.info-panel{background:#0f172a;border:1px solid #334155;border-radius:10px;padding:14px;margin-top:16px;min-height:56px;font-size:.88rem;line-height:1.7;color:#94a3b8}
+.info-panel .step{color:#60a5fa;font-weight:600}
+.tabs{display:flex;gap:8px;margin-bottom:24px;flex-wrap:wrap}
+.tab{padding:10px 22px;border:2px solid #334155;border-radius:10px;cursor:pointer;background:transparent;color:#94a3b8;font-size:.9rem;transition:all .2s}
+.tab.active{background:#1e3a8a;border-color:#60a5fa;color:#fff}
+.tab:hover:not(.active){border-color:#64748b;color:#e2e8f0}
+.section{display:none}.section.active{display:block}
+</style>
+</head>
+<body>
+<header>
+  <a href="index.html" class="back-btn">← 返回首页</a>
+  <div>
+    <h1>📁 文件结构</h1>
+    <p>文件的逻辑结构 · 物理结构 · 目录结构 · FCB与文件控制块</p>
+  </div>
+</header>
+<div class="container">
+  <div class="tabs">
+    <button class="tab active" onclick="activateTab('logical')">文件逻辑结构</button>
+    <button class="tab" onclick="activateTab('physical')">文件物理结构</button>
+    <button class="tab" onclick="activateTab('directory')">目录结构</button>
+    <button class="tab" onclick="activateTab('fcb')">FCB文件控制块</button>
+  </div>
+
+  <div id="tab-logical" class="section active">
+    <div class="desc-box">
+      <h3>文件的逻辑结构</h3>
+      <p>文件逻辑结构是用户和应用程序"看到"的文件组织方式。分为：<strong style="color:#60a5fa">无结构文件（字节流）</strong>——最简单，如文本文件；<strong style="color:#60a5fa">有结构文件（记录文件）</strong>——由定长或变长记录组成，如数据库记录。</p>
+    </div>
+    <div class="canvas-area">
+      <h3>🎬 文件逻辑结构类型动画</h3>
+      <canvas id="logicalCanvas" width="820" height="380"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="showLogical('stream')">字节流文件</button>
+        <button class="btn btn-success" onclick="showLogical('fixed')">定长记录文件</button>
+        <button class="btn btn-warning" onclick="showLogical('variable')">变长记录文件</button>
+        <button class="btn btn-reset" onclick="logicalCtx.clearRect(0,0,820,380)">清空</button>
+      </div>
+      <div class="info-panel" id="logicalInfo">选择文件逻辑结构类型查看详解</div>
+    </div>
+  </div>
+
+  <div id="tab-physical" class="section">
+    <div class="desc-box">
+      <h3>文件的物理结构（存储结构）</h3>
+      <p>文件在磁盘上的实际存储方式。三种主要类型：<strong style="color:#60a5fa">连续分配</strong>（顺序存储）、<strong style="color:#60a5fa">链接分配</strong>（链表）、<strong style="color:#60a5fa">索引分配</strong>（索引表）。每种方式在访问速度、碎片、动态增长上各有权衡。</p>
+    </div>
+    <div class="canvas-area">
+      <h3>🎬 三种物理结构对比动画</h3>
+      <canvas id="physicalCanvas" width="820" height="380"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="physDraw()">▶ 显示对比</button>
+        <button class="btn btn-success" onclick="physAccess('seq')">顺序访问</button>
+        <button class="btn btn-warning" onclick="physAccess('rand')">随机访问</button>
+        <button class="btn btn-reset" onclick="physCtx.clearRect(0,0,820,380)">清空</button>
+      </div>
+      <div class="info-panel" id="physicalInfo">点击「显示对比」查看三种物理结构并排对比</div>
+    </div>
+  </div>
+
+  <div id="tab-directory" class="section">
+    <div class="desc-box">
+      <h3>目录结构</h3>
+      <p>文件系统使用目录（Directory）来组织管理文件。目录结构从简单到复杂：<strong style="color:#60a5fa">单级→两级→多级（树形）→无环图</strong>。现代操作系统使用树形目录+符号链接（软链接），形成带环的有向图结构。</p>
+    </div>
+    <div class="canvas-area">
+      <h3>🎬 目录树结构动画</h3>
+      <canvas id="dirCanvas" width="820" height="400"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="dirDraw('single')">单级目录</button>
+        <button class="btn btn-success" onclick="dirDraw('two')">两级目录</button>
+        <button class="btn btn-warning" onclick="dirDraw('tree')">树形目录（多级）</button>
+        <button class="btn btn-info" onclick="dirDraw('dag')">无环图（软链接）</button>
+        <button class="btn btn-reset" onclick="dirCtx.clearRect(0,0,820,400)">清空</button>
+      </div>
+      <div class="info-panel" id="dirInfo">选择目录结构类型查看动画</div>
+    </div>
+  </div>
+
+  <div id="tab-fcb" class="section">
+    <div class="desc-box">
+      <h3>FCB — 文件控制块（File Control Block）</h3>
+      <p>FCB是OS为每个文件维护的数据结构，包含文件的所有元数据。在UNIX/Linux中对应<strong style="color:#60a5fa">inode</strong>，在FAT中分散在目录项，在NTFS中对应MFT记录。FCB是文件系统管理文件的核心数据结构。</p>
+    </div>
+    <div class="canvas-area">
+      <h3>🎬 FCB结构与文件访问过程</h3>
+      <canvas id="fcbCanvas" width="820" height="400"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="fcbDraw()">显示FCB结构</button>
+        <button class="btn btn-success" onclick="fcbOpen()">模拟文件打开</button>
+        <button class="btn btn-reset" onclick="fcbCtx.clearRect(0,0,820,400)">重置</button>
+      </div>
+      <div class="info-panel" id="fcbInfo">点击「显示FCB结构」查看文件控制块详情</div>
+    </div>
+  </div>
+</div>
+
+<script>
+function activateTab(name){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('tab-'+name).classList.add('active');
+}
+function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
+function setInfo(id,html){document.getElementById(id).innerHTML=html;}
+
+// ======= 逻辑结构 =======
+const logicalCtx=document.getElementById('logicalCanvas').getContext('2d');
+
+function showLogical(type){
+  const c=logicalCtx; c.clearRect(0,0,820,380);
+  if(type==='stream'){
+    c.fillStyle='#60a5fa'; c.font='bold 14px Microsoft YaHei'; c.textAlign='center';
+    c.fillText('无结构文件（字节流）',410,24);
+    c.fillStyle='#94a3b8'; c.font='11px Microsoft YaHei';
+    c.fillText('文件 = 一维字节序列，无内部结构，由应用程序解释',410,44);
+    // 字节流
+    const bytes='Hello, OS World! 这是操作系统课程笔记...';
+    const gX=30, gY=70, CW=20, CH=36;
+    for(let i=0;i<36;i++){
+      const bx=gX+i*22, by=gY;
+      c.fillStyle=i%4===0?'#1e3a5f':'#1e293b'; c.strokeStyle='#334155'; c.lineWidth=1;
+      c.fillRect(bx,by,20,CH); c.strokeRect(bx,by,20,CH);
+      c.fillStyle='#64748b'; c.font='8px monospace'; c.textAlign='center';
+      c.fillText(i,bx+10,by+12);
+      if(i<bytes.length){
+        c.fillStyle='#60a5fa'; c.font='9px monospace';
+        c.fillText(bytes[i]==' '?'·':bytes[i],bx+10,by+28);
+      }
+    }
+    c.fillStyle='#94a3b8'; c.font='11px Microsoft YaHei'; c.textAlign='left';
+    c.fillText('文件指针（offset）可指向任意字节位置，read()/write()按字节读写',30,128);
+    c.fillText('典型：.txt .bin .so 等文件',30,148);
+    c.fillText('优点：简单灵活；缺点：无法按记录直接定位',30,168);
+    setInfo('logicalInfo','<span class="step">无结构文件（字节流）：</span>文件是简单的字节序列，没有内部结构。OS只提供read/write/seek等基本操作，文件的内部组织完全由应用程序负责。');
+  } else if(type==='fixed'){
+    c.fillStyle='#10b981'; c.font='bold 14px Microsoft YaHei'; c.textAlign='center';
+    c.fillText('有结构文件 — 定长记录',410,24);
+    c.fillStyle='#94a3b8'; c.font='11px Microsoft YaHei';
+    c.fillText('每条记录长度固定（如100字节/记录），支持按记录号直接定位',410,44);
+    const fields=['学号(8B)','姓名(16B)','成绩(4B)','专业(20B)','...'];
+    const fieldW=[80,130,60,160,80];
+    let fx=30;
+    fields.forEach((f,i)=>{
+      c.fillStyle='#10b981'+(i===0?'':i===1?'':'22'); c.strokeStyle='#10b981'; c.lineWidth=2;
+      c.beginPath(); c.roundRect(fx,60,fieldW[i],36,3); c.fill(); c.stroke();
+      c.fillStyle='#10b981'; c.font='bold 10px Microsoft YaHei'; c.textAlign='center';
+      c.fillText(f,fx+fieldW[i]/2,82); fx+=fieldW[i]+3;
+    });
+    c.fillStyle='#fbbf24'; c.font='10px Microsoft YaHei'; c.textAlign='center';
+    c.fillText('← 记录结构（总长约100字节/条）→',410,110);
+    
+    for(let r=0;r<4;r++){
+      let rx=30;
+      fields.forEach((f,i)=>{
+        c.fillStyle=r%2===0?'#162032':'#1e293b'; c.strokeStyle='#334155'; c.lineWidth=1;
+        c.fillRect(rx,124+r*38,fieldW[i],34); c.strokeRect(rx,124+r*38,fieldW[i],34);
+        c.fillStyle='#94a3b8'; c.font='9px monospace'; c.textAlign='center';
+        const data=[['20220001','张三','98','计算机科学'],['20220002','李四','85','软件工程'],['20220003','王五','92','信息安全'],['20220004','赵六','76','人工智能']];
+        c.fillText(data[r]&&data[r][i]||'...',rx+fieldW[i]/2,124+r*38+20);
+        rx+=fieldW[i]+3;
+      });
+    }
+    c.fillStyle='#94a3b8'; c.font='11px Microsoft YaHei'; c.textAlign='left';
+    c.fillText('直接定位公式：记录N的起始位置 = N × 记录大小（O(1)随机访问）',30,300);
+    setInfo('logicalInfo','<span class="step">定长记录文件：</span>每条记录大小固定，支持O(1)随机访问（直接计算偏移）。适合数据库、学生成绩等规则数据。');
+  } else {
+    c.fillStyle='#a855f7'; c.font='bold 14px Microsoft YaHei'; c.textAlign='center';
+    c.fillText('有结构文件 — 变长记录',410,24);
+    c.fillStyle='#94a3b8'; c.font='11px Microsoft YaHei';
+    c.fillText('每条记录长度不固定，通常在记录头部存储本条记录长度',410,44);
+    const records=[
+      {label:'记录1',len:120,fields:'长度:120B|ID:001|描述:这是一段较短的文本'},
+      {label:'记录2',len:200,fields:'长度:200B|ID:002|描述:这是一段较长的文本，包含更多数据内容，用于演示变长记录'},
+      {label:'记录3',len:80,fields:'长度:80B|ID:003|描述:短记录'},
+      {label:'记录4',len:160,fields:'长度:160B|ID:004|描述:中等长度的记录内容，有时候描述会比较详细'},
+    ];
+    let ry=64;
+    records.forEach(r=>{
+      const rw=r.len*2.8; // 视觉宽度
+      c.fillStyle='#a855f733'; c.strokeStyle='#a855f7'; c.lineWidth=1.5;
+      c.beginPath(); c.roundRect(30,ry,rw,36,3); c.fill(); c.stroke();
+      c.fillStyle='#a855f7'; c.font='bold 9px Microsoft YaHei'; c.textAlign='left';
+      c.fillText(r.label+'('+r.len+'B)',36,ry+14);
+      c.fillStyle='#94a3b8'; c.font='8px Microsoft YaHei';
+      c.fillText(r.fields.slice(0,40)+'...',36,ry+28);
+      c.fillStyle='#64748b'; c.font='8px monospace'; c.textAlign='right';
+      c.fillText('len='+r.len,rw+26,ry+22);
+      ry+=44;
+    });
+    c.fillStyle='#94a3b8'; c.font='11px Microsoft YaHei'; c.textAlign='left';
+    c.fillText('顺序读取高效，但随机访问需要从头遍历找到第N条（O(N)）',30,260);
+    c.fillText('典型：邮件文件、日志文件、文档格式（如RTF、XML）',30,278);
+    setInfo('logicalInfo','<span class="step">变长记录文件：</span>记录长度不固定，每条记录自带长度字段。顺序访问高效，随机访问慢（需从头遍历）。适合内容长度不一的场景如邮件、日志。');
+  }
+}
+
+// ======= 物理结构 =======
+const physCtx=document.getElementById('physicalCanvas').getContext('2d');
+const PHYS_BLOCKS=15;
+
+function physDraw(){
+  const c=physCtx; c.clearRect(0,0,820,380);
+  c.fillStyle='#60a5fa'; c.font='bold 13px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('三种文件物理结构对比（每列=一种方式，显示同一文件的存储）',410,18);
+  
+  const methods=[
+    {name:'连续分配',x:20,color:'#0ea5e9',blocks:[3,4,5,6,7]},
+    {name:'链接分配',x:290,color:'#a855f7',blocks:[2,7,11,1,14],ptrs:[7,11,1,14,-1]},
+    {name:'索引分配',x:560,color:'#10b981',indexBlock:0,blocks:[3,8,11,5,13]},
+  ];
+  
+  methods.forEach(m=>{
+    c.fillStyle=m.color; c.font='bold 12px Microsoft YaHei'; c.textAlign='center';
+    c.fillText(m.name,m.x+110,36);
+    // 画磁盘
+    for(let i=0;i<PHYS_BLOCKS;i++){
+      const col=i%5, row=Math.floor(i/5);
+      const bx=m.x+col*44, by=50+row*60;
+      const isData=m.blocks.includes(i);
+      const isIndex=m.name==='索引分配'&&i===m.indexBlock;
+      c.fillStyle=isIndex?'#a855f722':isData?m.color+'33':'#1e293b';
+      c.strokeStyle=isIndex?'#a855f7':isData?m.color:'#334155'; c.lineWidth=isData||isIndex?2:1;
+      c.beginPath(); c.roundRect(bx,by,40,48,3); c.fill(); c.stroke();
+      c.fillStyle=isData?m.color:'#475569'; c.font='bold 10px monospace'; c.textAlign='center';
+      c.fillText(i,bx+20,by+16);
+      if(isData&&m.name==='链接分配'){
+        const nextPtr=m.ptrs[m.blocks.indexOf(i)];
+        c.fillStyle='#f59e0b'; c.font='8px monospace';
+        c.fillText(nextPtr===-1?'END':'→'+nextPtr,bx+20,by+36);
+      } else if(isIndex){
+        c.fillStyle='#a855f7'; c.font='8px Microsoft YaHei';
+        c.fillText('IDX',bx+20,by+36);
+      } else if(isData){
+        c.fillStyle='#94a3b8'; c.font='8px Microsoft YaHei';
+        c.fillText('DATA',bx+20,by+36);
+      }
+    }
+    c.fillStyle='#94a3b8'; c.font='9px Microsoft YaHei'; c.textAlign='center';
+    if(m.name==='连续分配') c.fillText('块3-7连续',m.x+110,248);
+    if(m.name==='链接分配') c.fillText('2→7→11→1→14',m.x+110,248);
+    if(m.name==='索引分配') c.fillText('索引块0指向各数据块',m.x+110,248);
+  });
+  setInfo('physicalInfo','三种物理结构：连续分配（蓝）速度最快但有碎片；链接分配（紫）无碎片但随机访问慢；索引分配（绿）兼顾随机访问和无碎片。');
+}
+
+async function physAccess(mode){
+  physDraw();
+  const c=physCtx;
+  if(mode==='seq'){
+    // 顺序访问：三种都顺序遍历
+    setInfo('physicalInfo','<span class="step">顺序访问：</span>连续分配只需顺序读块3-7；链接分配也只需顺着链表顺序读2→7→11→1→14；索引分配需先读索引块，再顺序访问。三种都可以高效顺序访问。');
+  } else {
+    setInfo('physicalInfo','<span class="step">随机访问第4块：</span>连续分配=起始3+4=块7，直接访问，O(1)；链接分配=从头遍历链表4步，O(N)；索引分配=读索引块中第4项，O(1)。随机访问性能：连续≈索引>>链接。');
+  }
+}
+physDraw();
+
+// ======= 目录结构 =======
+const dirCtx=document.getElementById('dirCanvas').getContext('2d');
+
+function drawDirNode(c,x,y,label,color,sub){
+  c.fillStyle=color+'22'; c.strokeStyle=color; c.lineWidth=2;
+  c.beginPath(); c.arc(x,y,22,0,Math.PI*2); c.fill(); c.stroke();
+  c.fillStyle=color; c.font='bold 10px Microsoft YaHei'; c.textAlign='center';
+  c.fillText(label,x,y+4);
+}
+function drawDirEdge(c,x1,y1,x2,y2,color){
+  c.strokeStyle=color+'88'; c.lineWidth=1.5;
+  c.beginPath(); c.moveTo(x1,y1); c.lineTo(x2,y2); c.stroke();
+}
+
+function dirDraw(type){
+  const c=dirCtx; c.clearRect(0,0,820,400);
+  if(type==='single'){
+    c.fillStyle='#60a5fa'; c.font='bold 13px Microsoft YaHei'; c.textAlign='center';
+    c.fillText('单级目录 — 所有文件在一个目录下，不支持重名',410,20);
+    // 根目录
+    drawDirNode(c,410,70,'根目录','#60a5fa');
+    const files=['file1','file2','file3','file4','file5','file6'];
+    files.forEach((f,i)=>{
+      const fx=100+i*120, fy=180;
+      drawDirEdge(c,410,70,fx,fy,'#60a5fa');
+      drawDirNode(c,fx,fy,f,'#10b981');
+    });
+    c.fillStyle='#ef4444'; c.font='11px Microsoft YaHei'; c.textAlign='center';
+    c.fillText('问题：不同用户不能有同名文件，查找效率低',410,260);
+    setInfo('dirInfo','<span class="step">单级目录：</span>最简单的目录结构，所有文件都在同一目录，无法重名，不支持多用户，查找需遍历全部，已淘汰。');
+  } else if(type==='two'){
+    c.fillStyle='#60a5fa'; c.font='bold 13px Microsoft YaHei'; c.textAlign='center';
+    c.fillText('两级目录 — 主目录+用户目录，允许不同用户同名文件',410,20);
+    drawDirNode(c,410,60,'MFD','#60a5fa');
+    const users=[{name:'用户A',x:150},{name:'用户B',x:410},{name:'用户C',x:670}];
+    users.forEach(u=>{
+      drawDirEdge(c,410,60,u.x,140,'#60a5fa');
+      drawDirNode(c,u.x,140,u.name,'#f59e0b');
+      ['doc','code','data'].forEach((f,fi)=>{
+        const fx=u.x-60+fi*60, fy=240;
+        drawDirEdge(c,u.x,140,fx,fy,'#10b981');
+        drawDirNode(c,fx,fy,f,'#10b981');
+      });
+    });
+    c.fillStyle='#94a3b8'; c.font='10px Microsoft YaHei'; c.textAlign='center';
+    c.fillText('MFD=主目录，各用户有独立UFD（用户文件目录），可同名',410,310);
+    setInfo('dirInfo','<span class="step">两级目录：</span>主目录(MFD)+用户目录(UFD)，不同用户可有同名文件，解决多用户冲突，但仍不支持用户内目录分层。');
+  } else if(type==='tree'){
+    c.fillStyle='#60a5fa'; c.font='bold 13px Microsoft YaHei'; c.textAlign='center';
+    c.fillText('树形目录（多级目录）— 现代操作系统标准结构',410,18);
+    const tree={label:'/',x:410,y:46,color:'#60a5fa',children:[
+      {label:'home',x:160,y:110,color:'#f59e0b',children:[
+        {label:'alice',x:80,y:180,color:'#a855f7',children:[
+          {label:'docs',x:40,y:250,color:'#10b981',children:[{label:'report.txt',x:20,y:320,color:'#64748b'},{label:'slides',x:70,y:320,color:'#64748b'}]},
+          {label:'.ssh',x:110,y:250,color:'#10b981',children:[]},
+        ]},
+        {label:'bob',x:240,y:180,color:'#a855f7',children:[
+          {label:'code',x:220,y:250,color:'#10b981',children:[]},
+        ]},
+      ]},
+      {label:'etc',x:410,y:110,color:'#f59e0b',children:[
+        {label:'nginx',x:350,y:180,color:'#a855f7',children:[]},
+        {label:'passwd',x:440,y:180,color:'#64748b',children:[]},
+      ]},
+      {label:'var',x:620,y:110,color:'#f59e0b',children:[
+        {label:'log',x:570,y:180,color:'#a855f7',children:[{label:'syslog',x:540,y:250,color:'#64748b'},{label:'auth.log',x:610,y:250,color:'#64748b'}]},
+        {label:'tmp',x:680,y:180,color:'#a855f7',children:[]},
+      ]},
+    ]};
+    function drawTree(node){
+      (node.children||[]).forEach(child=>{
+        drawDirEdge(c,node.x,node.y,child.x,child.y,node.color);
+        drawTree(child);
+      });
+      drawDirNode(c,node.x,node.y,node.label,node.color);
+    }
+    drawTree(tree);
+    c.fillStyle='#94a3b8'; c.font='10px Microsoft YaHei'; c.textAlign='left';
+    c.fillText('路径：/home/alice/docs/report.txt（绝对路径）  ../（相对路径）',20,370);
+    setInfo('dirInfo','<span class="step">树形目录：</span>最常用的目录结构（Linux/Windows均用此结构）。每个目录可包含文件和子目录，形成树形层次。支持绝对路径(/home/user/file)和相对路径(./file)。');
+  } else {
+    c.fillStyle='#60a5fa'; c.font='bold 13px Microsoft YaHei'; c.textAlign='center';
+    c.fillText('无环图目录（软/硬链接）— 树形目录 + 共享节点',410,18);
+    // 树+链接
+    const nodes=[
+      {label:'/',x:410,y:40,color:'#60a5fa'},
+      {label:'home',x:200,y:120,color:'#f59e0b'},{label:'share',x:580,y:120,color:'#f59e0b'},
+      {label:'alice',x:120,y:200,color:'#a855f7'},{label:'bob',x:280,y:200,color:'#a855f7'},
+      {label:'shared.lib',x:200,y:300,color:'#10b981'},
+      {label:'公共库\n(实体)',x:580,y:220,color:'#10b981'},
+    ];
+    const edges=[[0,1],[0,2],[1,3],[1,4],[3,5],[4,5]];
+    edges.forEach(([f,t])=>drawDirEdge(c,nodes[f].x,nodes[f].y,nodes[t].x,nodes[t].y,nodes[f].color));
+    nodes.forEach(n=>drawDirNode(c,n.x,n.y,n.label,n.color));
+    // 软链接：share目录→公共库
+    c.strokeStyle='#f59e0b'; c.lineWidth=2; c.setLineDash([6,4]);
+    c.beginPath(); c.moveTo(580,120); c.lineTo(580,200); c.stroke();
+    c.setLineDash([]);
+    c.fillStyle='#fbbf24'; c.font='10px Microsoft YaHei'; c.textAlign='center';
+    c.fillText('软链接→',615,160);
+    c.strokeStyle='#22d3ee'; c.lineWidth=2; c.setLineDash([4,4]);
+    c.beginPath(); c.moveTo(200,300); c.lineTo(540,240); c.stroke();
+    c.setLineDash([]);
+    c.fillStyle='#22d3ee'; c.font='10px Microsoft YaHei';
+    c.fillText('←硬链接',370,282);
+    c.fillStyle='#94a3b8'; c.font='10px Microsoft YaHei'; c.textAlign='left';
+    c.fillText('硬链接：多个文件名指向同一inode（同一文件实体），删除其中一个不影响文件',20,360);
+    c.fillText('软链接：存储目标路径的快捷方式，目标删除后链接失效（悬空链接）',20,378);
+    setInfo('dirInfo','<span class="step">无环图目录：</span>在树形基础上允许共享（软/硬链接）。硬链接指向相同inode，软链接存储路径字符串。不允许形成环（防止遍历死循环）。');
+  }
+}
+
+// ======= FCB =======
+const fcbCtx=document.getElementById('fcbCanvas').getContext('2d');
+
+function fcbDraw(){
+  const c=fcbCtx; c.clearRect(0,0,820,400);
+  c.fillStyle='#60a5fa'; c.font='bold 14px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('FCB（文件控制块）结构',410,22);
+  
+  const fields=[
+    {group:'基本信息',fields:[
+      {label:'文件名',value:'document.pdf',color:'#60a5fa'},
+      {label:'文件类型',value:'PDF/普通文件',color:'#60a5fa'},
+      {label:'文件大小',value:'2,048,576 字节 (2MB)',color:'#60a5fa'},
+    ]},
+    {group:'存储信息',fields:[
+      {label:'物理位置',value:'起始块:0x1A4 (索引分配)',color:'#10b981'},
+      {label:'文件长度(块)',value:'512块',color:'#10b981'},
+      {label:'磁盘分配类型',value:'索引分配',color:'#10b981'},
+    ]},
+    {group:'时间信息',fields:[
+      {label:'创建时间',value:'2026-03-29 10:00:00',color:'#f59e0b'},
+      {label:'最后修改',value:'2026-03-29 11:30:00',color:'#f59e0b'},
+      {label:'最后访问',value:'2026-03-29 12:00:00',color:'#f59e0b'},
+    ]},
+    {group:'访问控制',fields:[
+      {label:'所有者',value:'user: alice (uid=1001)',color:'#a855f7'},
+      {label:'权限',value:'rw-r--r-- (644)',color:'#a855f7'},
+      {label:'引用计数',value:'3 (3个硬链接)',color:'#a855f7'},
+    ]},
+  ];
+  
+  fields.forEach((group,gi)=>{
+    const gx=10+gi*200, gy=44;
+    c.fillStyle=group.fields[0].color+'22'; c.strokeStyle=group.fields[0].color; c.lineWidth=1.5;
+    c.beginPath(); c.roundRect(gx,gy,190,180,6); c.fill(); c.stroke();
+    c.fillStyle=group.fields[0].color; c.font='bold 11px Microsoft YaHei'; c.textAlign='center';
+    c.fillText(group.group,gx+95,gy+14);
+    group.fields.forEach((f,fi)=>{
+      const fy=gy+24+fi*48;
+      c.fillStyle='#162032'; c.fillRect(gx+4,fy,182,42);
+      c.fillStyle='#64748b'; c.font='9px Microsoft YaHei'; c.textAlign='left'; c.fillText(f.label,gx+8,fy+14);
+      c.fillStyle='#e2e8f0'; c.font='10px monospace'; c.fillText(f.value,gx+8,fy+32);
+    });
+  });
+  
+  c.fillStyle='#94a3b8'; c.font='11px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('FCB对应UNIX inode（目录项只存文件名+inode号），Windows NTFS MFT记录，FAT目录项',410,256);
+  
+  // 目录项→FCB关系
+  c.fillStyle='#60a5fa'; c.font='bold 12px Microsoft YaHei';
+  c.fillText('目录项与FCB的关系',410,286);
+  const dirEntry={x:100,y:304,w:200,h:60};
+  c.fillStyle='#1e3a5f'; c.strokeStyle='#60a5fa'; c.lineWidth=2;
+  c.beginPath(); c.roundRect(dirEntry.x,dirEntry.y,dirEntry.w,dirEntry.h,4); c.fill(); c.stroke();
+  c.fillStyle='#60a5fa'; c.font='bold 11px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('目录项',dirEntry.x+dirEntry.w/2,dirEntry.y+18);
+  c.fillStyle='#94a3b8'; c.font='10px Microsoft YaHei';
+  c.fillText('文件名: document.pdf',dirEntry.x+dirEntry.w/2,dirEntry.y+36);
+  c.fillText('inode/FCB号: 0x5A23',dirEntry.x+dirEntry.w/2,dirEntry.y+52);
+  
+  const fcbBox={x:520,y:296,w:200,h:76};
+  c.fillStyle='#1a0f2e'; c.strokeStyle='#a855f7'; c.lineWidth=2;
+  c.beginPath(); c.roundRect(fcbBox.x,fcbBox.y,fcbBox.w,fcbBox.h,4); c.fill(); c.stroke();
+  c.fillStyle='#a855f7'; c.font='bold 11px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('FCB / inode #0x5A23',fcbBox.x+fcbBox.w/2,fcbBox.y+18);
+  c.fillStyle='#94a3b8'; c.font='10px Microsoft YaHei';
+  c.fillText('大小/权限/时间/磁盘地址...',fcbBox.x+fcbBox.w/2,fcbBox.y+38);
+  c.fillText('（所有元数据）',fcbBox.x+fcbBox.w/2,fcbBox.y+58);
+  
+  // 箭头
+  c.strokeStyle='#60a5fa'; c.lineWidth=1.5;
+  c.beginPath(); c.moveTo(302,334); c.lineTo(518,334); c.stroke();
+  c.fillStyle='#60a5fa'; c.beginPath(); c.moveTo(518,334); c.lineTo(508,328); c.lineTo(508,340); c.fill();
+  c.fillStyle='#60a5fa'; c.font='10px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('→ 根据FCB号定位',410,326);
+  
+  setInfo('fcbInfo','<span class="step">FCB结构：</span>包含文件的所有元数据。UNIX中目录项只存"文件名→inode号"映射，inode中存所有元数据；这样多个硬链接可以共享同一FCB（inode）。');
+}
+
+async function fcbOpen(){
+  const c=fcbCtx; c.clearRect(0,0,820,400);
+  c.fillStyle='#60a5fa'; c.font='bold 13px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('文件打开过程：open("/home/alice/doc.pdf", O_RDWR)',410,22);
+  
+  const steps=[
+    {y:50,label:'①解析路径/home/alice/doc.pdf',detail:'从根目录/开始，逐级查找目录项',color:'#60a5fa'},
+    {y:120,label:'②查目录项，获取inode号0x5A23',detail:'在alice目录中找到doc.pdf的目录项，读取inode号',color:'#f59e0b'},
+    {y:190,label:'③读inode(FCB)，验证权限',detail:'从磁盘读取inode 0x5A23，检查进程的用户ID有无rw权限',color:'#a855f7'},
+    {y:260,label:'④在进程文件描述符表中分配fd=5',detail:'内核为此进程分配文件描述符5，创建文件描述符表项',color:'#10b981'},
+    {y:330,label:'⑤在系统打开文件表中创建条目',detail:'全局打开文件表记录inode指针+当前偏移+访问模式',color:'#0ea5e9'},
+  ];
+  
+  for(let i=0;i<steps.length;i++){
+    const s=steps[i];
+    c.fillStyle=s.color+'22'; c.strokeStyle=s.color; c.lineWidth=1.5;
+    c.beginPath(); c.roundRect(10,s.y,790,56,4); c.fill(); c.stroke();
+    c.fillStyle=s.color; c.font='bold 11px Microsoft YaHei'; c.textAlign='left';
+    c.fillText(s.label,18,s.y+18);
+    c.fillStyle='#94a3b8'; c.font='10px Microsoft YaHei';
+    c.fillText(s.detail,18,s.y+38);
+    setInfo('fcbInfo',`<span class="step">${s.label}</span>：${s.detail}`);
+    await sleep(800);
+  }
+  setInfo('fcbInfo','<span class="step">文件打开完成！</span>返回fd=5。后续read(5,buf,1024)等操作通过fd→系统打开文件表→FCB/inode→磁盘地址来访问数据。');
+}
+</script>
+</body>
+</html>

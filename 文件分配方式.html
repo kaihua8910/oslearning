@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>文件分配方式 - OS动画学习</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Microsoft YaHei',sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+header{background:linear-gradient(135deg,#1e3a5f,#0f2942);padding:20px 40px;display:flex;align-items:center;gap:16px;border-bottom:2px solid #38bdf8}
+header h1{font-size:1.6rem;color:#38bdf8}
+header p{color:#94a3b8;font-size:.9rem;margin-top:4px}
+.back-btn{background:#1e40af;color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:.85rem;text-decoration:none;display:inline-block}
+.back-btn:hover{background:#2563eb}
+.container{max-width:1200px;margin:0 auto;padding:30px 20px}
+.tabs{display:flex;gap:8px;margin-bottom:24px;flex-wrap:wrap}
+.tab{padding:10px 22px;border:2px solid #334155;border-radius:10px;cursor:pointer;background:transparent;color:#94a3b8;font-size:.9rem;transition:all .2s}
+.tab.active{background:#0369a1;border-color:#38bdf8;color:#fff}
+.tab:hover:not(.active){border-color:#64748b;color:#e2e8f0}
+.section{display:none}
+.section.active{display:block}
+.desc-box{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px;margin-bottom:20px;border-left:4px solid #38bdf8}
+.desc-box h3{color:#38bdf8;margin-bottom:8px}
+.desc-box p{color:#94a3b8;line-height:1.7;font-size:.92rem}
+.pros-cons{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+.pro{background:#1a3a2a;border:1px solid #16a34a;border-radius:8px;padding:12px}
+.con{background:#3a1a1a;border:1px solid #dc2626;border-radius:8px;padding:12px}
+.pro h4{color:#4ade80;margin-bottom:6px;font-size:.85rem}
+.con h4{color:#f87171;margin-bottom:6px;font-size:.85rem}
+.pro li,.con li{color:#94a3b8;font-size:.82rem;margin-left:16px;margin-top:3px}
+.canvas-area{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px;margin-bottom:20px}
+.canvas-area h3{color:#e2e8f0;margin-bottom:16px;font-size:1rem}
+canvas{display:block;margin:0 auto;border-radius:8px}
+.controls{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;justify-content:center}
+.btn{padding:9px 20px;border:none;border-radius:8px;cursor:pointer;font-size:.85rem;font-weight:600;transition:all .2s}
+.btn-primary{background:#0284c7;color:#fff}
+.btn-primary:hover{background:#0369a1}
+.btn-success{background:#16a34a;color:#fff}
+.btn-success:hover{background:#15803d}
+.btn-warning{background:#d97706;color:#fff}
+.btn-warning:hover{background:#b45309}
+.btn-reset{background:#475569;color:#fff}
+.btn-reset:hover{background:#334155}
+.info-panel{background:#0f172a;border:1px solid #334155;border-radius:10px;padding:16px;margin-top:16px;min-height:60px}
+.info-panel p{color:#94a3b8;font-size:.88rem;line-height:1.6}
+.info-panel .step{color:#38bdf8;font-weight:600}
+.speed-ctrl{display:flex;align-items:center;gap:8px;font-size:.85rem;color:#94a3b8}
+.speed-ctrl input{accent-color:#38bdf8}
+.comparison{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px;margin-top:20px}
+.comparison h3{color:#e2e8f0;margin-bottom:16px}
+table{width:100%;border-collapse:collapse;font-size:.85rem}
+th{background:#0f172a;color:#38bdf8;padding:10px 12px;text-align:left;border:1px solid #334155}
+td{padding:10px 12px;border:1px solid #1e293b;color:#94a3b8}
+tr:nth-child(even) td{background:#162032}
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:.75rem;font-weight:600}
+.badge-green{background:#14532d;color:#4ade80}
+.badge-red{background:#450a0a;color:#f87171}
+.badge-yellow{background:#451a03;color:#fbbf24}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <a href="index.html" class="back-btn">← 返回首页</a>
+  </div>
+  <div>
+    <h1>📂 文件分配方式</h1>
+    <p>顺序分配 · 链接分配 · 索引分配 — 三种磁盘空间分配策略的交互动画</p>
+  </div>
+</header>
+<div class="container">
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('sequential')">📄 顺序分配</button>
+    <button class="tab" onclick="switchTab('linked')">🔗 链接分配</button>
+    <button class="tab" onclick="switchTab('indexed')">📑 索引分配</button>
+    <button class="tab" onclick="switchTab('compare')">⚖️ 综合对比</button>
+  </div>
+
+  <!-- 顺序分配 -->
+  <div id="tab-sequential" class="section active">
+    <div class="desc-box">
+      <h3>顺序分配（连续分配）</h3>
+      <p>文件的所有数据块在磁盘上<strong style="color:#38bdf8">连续存储</strong>。目录项只需记录文件的起始块号和长度即可访问整个文件。</p>
+      <div class="pros-cons">
+        <div class="pro"><h4>✅ 优点</h4><ul><li>顺序访问速度极快</li><li>支持随机访问（直接计算偏移）</li><li>目录项简单，读取高效</li></ul></div>
+        <div class="con"><h4>❌ 缺点</h4><ul><li>产生外部碎片</li><li>文件大小难以动态扩展</li><li>需要预先知道最大文件大小</li></ul></div>
+      </div>
+    </div>
+    <div class="canvas-area">
+      <h3>🎬 交互演示：磁盘块顺序分配</h3>
+      <canvas id="seqCanvas" width="800" height="340"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="seqAllocate()">分配文件</button>
+        <button class="btn btn-warning" onclick="seqDelete()">删除文件</button>
+        <button class="btn btn-success" onclick="seqAccess()">随机访问</button>
+        <button class="btn btn-reset" onclick="seqReset()">重置</button>
+        <div class="speed-ctrl">速度: <input type="range" min="1" max="5" value="3" id="seqSpeed"> <span id="seqSpeedVal">3</span></div>
+      </div>
+      <div class="info-panel" id="seqInfo"><p>点击「分配文件」为文件分配连续磁盘块</p></div>
+    </div>
+  </div>
+
+  <!-- 链接分配 -->
+  <div id="tab-linked" class="section">
+    <div class="desc-box">
+      <h3>链接分配（链式分配）</h3>
+      <p>文件的数据块<strong style="color:#38bdf8">分散存储</strong>在磁盘各处，每个块末尾存有指向下一块的指针，形成链表结构。分为<strong>隐式链接</strong>（指针在数据块内）和<strong>FAT链接</strong>（指针集中在文件分配表）。</p>
+      <div class="pros-cons">
+        <div class="pro"><h4>✅ 优点</h4><ul><li>消除外部碎片</li><li>文件可动态增长</li><li>无需预先声明大小</li></ul></div>
+        <div class="con"><h4>❌ 缺点</h4><ul><li>随机访问慢（必须遍历链表）</li><li>每块需额外存储指针</li><li>链表损坏会导致数据丢失</li></ul></div>
+      </div>
+    </div>
+    <div class="canvas-area">
+      <h3>🎬 交互演示：链式分配与指针追踪</h3>
+      <canvas id="linkCanvas" width="800" height="340"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="linkAllocate()">分配文件</button>
+        <button class="btn btn-success" onclick="linkTraverse()">遍历文件</button>
+        <button class="btn btn-warning" onclick="linkAppend()">追加数据块</button>
+        <button class="btn btn-reset" onclick="linkReset()">重置</button>
+      </div>
+      <div class="info-panel" id="linkInfo"><p>点击「分配文件」将文件分散存储到磁盘块，并建立链式指针</p></div>
+    </div>
+  </div>
+
+  <!-- 索引分配 -->
+  <div id="tab-indexed" class="section">
+    <div class="desc-box">
+      <h3>索引分配（索引式分配）</h3>
+      <p>为每个文件分配一个<strong style="color:#38bdf8">索引块（Index Block）</strong>，索引块中集中存放该文件所有数据块的磁盘地址。支持直接索引、一级间接索引、二级间接索引。</p>
+      <div class="pros-cons">
+        <div class="pro"><h4>✅ 优点</h4><ul><li>支持高效随机访问</li><li>无外部碎片</li><li>文件大小灵活</li></ul></div>
+        <div class="con"><h4>❌ 缺点</h4><ul><li>索引块本身占用额外空间</li><li>小文件开销较大</li><li>多级索引需多次磁盘访问</li></ul></div>
+      </div>
+    </div>
+    <div class="canvas-area">
+      <h3>🎬 交互演示：索引块结构与随机访问</h3>
+      <canvas id="idxCanvas" width="800" height="380"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="idxAllocate()">分配文件</button>
+        <button class="btn btn-success" onclick="idxAccess()">随机访问第N块</button>
+        <button class="btn btn-warning" onclick="idxIndirect()">一级间接索引</button>
+        <button class="btn btn-reset" onclick="idxReset()">重置</button>
+      </div>
+      <div class="info-panel" id="idxInfo"><p>点击「分配文件」建立索引块，查看索引表如何指向各数据块</p></div>
+    </div>
+  </div>
+
+  <!-- 对比 -->
+  <div id="tab-compare" class="section">
+    <div class="desc-box">
+      <h3>三种分配方式综合对比</h3>
+      <p>从访问方式、碎片情况、扩展能力、实现复杂度等维度全面对比三种文件分配策略，帮助理解各自适用场景。</p>
+    </div>
+    <div class="comparison">
+      <h3>📊 性能对比表</h3>
+      <table>
+        <tr><th>对比维度</th><th>顺序分配</th><th>链接分配</th><th>索引分配</th></tr>
+        <tr><td>顺序访问速度</td><td><span class="badge badge-green">极快</span></td><td><span class="badge badge-yellow">中等</span></td><td><span class="badge badge-green">快</span></td></tr>
+        <tr><td>随机访问速度</td><td><span class="badge badge-green">极快</span></td><td><span class="badge badge-red">极慢</span></td><td><span class="badge badge-green">较快</span></td></tr>
+        <tr><td>外部碎片</td><td><span class="badge badge-red">严重</span></td><td><span class="badge badge-green">无</span></td><td><span class="badge badge-green">无</span></td></tr>
+        <tr><td>文件动态增长</td><td><span class="badge badge-red">困难</span></td><td><span class="badge badge-green">容易</span></td><td><span class="badge badge-green">容易</span></td></tr>
+        <tr><td>额外空间开销</td><td><span class="badge badge-green">最小</span></td><td><span class="badge badge-yellow">指针开销</span></td><td><span class="badge badge-yellow">索引块</span></td></tr>
+        <tr><td>实现复杂度</td><td><span class="badge badge-green">最简单</span></td><td><span class="badge badge-yellow">较简单</span></td><td><span class="badge badge-yellow">中等</span></td></tr>
+        <tr><td>典型应用</td><td>CD-ROM/磁带</td><td>FAT文件系统</td><td>UNIX/ext文件系统</td></tr>
+      </table>
+    </div>
+    <div class="canvas-area" style="margin-top:20px">
+      <h3>🎬 三种方式同屏对比动画</h3>
+      <canvas id="cmpCanvas" width="800" height="300"></canvas>
+      <div class="controls">
+        <button class="btn btn-primary" onclick="cmpAnimate()">▶ 播放对比动画</button>
+        <button class="btn btn-reset" onclick="cmpReset()">重置</button>
+      </div>
+      <div class="info-panel" id="cmpInfo"><p>点击「播放对比动画」同时演示三种分配方式的存储示意图</p></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============ 工具函数 ============
+function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+function getSpeed(id){ return 600/parseInt(document.getElementById(id||'seqSpeed').value); }
+
+// ============ 顺序分配 ============
+const seqCtx = document.getElementById('seqCanvas').getContext('2d');
+const BLOCKS = 20, BW=34, BH=50, BY=80, BX0=20;
+let seqState = { blocks: Array(BLOCKS).fill(null), files:[], busy:false };
+
+const FILE_COLORS = ['#0ea5e9','#a855f7','#f59e0b','#ec4899','#10b981'];
+const FILE_NAMES  = ['文件A','文件B','文件C','文件D','文件E'];
+
+function seqDraw(){
+  const c=seqCtx, W=800;
+  c.clearRect(0,0,W,340);
+  // 标题
+  c.fillStyle='#94a3b8'; c.font='13px Microsoft YaHei'; c.fillText('磁盘块视图 (共20块)',BX0,24);
+  // 画格子
+  for(let i=0;i<BLOCKS;i++){
+    const x=BX0+i*(BW+4), y=BY;
+    const blk=seqState.blocks[i];
+    c.fillStyle=blk?blk.color+'44':'#1e3a5f';
+    c.strokeStyle=blk?blk.color:'#334155';
+    c.lineWidth=2;
+    c.beginPath(); c.roundRect(x,y,BW,BH,4); c.fill(); c.stroke();
+    c.fillStyle=blk?blk.color:'#475569';
+    c.font='11px monospace'; c.textAlign='center';
+    c.fillText(i,x+BW/2,y+18);
+    if(blk){ c.font='9px Microsoft YaHei'; c.fillText(blk.name,x+BW/2,y+34); }
+  }
+  // 文件目录表
+  c.textAlign='left';
+  c.fillStyle='#38bdf8'; c.font='bold 13px Microsoft YaHei'; c.fillText('目录项（FCB）',BX0,170);
+  c.fillStyle='#334155'; c.fillRect(BX0,178,340,20);
+  c.fillStyle='#64748b'; c.font='12px Microsoft YaHei';
+  c.fillText('文件名',BX0+8,192); c.fillText('起始块',BX0+100,192); c.fillText('长度',BX0+180,192); c.fillText('大小',BX0+250,192);
+  seqState.files.forEach((f,i)=>{
+    const y=200+i*22;
+    c.fillStyle=i%2===0?'#162032':'#0f172a'; c.fillRect(BX0,y,340,22);
+    c.fillStyle=f.color; c.font='12px Microsoft YaHei';
+    c.fillText(f.name,BX0+8,y+15);
+    c.fillStyle='#94a3b8';
+    c.fillText(f.start,BX0+100,y+15); c.fillText(f.len,BX0+180,y+15); c.fillText(f.len+'KB',BX0+250,y+15);
+  });
+}
+
+async function seqAllocate(){
+  if(seqState.busy) return;
+  seqState.busy=true;
+  const fi=seqState.files.length;
+  if(fi>=5){ setInfo('seqInfo','已分配5个文件，请先删除再分配'); seqState.busy=false; return; }
+  const len=Math.floor(Math.random()*3)+2;
+  // 找空闲连续区
+  let start=-1;
+  for(let i=0;i<=BLOCKS-len;i++){
+    let ok=true;
+    for(let j=0;j<len;j++) if(seqState.blocks[i+j]) {ok=false;break;}
+    if(ok){start=i;break;}
+  }
+  if(start<0){ setInfo('seqInfo','<span class="step">❌ 无足够连续空间！产生外部碎片。</span>'); seqState.busy=false; return; }
+  const color=FILE_COLORS[fi], name=FILE_NAMES[fi];
+  setInfo('seqInfo',`<span class="step">正在为 ${name} 分配连续块 ${start}~${start+len-1}（共${len}块）...</span>`);
+  for(let i=0;i<len;i++){
+    seqState.blocks[start+i]={color,name};
+    seqDraw();
+    await sleep(getSpeed('seqSpeed')*200);
+  }
+  seqState.files.push({name,color,start,len});
+  seqDraw();
+  setInfo('seqInfo',`<span class="step">✅ ${name} 分配完成！</span> 起始块=${start}，长度=${len}，支持直接随机访问（偏移=起始块+逻辑块号）`);
+  seqState.busy=false;
+}
+
+async function seqDelete(){
+  if(seqState.busy||seqState.files.length===0) return;
+  seqState.busy=true;
+  const f=seqState.files.shift();
+  setInfo('seqInfo',`<span class="step">正在删除 ${f.name}（块 ${f.start}~${f.start+f.len-1}）...</span>`);
+  for(let i=0;i<f.len;i++){
+    seqState.blocks[f.start+i]=null;
+    seqDraw(); await sleep(200);
+  }
+  setInfo('seqInfo',`<span class="step">🗑️ ${f.name} 已删除。</span> 注意：释放的空间不连续时无法被大文件使用——这就是<strong>外部碎片</strong>问题！`);
+  seqState.busy=false;
+}
+
+async function seqAccess(){
+  if(seqState.busy||seqState.files.length===0){setInfo('seqInfo','请先分配文件');return;}
+  seqState.busy=true;
+  const f=seqState.files[0];
+  const target=Math.floor(Math.random()*f.len);
+  const physBlock=f.start+target;
+  setInfo('seqInfo',`<span class="step">随机访问 ${f.name} 第 ${target} 块</span> → 物理块号 = 起始(${f.start}) + 逻辑块(${target}) = <strong>${physBlock}</strong>`);
+  const c=seqCtx;
+  for(let flash=0;flash<4;flash++){
+    c.fillStyle=flash%2===0?'#fff':'#38bdf8';
+    c.strokeStyle='#fff';
+    c.lineWidth=3;
+    c.beginPath(); c.roundRect(BX0+physBlock*(BW+4),BY,BW,BH,4); c.fill(); c.stroke();
+    await sleep(200);
+    seqDraw(); await sleep(200);
+  }
+  seqState.busy=false;
+}
+
+function seqReset(){
+  seqState={blocks:Array(BLOCKS).fill(null),files:[],busy:false};
+  seqDraw(); setInfo('seqInfo','已重置。点击「分配文件」开始演示。');
+}
+
+function setInfo(id,html){ document.getElementById(id).innerHTML='<p>'+html+'</p>'; }
+
+seqDraw();
+
+// ============ 链接分配 ============
+const linkCtx = document.getElementById('linkCanvas').getContext('2d');
+let linkState = { blocks: Array(BLOCKS).fill(null), chain:[], busy:false };
+
+function linkDraw(){
+  const c=linkCtx, W=800;
+  c.clearRect(0,0,W,340);
+  c.fillStyle='#94a3b8'; c.font='13px Microsoft YaHei'; c.fillText('磁盘块视图 (链式分配)',BX0,24);
+  // 块
+  for(let i=0;i<BLOCKS;i++){
+    const x=BX0+i*(BW+4), y=BY;
+    const blk=linkState.blocks[i];
+    c.fillStyle=blk?'#0ea5e944':'#1e3a5f';
+    c.strokeStyle=blk?'#0ea5e9':'#334155';
+    c.lineWidth=2;
+    c.beginPath(); c.roundRect(x,y,BW,BH,4); c.fill(); c.stroke();
+    c.fillStyle=blk?'#38bdf8':'#475569';
+    c.font='11px monospace'; c.textAlign='center';
+    c.fillText(i,x+BW/2,y+18);
+    if(blk){
+      c.font='9px Microsoft YaHei'; c.fillStyle='#94a3b8';
+      c.fillText('D',x+BW/2,y+32);
+      if(blk.next!==-1){ c.fillStyle='#f59e0b'; c.font='8px monospace'; c.fillText('→'+blk.next,x+BW/2,y+44); }
+      else { c.fillStyle='#ef4444'; c.font='8px monospace'; c.fillText('END',x+BW/2,y+44); }
+    }
+  }
+  // 画箭头
+  linkState.chain.forEach((bn,ci)=>{
+    if(ci<linkState.chain.length-1){
+      const nx=linkState.chain[ci+1];
+      const x1=BX0+bn*(BW+4)+BW, y1=BY+BH/2;
+      const x2=BX0+nx*(BW+4), y2=BY+BH/2;
+      drawArrow(c,x1,y1-12+ci*6,x2,y2-12+ci*6,'#f59e0b');
+    }
+  });
+  // 链接表
+  c.textAlign='left';
+  c.fillStyle='#38bdf8'; c.font='bold 13px Microsoft YaHei';
+  if(linkState.chain.length>0){
+    c.fillText('目录项: 首块='+linkState.chain[0]+'  链: '+linkState.chain.join(' → ')+' → END',BX0,170);
+  } else {
+    c.fillStyle='#475569'; c.fillText('目录项: (空)',BX0,170);
+  }
+}
+
+function drawArrow(ctx,x1,y1,x2,y2,color){
+  ctx.strokeStyle=color; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  const angle=Math.atan2(y2-y1,x2-x1);
+  ctx.fillStyle=color;
+  ctx.beginPath();
+  ctx.moveTo(x2,y2);
+  ctx.lineTo(x2-8*Math.cos(angle-0.4),y2-8*Math.sin(angle-0.4));
+  ctx.lineTo(x2-8*Math.cos(angle+0.4),y2-8*Math.sin(angle+0.4));
+  ctx.fill();
+}
+
+async function linkAllocate(){
+  if(linkState.busy) return;
+  linkState.busy=true;
+  if(linkState.chain.length>0){ setInfo('linkInfo','已有文件，请重置后再分配'); linkState.busy=false; return; }
+  const len=4+Math.floor(Math.random()*3);
+  const freeBlocks=[];
+  for(let i=0;i<BLOCKS;i++) if(!linkState.blocks[i]) freeBlocks.push(i);
+  if(freeBlocks.length<len){ setInfo('linkInfo','空间不足'); linkState.busy=false; return; }
+  // 随机选len个不连续块
+  const chosen=[];
+  while(chosen.length<len){ const idx=Math.floor(Math.random()*freeBlocks.length); chosen.push(freeBlocks.splice(idx,1)[0]); }
+  chosen.sort((a,b)=>a-b); // 按块号排序展示，实际可乱序
+  setInfo('linkInfo',`<span class="step">为文件分配 ${len} 个分散磁盘块：${chosen.join(', ')}</span>`);
+  for(let i=0;i<chosen.length;i++){
+    const bn=chosen[i];
+    linkState.blocks[bn]={next: i<chosen.length-1?chosen[i+1]:-1};
+    linkState.chain.push(bn);
+    linkDraw(); await sleep(400);
+  }
+  setInfo('linkInfo',`<span class="step">✅ 链式分配完成！</span> 文件通过指针链连接分散的磁盘块，无需连续空间。首块=${chosen[0]}`);
+  linkState.busy=false;
+}
+
+async function linkTraverse(){
+  if(linkState.busy||linkState.chain.length===0){setInfo('linkInfo','请先分配文件');return;}
+  linkState.busy=true;
+  setInfo('linkInfo','<span class="step">开始遍历链表...</span>');
+  const c=linkCtx;
+  for(let i=0;i<linkState.chain.length;i++){
+    const bn=linkState.chain[i];
+    const x=BX0+bn*(BW+4), y=BY;
+    c.fillStyle='#ffffff33'; c.strokeStyle='#fff'; c.lineWidth=3;
+    c.beginPath(); c.roundRect(x,y,BW,BH,4); c.fill(); c.stroke();
+    setInfo('linkInfo',`<span class="step">访问第 ${i} 块 → 物理块 ${bn}</span>，读取指针→下一块=${linkState.blocks[bn].next===-1?'END':linkState.blocks[bn].next}`);
+    await sleep(500);
+    linkDraw();
+  }
+  setInfo('linkInfo',`<span class="step">✅ 遍历完成！</span> 共访问 ${linkState.chain.length} 个磁盘块。注意：随机访问第N块需要从头遍历N次！`);
+  linkState.busy=false;
+}
+
+async function linkAppend(){
+  if(linkState.busy||linkState.chain.length===0){setInfo('linkInfo','请先分配文件');return;}
+  linkState.busy=true;
+  const freeBlocks=[];
+  for(let i=0;i<BLOCKS;i++) if(!linkState.blocks[i]) freeBlocks.push(i);
+  if(freeBlocks.length===0){setInfo('linkInfo','磁盘已满');linkState.busy=false;return;}
+  const newBlock=freeBlocks[Math.floor(Math.random()*freeBlocks.length)];
+  const lastBlock=linkState.chain[linkState.chain.length-1];
+  linkState.blocks[lastBlock].next=newBlock;
+  linkState.blocks[newBlock]={next:-1};
+  linkState.chain.push(newBlock);
+  linkDraw();
+  setInfo('linkInfo',`<span class="step">✅ 追加新块 ${newBlock}</span>，修改块 ${lastBlock} 的指针指向新块。链式分配轻松实现文件动态增长！`);
+  linkState.busy=false;
+}
+
+function linkReset(){
+  linkState={blocks:Array(BLOCKS).fill(null),chain:[],busy:false};
+  linkDraw(); setInfo('linkInfo','已重置。点击「分配文件」开始演示。');
+}
+linkDraw();
+
+// ============ 索引分配 ============
+const idxCtx = document.getElementById('idxCanvas').getContext('2d');
+let idxState = { allocated:false, indexBlock:-1, dataBlocks:[], busy:false, highlight:-1 };
+
+function idxDraw(){
+  const c=idxCtx, W=800;
+  c.clearRect(0,0,W,380);
+  if(!idxState.allocated){
+    c.fillStyle='#475569'; c.font='16px Microsoft YaHei'; c.textAlign='center';
+    c.fillText('点击「分配文件」查看索引分配结构',400,190);
+    c.textAlign='left'; return;
+  }
+  // 目录项
+  c.fillStyle='#38bdf8'; c.font='bold 13px Microsoft YaHei'; c.textAlign='left';
+  c.fillText('目录项 (FCB)',20,30);
+  c.fillStyle='#1e3a5f'; c.strokeStyle='#38bdf8'; c.lineWidth=2;
+  c.beginPath(); c.roundRect(20,40,160,50,6); c.fill(); c.stroke();
+  c.fillStyle='#94a3b8'; c.font='12px Microsoft YaHei';
+  c.fillText('文件名: 文件X',32,58);
+  c.fillText('索引块: #'+idxState.indexBlock,32,74);
+
+  // 索引块
+  c.fillStyle='#a855f7'; c.font='bold 13px Microsoft YaHei';
+  c.fillText(`索引块 #${idxState.indexBlock}`,220,30);
+  c.fillStyle='#1a0f2e'; c.strokeStyle='#a855f7'; c.lineWidth=2;
+  c.beginPath(); c.roundRect(220,40,160,idxState.dataBlocks.length*22+16,6); c.fill(); c.stroke();
+  idxState.dataBlocks.forEach((bn,i)=>{
+    const y=50+i*22;
+    c.fillStyle=idxState.highlight===i?'#f59e0b33':'transparent';
+    c.fillRect(224,y-3,152,20);
+    c.fillStyle=idxState.highlight===i?'#f59e0b':'#94a3b8';
+    c.font='12px monospace'; c.fillText(`[${i}] → 块 #${bn}`,232,y+12);
+  });
+
+  // 数据块（磁盘视图）
+  c.fillStyle='#10b981'; c.font='bold 13px Microsoft YaHei';
+  c.fillText('磁盘块',460,30);
+  const allBlocks=Array(BLOCKS).fill(null);
+  allBlocks[idxState.indexBlock]='IDX';
+  idxState.dataBlocks.forEach((bn,i)=>{ allBlocks[bn]=i; });
+  for(let i=0;i<BLOCKS;i++){
+    const col=i%10, row=Math.floor(i/10);
+    const x=460+col*34, y=40+row*60;
+    const content=allBlocks[i];
+    let bg='#1e3a5f', bc='#334155', fc='#475569';
+    if(content==='IDX'){ bg='#2d1b69'; bc='#a855f7'; fc='#a855f7'; }
+    else if(content!==null){ bg=idxState.highlight===content?'#1a4a1a':'#0a3a1a'; bc=idxState.highlight===content?'#f59e0b':'#10b981'; fc=idxState.highlight===content?'#f59e0b':'#10b981'; }
+    c.fillStyle=bg; c.strokeStyle=bc; c.lineWidth=2;
+    c.beginPath(); c.roundRect(x,y,30,30,4); c.fill(); c.stroke();
+    c.fillStyle=fc; c.font='10px monospace'; c.textAlign='center';
+    c.fillText(i,x+15,y+13);
+    if(content!==null) c.fillText(content==='IDX'?'IDX':'D'+content,x+15,y+26);
+    c.textAlign='left';
+  }
+
+  // 箭头：FCB→索引块
+  drawArrow(idxCtx,182,65,218,65,'#38bdf8');
+  // 箭头：索引项→数据块
+  idxState.dataBlocks.forEach((bn,i)=>{
+    const y=50+i*22+6;
+    const col=bn%10, row=Math.floor(bn/10);
+    const tx=460+col*34, ty=40+row*60+15;
+    if(idxState.highlight===i) drawArrow(idxCtx,382,y,tx,ty,'#f59e0b');
+  });
+}
+
+async function idxAllocate(){
+  if(idxState.busy||idxState.allocated){setInfo('idxInfo','请先重置');return;}
+  idxState.busy=true;
+  const len=5+Math.floor(Math.random()*4);
+  const freeBlocks=Array.from({length:BLOCKS},(_,i)=>i);
+  const chosen=[];
+  while(chosen.length<len+1){
+    const idx=Math.floor(Math.random()*freeBlocks.length);
+    chosen.push(freeBlocks.splice(idx,1)[0]);
+  }
+  idxState.indexBlock=chosen[0];
+  idxState.dataBlocks=chosen.slice(1);
+  setInfo('idxInfo',`<span class="step">分配索引块 #${idxState.indexBlock}，数据块：${idxState.dataBlocks.join(', ')}</span>`);
+  for(let i=0;i<=idxState.dataBlocks.length;i++){
+    idxState.allocated=true;
+    idxState.dataBlocks=chosen.slice(1,i+1);
+    idxDraw(); await sleep(300);
+  }
+  idxState.dataBlocks=chosen.slice(1);
+  idxDraw();
+  setInfo('idxInfo',`<span class="step">✅ 索引分配完成！</span> 索引块 #${idxState.indexBlock} 中存储了 ${len} 个数据块地址，目录项只需记录索引块号即可。`);
+  idxState.busy=false;
+}
+
+async function idxAccess(){
+  if(idxState.busy||!idxState.allocated){setInfo('idxInfo','请先分配文件');return;}
+  idxState.busy=true;
+  const n=Math.floor(Math.random()*idxState.dataBlocks.length);
+  const bn=idxState.dataBlocks[n];
+  setInfo('idxInfo',`<span class="step">随机访问第 ${n} 块</span>：先读索引块 #${idxState.indexBlock}，取第[${n}]项=块 #${bn}，直接访问！仅需2次磁盘I/O`);
+  idxState.highlight=n;
+  for(let i=0;i<3;i++){ idxDraw(); await sleep(300); idxState.highlight=-1; idxDraw(); await sleep(200); idxState.highlight=n; }
+  idxDraw();
+  idxState.busy=false;
+}
+
+async function idxIndirect(){
+  if(idxState.busy){return;}
+  idxState.busy=true;
+  const c=idxCtx;
+  c.clearRect(0,0,800,380);
+  // 绘制一级间接索引示意图
+  c.fillStyle='#e2e8f0'; c.font='bold 15px Microsoft YaHei'; c.textAlign='center';
+  c.fillText('一级间接索引结构示意',400,28);
+  const boxes=[
+    {label:'FCB',x:20,y:60,w:100,h:50,color:'#38bdf8',text:['文件名','直接块0-11','一级间接→']},
+    {label:'一级间接块',x:200,y:60,w:130,h:120,color:'#a855f7',text:['[0]→块A','[1]→块B','[2]→块C','...共128项']},
+    {label:'数据块A',x:420,y:40,w:80,h:40,color:'#10b981',text:['数据...']},
+    {label:'数据块B',x:420,y:100,w:80,h:40,color:'#10b981',text:['数据...']},
+    {label:'数据块C',x:420,y:160,w:80,h:40,color:'#10b981',text:['数据...']},
+  ];
+  boxes.forEach(b=>{
+    c.fillStyle=b.color+'22'; c.strokeStyle=b.color; c.lineWidth=2;
+    c.beginPath(); c.roundRect(b.x,b.y,b.w,b.h,6); c.fill(); c.stroke();
+    c.fillStyle=b.color; c.font='bold 11px Microsoft YaHei'; c.textAlign='center';
+    c.fillText(b.label,b.x+b.w/2,b.y-6);
+    c.fillStyle='#94a3b8'; c.font='10px Microsoft YaHei';
+    b.text.forEach((t,i)=>c.fillText(t,b.x+b.w/2,b.y+14+i*14));
+  });
+  drawArrow(c,122,85,198,100,'#38bdf8');
+  drawArrow(c,332,80,418,60,'#a855f7');
+  drawArrow(c,332,110,'#a855f7'); // 简化
+  [40,120,180].forEach((ty,i)=>drawArrow(c,332,80+i*30,418,ty,'#a855f7'));
+  c.fillStyle='#64748b'; c.font='13px Microsoft YaHei'; c.textAlign='left';
+  c.fillText('访问文件第N块（N>11）：读FCB→读一级间接块→读数据块，共3次磁盘I/O',20,260);
+  c.fillText('若块大小512B，每个地址4B：一级间接可寻址 512/4=128 个数据块',20,282);
+  c.fillText('二级间接：再套一层，可寻址 128×128=16384 块 (8MB/16MB)',20,304);
+  setInfo('idxInfo','<span class="step">一级间接索引</span>：FCB中有一个指向"一级间接块"的指针，间接块里存放实际数据块地址。适合大文件。');
+  idxState.busy=false;
+}
+
+function idxReset(){
+  idxState={allocated:false,indexBlock:-1,dataBlocks:[],busy:false,highlight:-1};
+  idxDraw(); setInfo('idxInfo','已重置。点击「分配文件」开始演示。');
+}
+idxDraw();
+
+// ============ 对比动画 ============
+const cmpCtx = document.getElementById('cmpCanvas').getContext('2d');
+let cmpAnim=null;
+
+function cmpReset(){ if(cmpAnim) clearInterval(cmpAnim); cmpCtx.clearRect(0,0,800,300); setInfo('cmpInfo','已重置'); }
+
+async function cmpAnimate(){
+  cmpReset();
+  const c=cmpCtx;
+  const labels=['顺序分配','链接分配','索引分配'];
+  const colors=['#0ea5e9','#a855f7','#10b981'];
+  const W=800, colW=W/3;
+  // 画三列标题
+  labels.forEach((l,i)=>{
+    c.fillStyle=colors[i]+'33'; c.fillRect(i*colW+4,0,colW-8,280);
+    c.fillStyle=colors[i]; c.font='bold 13px Microsoft YaHei'; c.textAlign='center';
+    c.fillText(l,(i+0.5)*colW,22);
+    c.strokeStyle=colors[i]; c.lineWidth=1.5;
+    c.beginPath(); c.moveTo(i*colW+4,28); c.lineTo((i+1)*colW-4,28); c.stroke();
+  });
+
+  const bsize=26, gap=3, bperRow=8;
+  const blocks_per=[5,5,6]; // 顺序5块，链接5块，索引=1索引+5数据
+  
+  for(let step=0;step<3;step++){
+    await sleep(400);
+    if(step===0){
+      // 顺序：连续5块 从第2列第2行开始
+      for(let i=0;i<5;i++){
+        const col=i%bperRow, row=Math.floor(i/bperRow);
+        const x=4+col*(bsize+gap)+10, y=40+row*(bsize+gap);
+        c.fillStyle='#0ea5e9'; c.strokeStyle='#38bdf8'; c.lineWidth=2;
+        c.beginPath(); c.roundRect(x,y,bsize,bsize,4); c.fill(); c.stroke();
+        c.fillStyle='#fff'; c.font='10px monospace'; c.textAlign='center';
+        c.fillText(i,x+bsize/2,y+bsize/2+4);
+        await sleep(200);
+      }
+    } else if(step===1){
+      // 链接：分散存储
+      const positions=[0,3,7,11,15];
+      const bRow0=bperRow;
+      for(let i=0;i<5;i++){
+        const col=positions[i]%bperRow, row=Math.floor(positions[i]/bperRow);
+        const x=colW+4+col*(bsize+gap)+10, y=40+row*(bsize+gap);
+        c.fillStyle='#a855f7'; c.strokeStyle='#c084fc'; c.lineWidth=2;
+        c.beginPath(); c.roundRect(x,y,bsize,bsize,4); c.fill(); c.stroke();
+        c.fillStyle='#fff'; c.font='10px monospace'; c.textAlign='center';
+        c.fillText(positions[i],x+bsize/2,y+bsize/2+4);
+        if(i>0){
+          const pc=positions[i-1]%bperRow, pr=Math.floor(positions[i-1]/bperRow);
+          const px=colW+4+pc*(bsize+gap)+bsize/2+10, py=40+pr*(bsize+gap)+bsize/2;
+          const cx2=colW+4+col*(bsize+gap)+bsize/2+10, cy2=40+row*(bsize+gap)+bsize/2;
+          drawArrow(c,px,py,cx2,cy2,'#f59e0b');
+        }
+        await sleep(300);
+      }
+    } else {
+      // 索引
+      // 索引块
+      const ix=2*colW+4+10, iy=40;
+      c.fillStyle='#a855f733'; c.strokeStyle='#a855f7'; c.lineWidth=2;
+      c.beginPath(); c.roundRect(ix,iy,bsize*2,90,4); c.fill(); c.stroke();
+      c.fillStyle='#a855f7'; c.font='10px Microsoft YaHei'; c.textAlign='center';
+      c.fillText('索引块',ix+bsize,iy+14);
+      const dpositions=[2,5,9,13,16];
+      for(let i=0;i<5;i++){
+        c.fillStyle='#10b981'; c.font='9px monospace'; c.textAlign='left';
+        c.fillText(`→块${dpositions[i]}`,ix+4,iy+28+i*12);
+        await sleep(200);
+      }
+      await sleep(200);
+      for(let i=0;i<5;i++){
+        const col=dpositions[i]%bperRow, row=Math.floor(dpositions[i]/bperRow);
+        const x=2*colW+4+col*(bsize+gap)+10, y=150+row*(bsize+gap);
+        c.fillStyle='#10b981'; c.strokeStyle='#34d399'; c.lineWidth=2;
+        c.beginPath(); c.roundRect(x,y,bsize,bsize,4); c.fill(); c.stroke();
+        c.fillStyle='#fff'; c.font='10px monospace'; c.textAlign='center';
+        c.fillText(dpositions[i],x+bsize/2,y+bsize/2+4);
+        await sleep(200);
+      }
+    }
+  }
+  setInfo('cmpInfo','<span class="step">✅ 对比动画完成！</span> 顺序分配连续，链接分配分散有指针，索引分配通过索引块统一管理。');
+}
+
+// Tab切换
+function switchTab(name){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('tab-'+name).classList.add('active');
+}
+
+document.getElementById('seqSpeed').addEventListener('input',function(){
+  document.getElementById('seqSpeedVal').textContent=this.value;
+});
+</script>
+</body>
+</html>
