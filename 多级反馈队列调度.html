@@ -1,0 +1,928 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>多级反馈队列调度算法</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0e14;
+            --fg: #ffffff;
+            --muted: #9ca3af;
+            --accent: #60a5fa;
+            --card: #1a1f2e;
+            --border: #3b4252;
+            
+            --queue1-color: #f87171;
+            --queue2-color: #fbbf24;
+            --queue3-color: #60a5fa;
+            --queue4-color: #34d399;
+            --cpu-color: #a78bfa;
+            --highlight-color: #f87171;
+        }
+        
+        .home-btn {
+            position: fixed;
+            top: 16px;
+            left: 16px;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--fg);
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            font-family: inherit;
+        }
+        
+        .home-btn:hover {
+            background: var(--accent);
+            border-color: var(--accent);
+            transform: translateY(-2px);
+        }
+        
+        .summary-close-btn {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            background: transparent;
+            border: none;
+            color: var(--muted);
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 4px;
+            transition: all 0.3s ease;
+        }
+        
+        .summary-close-btn:hover {
+            color: var(--fg);
+            background: rgba(255,255,255,0.1);
+        }
+        
+        .replay-btn {
+            margin-top: 20px;
+            padding: 10px 24px;
+            border-radius: 30px;
+            border: 2px solid var(--accent);
+            background: transparent;
+            color: var(--accent);
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-family: inherit;
+        }
+        
+        .replay-btn:hover {
+            background: var(--accent);
+            color: white;
+            transform: translateY(-2px);
+        }
+        
+        .summary-card {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Noto Sans SC', sans-serif;
+            background: var(--bg);
+            color: var(--fg);
+            min-height: 100vh;
+            overflow: hidden;
+        }
+        
+        .bg-layer {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            overflow: hidden;
+        }
+        
+        .bg-gradient {
+            position: absolute;
+            inset: 0;
+            background: 
+                radial-gradient(ellipse 60% 40% at 50% 0%, rgba(96, 165, 250, 0.15) 0%, transparent 60%),
+                radial-gradient(ellipse 50% 30% at 10% 90%, rgba(248, 113, 113, 0.1) 0%, transparent 50%),
+                radial-gradient(ellipse 50% 30% at 90% 90%, rgba(52, 211, 153, 0.1) 0%, transparent 50%);
+        }
+        
+        .bg-grid {
+            position: absolute;
+            inset: 0;
+            background-image: 
+                linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+        
+        .main-container {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding: 16px 24px;
+        }
+        
+        .header {
+            text-align: center;
+            opacity: 0;
+            transform: translateY(-30px);
+            transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .header.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .main-title {
+            font-size: clamp(1.8rem, 4.5vw, 2.8rem);
+            font-weight: 900;
+            letter-spacing: -0.02em;
+            color: var(--fg);
+            text-shadow: 0 2px 20px rgba(96, 165, 250, 0.3);
+        }
+        
+        .subtitle {
+            font-size: clamp(1rem, 2vw, 1.3rem);
+            color: var(--muted);
+            margin-top: 8px;
+            font-weight: 500;
+        }
+        
+        .control-bar {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 16px;
+            margin-top: 16px;
+        }
+        
+        .control-btn {
+            padding: 10px 24px;
+            border-radius: 30px;
+            border: 2px solid var(--border);
+            background: var(--card);
+            color: var(--fg);
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: inherit;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .control-btn:hover {
+            border-color: var(--accent);
+            transform: translateY(-2px);
+        }
+        
+        .control-btn.active {
+            background: linear-gradient(135deg, var(--accent), #2563eb);
+            border-color: transparent;
+            color: white;
+        }
+        
+        .scenario-selector {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 16px;
+        }
+        
+        .scenario-btn {
+            padding: 6px 16px;
+            border-radius: 20px;
+            border: 1px solid var(--border);
+            background: var(--card);
+            color: var(--muted);
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .scenario-btn:hover, .scenario-btn.active {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: white;
+        }
+        
+        .animation-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            position: relative;
+        }
+        
+        .canvas-container {
+            position: relative;
+            width: 100%;
+            max-width: 1200px;
+            height: 500px;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background: rgba(26, 31, 46, 0.8);
+            overflow: hidden;
+        }
+        
+        #animationCanvas {
+            width: 100%;
+            height: 100%;
+        }
+        
+        .info-panel {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px;
+            max-width: 300px;
+            font-size: 0.9rem;
+        }
+        
+        .info-panel h3 {
+            color: var(--accent);
+            margin-bottom: 12px;
+            font-size: 1rem;
+        }
+        
+        .info-item {
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+        }
+        
+        .info-label {
+            color: var(--muted);
+        }
+        
+        .info-value {
+            font-weight: 600;
+        }
+        
+        .legend {
+            position: absolute;
+            bottom: 16px;
+            left: 16px;
+            display: flex;
+            gap: 16px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px 16px;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.8rem;
+        }
+        
+        .legend-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 2px;
+        }
+        
+        .summary-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(10, 14, 20, 0.9);
+            z-index: 1000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+        
+        .summary-overlay.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        
+        .summary-content {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 32px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            position: relative;
+        }
+        
+        .summary-content h2 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 16px;
+            color: var(--accent);
+        }
+        
+        .summary-content h3 {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-top: 20px;
+            margin-bottom: 12px;
+        }
+        
+        .summary-content p {
+            margin-bottom: 12px;
+            line-height: 1.6;
+        }
+        
+        .summary-content ul {
+            margin-bottom: 16px;
+            padding-left: 24px;
+        }
+        
+        .summary-content li {
+            margin-bottom: 6px;
+        }
+    </style>
+</head>
+<body>
+    <a href="index.html" class="home-btn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+            <polyline points="9 22 9 12 15 12 15 22"/>
+        </svg>
+        返回主页
+    </a>
+    
+    <div class="bg-layer">
+        <div class="bg-gradient"></div>
+        <div class="bg-grid"></div>
+    </div>
+    
+    <div class="main-container">
+        <div class="header" id="header">
+            <h1 class="main-title">多级反馈队列调度算法</h1>
+            <p class="subtitle">Multilevel Feedback Queue Scheduling</p>
+        </div>
+        
+        <div class="control-bar">
+            <button class="control-btn" id="playBtn">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polygon points="5 3 19 12 5 21 5 3"/>
+                </svg>
+                开始
+            </button>
+            <button class="control-btn" id="pauseBtn" disabled>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="6" y="4" width="4" height="16"/>
+                    <rect x="14" y="4" width="4" height="16"/>
+                </svg>
+                暂停
+            </button>
+            <button class="control-btn" id="resetBtn">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                    <path d="M3 3v5h5"/>
+                </svg>
+                重置
+            </button>
+        </div>
+        
+        <div class="scenario-selector">
+            <button class="scenario-btn active" data-scenario="1">场景1：基本流程</button>
+            <button class="scenario-btn" data-scenario="2">场景2：抢占机制</button>
+            <button class="scenario-btn" data-scenario="3">场景3：优先级提升</button>
+            <button class="scenario-btn" data-scenario="4">场景4：综合演示</button>
+        </div>
+        
+        <div class="animation-container">
+            <div class="canvas-container">
+                <canvas id="animationCanvas"></canvas>
+                <div class="info-panel">
+                    <h3>运行信息</h3>
+                    <div class="info-item">
+                        <span class="info-label">当前时间：</span>
+                        <span class="info-value" id="currentTime">0</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">CPU状态：</span>
+                        <span class="info-value" id="cpuStatus">空闲</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">当前进程：</span>
+                        <span class="info-value" id="currentProcess">无</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">队列1长度：</span>
+                        <span class="info-value" id="queue1Length">0</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">队列2长度：</span>
+                        <span class="info-value" id="queue2Length">0</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">队列3长度：</span>
+                        <span class="info-value" id="queue3Length">0</span>
+                    </div>
+                </div>
+                <div class="legend">
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: var(--queue1-color);"></div>
+                        <span>队列1 (高优先级)</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: var(--queue2-color);"></div>
+                        <span>队列2</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: var(--queue3-color);"></div>
+                        <span>队列3</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: var(--cpu-color);"></div>
+                        <span>CPU</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="summary-overlay" id="summaryOverlay">
+        <div class="summary-content">
+            <button class="summary-close-btn" id="summaryCloseBtn">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"/>
+                    <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+            </button>
+            <h2>多级反馈队列调度算法</h2>
+            <p>多级反馈队列调度是一种综合了多种调度算法优点的高级调度策略，被广泛应用于现代操作系统中。</p>
+            
+            <h3>核心特点</h3>
+            <ul>
+                <li><strong>多级队列：</strong>设置多个优先级队列，优先级从高到低排列</li>
+                <li><strong>时间片递增：</strong>低优先级队列的时间片长度比高优先级队列长</li>
+                <li><strong>动态优先级调整：</strong>进程根据其行为在队列间移动</li>
+                <li><strong>抢占机制：</strong>高优先级进程可以抢占低优先级进程</li>
+            </ul>
+            
+            <h3>工作原理</h3>
+            <ol>
+                <li>新进程进入最高优先级队列</li>
+                <li>进程在一个队列中用完时间片后，降级到下一个优先级队列</li>
+                <li>只有当高优先级队列为空时，才会处理低优先级队列</li>
+                <li>低优先级队列的进程运行时，如果有高优先级进程到达，会被抢占</li>
+                <li>长时间等待的进程会被提升到更高优先级队列</li>
+            </ol>
+            
+            <h3>优势</h3>
+            <ul>
+                <li><strong>响应时间快：</strong>短作业在高优先级队列中快速完成</li>
+                <li><strong>公平性：</strong>长作业最终会在低优先级队列中得到处理</li>
+                <li><strong>适应性：</strong>根据进程行为动态调整优先级</li>
+                <li><strong>灵活性：</strong>可以根据系统需求调整队列数量和时间片长度</li>
+            </ul>
+            
+            <h3>应用场景</h3>
+            <p>多级反馈队列调度算法适用于需要同时处理多种类型任务的系统，如：</p>
+            <ul>
+                <li>通用操作系统（如Linux、Windows）</li>
+                <li>服务器系统</li>
+                <li>需要兼顾交互式任务和批处理任务的环境</li>
+            </ul>
+            
+            <button class="replay-btn" id="replayBtn">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                    <path d="M3 3v5h5"/>
+                </svg>
+                重新运行
+            </button>
+        </div>
+    </div>
+    
+    <script>
+        class Process {
+            constructor(id, arrivalTime, burstTime, color) {
+                this.id = id;
+                this.arrivalTime = arrivalTime;
+                this.burstTime = burstTime;
+                this.remainingTime = burstTime;
+                this.color = color;
+                this.queue = 1;
+                this.waitTime = 0;
+                this.startTime = -1;
+                this.completionTime = -1;
+            }
+        }
+        
+        class MultilevelFeedbackQueue {
+            constructor() {
+                this.queues = [[], [], []]; // 3个优先级队列
+                this.timeQuantums = [2, 4, 8]; // 各队列的时间片
+                this.currentTime = 0;
+                this.cpuProcess = null;
+                this.cpuTimeUsed = 0;
+                this.processes = [];
+                this.completedProcesses = [];
+                this.isRunning = false;
+                this.animationId = null;
+                this.canvas = document.getElementById('animationCanvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.scenario = 1;
+                this.initCanvas();
+                this.initEventListeners();
+                this.loadScenario(1);
+                this.draw();
+            }
+            
+            initCanvas() {
+                this.canvas.width = this.canvas.offsetWidth;
+                this.canvas.height = this.canvas.offsetHeight;
+            }
+            
+            initEventListeners() {
+                document.getElementById('playBtn').addEventListener('click', () => this.start());
+                document.getElementById('pauseBtn').addEventListener('click', () => this.pause());
+                document.getElementById('resetBtn').addEventListener('click', () => this.reset());
+                document.getElementById('replayBtn').addEventListener('click', () => {
+                    document.getElementById('summaryOverlay').classList.remove('visible');
+                    this.reset();
+                    this.start();
+                });
+                document.getElementById('summaryCloseBtn').addEventListener('click', () => {
+                    document.getElementById('summaryOverlay').classList.remove('visible');
+                });
+                
+                document.querySelectorAll('.scenario-btn').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        document.querySelectorAll('.scenario-btn').forEach(b => b.classList.remove('active'));
+                        btn.classList.add('active');
+                        this.scenario = parseInt(btn.dataset.scenario);
+                        this.loadScenario(this.scenario);
+                        this.draw();
+                    });
+                });
+            }
+            
+            loadScenario(scenario) {
+                this.reset();
+                
+                switch(scenario) {
+                    case 1:
+                        // 场景1：基本流程
+                        this.processes = [
+                            new Process('P1', 0, 10, '#4A90E2'),
+                            new Process('P2', 1, 3, '#5CB85C'),
+                            new Process('P3', 2, 5, '#F0AD4E')
+                        ];
+                        break;
+                    case 2:
+                        // 场景2：抢占机制
+                        this.processes = [
+                            new Process('P1', 0, 10, '#4A90E2'),
+                            new Process('P2', 2, 2, '#5CB85C'),
+                            new Process('P3', 4, 1, '#F0AD4E')
+                        ];
+                        break;
+                    case 3:
+                        // 场景3：优先级提升
+                        this.processes = [
+                            new Process('P1', 0, 15, '#4A90E2'),
+                            new Process('P2', 1, 3, '#5CB85C'),
+                            new Process('P3', 2, 3, '#F0AD4E')
+                        ];
+                        break;
+                    case 4:
+                        // 场景4：综合演示
+                        this.processes = [
+                            new Process('P1', 0, 12, '#4A90E2'),
+                            new Process('P2', 1, 4, '#5CB85C'),
+                            new Process('P3', 3, 6, '#F0AD4E'),
+                            new Process('P4', 5, 2, '#9067C6')
+                        ];
+                        break;
+                }
+            }
+            
+            start() {
+                if (!this.isRunning) {
+                    this.isRunning = true;
+                    document.getElementById('playBtn').disabled = true;
+                    document.getElementById('playBtn').classList.add('active');
+                    document.getElementById('pauseBtn').disabled = false;
+                    document.getElementById('pauseBtn').classList.remove('active');
+                    this.run();
+                }
+            }
+            
+            pause() {
+                if (this.isRunning) {
+                    this.isRunning = false;
+                    document.getElementById('playBtn').disabled = false;
+                    document.getElementById('playBtn').classList.remove('active');
+                    document.getElementById('pauseBtn').disabled = true;
+                    document.getElementById('pauseBtn').classList.add('active');
+                    if (this.animationId) {
+                        cancelAnimationFrame(this.animationId);
+                    }
+                }
+            }
+            
+            reset() {
+                this.pause();
+                this.queues = [[], [], []];
+                this.currentTime = 0;
+                this.cpuProcess = null;
+                this.cpuTimeUsed = 0;
+                this.completedProcesses = [];
+                this.loadScenario(this.scenario);
+                this.draw();
+                this.updateInfo();
+            }
+            
+            run() {
+                if (!this.isRunning) return;
+                
+                // 检查新进程到达
+                this.checkNewProcesses();
+                
+                // 检查是否需要抢占
+                this.checkPreemption();
+                
+                // 处理CPU进程
+                if (this.cpuProcess) {
+                    this.cpuTimeUsed++;
+                    this.cpuProcess.remainingTime--;
+                    
+                    // 检查进程是否完成
+                    if (this.cpuProcess.remainingTime === 0) {
+                        this.cpuProcess.completionTime = this.currentTime;
+                        this.completedProcesses.push(this.cpuProcess);
+                        this.cpuProcess = null;
+                        this.cpuTimeUsed = 0;
+                    } 
+                    // 检查时间片是否用完
+                    else if (this.cpuTimeUsed >= this.timeQuantums[this.cpuProcess.queue - 1]) {
+                        // 降级到下一个队列
+                        if (this.cpuProcess.queue < this.queues.length) {
+                            this.cpuProcess.queue++;
+                        }
+                        this.queues[this.cpuProcess.queue - 1].push(this.cpuProcess);
+                        this.cpuProcess = null;
+                        this.cpuTimeUsed = 0;
+                    }
+                }
+                
+                // 如果CPU空闲，从队列中选择进程
+                if (!this.cpuProcess) {
+                    this.selectProcess();
+                }
+                
+                // 更新等待时间
+                this.updateWaitTimes();
+                
+                // 检查是否需要提升优先级
+                this.checkPriorityBoost();
+                
+                this.currentTime++;
+                this.draw();
+                this.updateInfo();
+                
+                // 检查是否所有进程都已完成
+                if (this.completedProcesses.length === this.processes.length) {
+                    this.pause();
+                    document.getElementById('summaryOverlay').classList.add('visible');
+                    return;
+                }
+                
+                this.animationId = requestAnimationFrame(() => this.run());
+            }
+            
+            checkNewProcesses() {
+                this.processes.forEach(process => {
+                    if (process.arrivalTime === this.currentTime) {
+                        this.queues[0].push(process); // 新进程进入最高优先级队列
+                        process.startTime = this.currentTime;
+                    }
+                });
+            }
+            
+            checkPreemption() {
+                // 检查是否有高优先级进程需要抢占
+                for (let i = 0; i < this.queues.length; i++) {
+                    if (this.queues[i].length > 0) {
+                        // 如果当前CPU进程的优先级低于队列i
+                        if (this.cpuProcess && this.cpuProcess.queue > i + 1) {
+                            // 将当前进程放回原队列
+                            this.queues[this.cpuProcess.queue - 1].push(this.cpuProcess);
+                            // 选择高优先级进程
+                            this.cpuProcess = this.queues[i].shift();
+                            this.cpuTimeUsed = 0;
+                        }
+                        break;
+                    }
+                }
+            }
+            
+            selectProcess() {
+                // 从高优先级队列开始选择
+                for (let i = 0; i < this.queues.length; i++) {
+                    if (this.queues[i].length > 0) {
+                        this.cpuProcess = this.queues[i].shift();
+                        this.cpuTimeUsed = 0;
+                        if (this.cpuProcess.startTime === -1) {
+                            this.cpuProcess.startTime = this.currentTime;
+                        }
+                        break;
+                    }
+                }
+            }
+            
+            updateWaitTimes() {
+                // 更新队列中进程的等待时间
+                this.queues.forEach(queue => {
+                    queue.forEach(process => {
+                        process.waitTime++;
+                    });
+                });
+            }
+            
+            checkPriorityBoost() {
+                // 每10个时间单位提升一次长时间等待的进程
+                if (this.currentTime % 10 === 0) {
+                    for (let i = 1; i < this.queues.length; i++) {
+                        const queue = this.queues[i];
+                        for (let j = queue.length - 1; j >= 0; j--) {
+                            const process = queue[j];
+                            if (process.waitTime > 15) {
+                                // 提升到更高优先级队列
+                                const newQueue = Math.max(0, i - 1);
+                                this.queues[newQueue].push(process);
+                                queue.splice(j, 1);
+                                process.queue = newQueue + 1;
+                                process.waitTime = 0;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            updateInfo() {
+                document.getElementById('currentTime').textContent = this.currentTime;
+                document.getElementById('cpuStatus').textContent = this.cpuProcess ? '运行中' : '空闲';
+                document.getElementById('currentProcess').textContent = this.cpuProcess ? this.cpuProcess.id : '无';
+                document.getElementById('queue1Length').textContent = this.queues[0].length;
+                document.getElementById('queue2Length').textContent = this.queues[1].length;
+                document.getElementById('queue3Length').textContent = this.queues[2].length;
+            }
+            
+            draw() {
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                
+                const width = this.canvas.width;
+                const height = this.canvas.height;
+                const queueWidth = (width - 80) / 4;
+                const queueHeight = height - 100;
+                const queueY = 80;
+                
+                // 绘制队列标题
+                this.ctx.font = '16px Noto Sans SC';
+                this.ctx.fillStyle = '#ffffff';
+                this.ctx.textAlign = 'center';
+                
+                this.ctx.fillText('队列1 (时间片: 2)', 60 + queueWidth/2, 40);
+                this.ctx.fillText('队列2 (时间片: 4)', 60 + queueWidth + queueWidth/2, 40);
+                this.ctx.fillText('队列3 (时间片: 8)', 60 + queueWidth*2 + queueWidth/2, 40);
+                this.ctx.fillText('CPU', 60 + queueWidth*3 + queueWidth/2, 40);
+                
+                // 绘制队列边框
+                const queueColors = ['var(--queue1-color)', 'var(--queue2-color)', 'var(--queue3-color)', 'var(--cpu-color)'];
+                
+                for (let i = 0; i < 4; i++) {
+                    this.ctx.strokeStyle = queueColors[i];
+                    this.ctx.lineWidth = 2;
+                    this.ctx.strokeRect(60 + i*queueWidth, queueY, queueWidth - 20, queueHeight);
+                }
+                
+                // 绘制队列中的进程
+                for (let i = 0; i < 3; i++) {
+                    const queue = this.queues[i];
+                    const x = 70 + i*queueWidth;
+                    const processHeight = 40;
+                    const processSpacing = 10;
+                    
+                    queue.forEach((process, index) => {
+                        const y = queueY + 10 + index*(processHeight + processSpacing);
+                        
+                        // 绘制进程
+                        this.ctx.fillStyle = process.color;
+                        this.ctx.fillRect(x, y, queueWidth - 40, processHeight);
+                        
+                        // 绘制进程ID
+                        this.ctx.fillStyle = '#ffffff';
+                        this.ctx.font = '14px Noto Sans SC';
+                        this.ctx.textAlign = 'center';
+                        this.ctx.fillText(`${process.id} (${process.remainingTime})`, x + (queueWidth - 40)/2, y + processHeight/2 + 4);
+                    });
+                }
+                
+                // 绘制CPU中的进程
+                if (this.cpuProcess) {
+                    const x = 70 + 3*queueWidth;
+                    const y = queueY + 10;
+                    const processHeight = 80;
+                    
+                    this.ctx.fillStyle = this.cpuProcess.color;
+                    this.ctx.fillRect(x, y, queueWidth - 40, processHeight);
+                    
+                    this.ctx.fillStyle = '#ffffff';
+                    this.ctx.font = '16px Noto Sans SC';
+                    this.ctx.textAlign = 'center';
+                    this.ctx.fillText(`${this.cpuProcess.id}`, x + (queueWidth - 40)/2, y + processHeight/2 - 10);
+                    this.ctx.font = '14px Noto Sans SC';
+                    this.ctx.fillText(`剩余: ${this.cpuProcess.remainingTime}`, x + (queueWidth - 40)/2, y + processHeight/2 + 10);
+                    this.ctx.font = '12px Noto Sans SC';
+                    this.ctx.fillText(`时间片: ${this.cpuTimeUsed}/${this.timeQuantums[this.cpuProcess.queue - 1]}`, x + (queueWidth - 40)/2, y + processHeight/2 + 25);
+                }
+                
+                // 绘制时间轴
+                this.ctx.strokeStyle = '#3b4252';
+                this.ctx.lineWidth = 1;
+                this.ctx.beginPath();
+                this.ctx.moveTo(60, queueY + queueHeight + 20);
+                this.ctx.lineTo(width - 20, queueY + queueHeight + 20);
+                this.ctx.stroke();
+                
+                // 绘制时间标记
+                this.ctx.font = '12px Noto Sans SC';
+                this.ctx.fillStyle = '#9ca3af';
+                this.ctx.textAlign = 'center';
+                
+                for (let i = 0; i <= 20; i++) {
+                    const x = 60 + (width - 80) * i / 20;
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(x, queueY + queueHeight + 20);
+                    this.ctx.lineTo(x, queueY + queueHeight + 25);
+                    this.ctx.stroke();
+                    
+                    if (i % 5 === 0) {
+                        this.ctx.fillText(i, x, queueY + queueHeight + 45);
+                    }
+                }
+                
+                // 绘制当前时间指示器
+                const currentTimeX = 60 + (width - 80) * Math.min(this.currentTime, 20) / 20;
+                this.ctx.strokeStyle = 'var(--accent)';
+                this.ctx.lineWidth = 2;
+                this.ctx.beginPath();
+                this.ctx.moveTo(currentTimeX, queueY);
+                this.ctx.lineTo(currentTimeX, queueY + queueHeight + 40);
+                this.ctx.stroke();
+            }
+        }
+        
+        // 初始化
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                document.getElementById('header').classList.add('visible');
+            }, 100);
+            
+            new MultilevelFeedbackQueue();
+        });
+        
+        // 响应窗口大小变化
+        window.addEventListener('resize', () => {
+            const canvas = document.getElementById('animationCanvas');
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+        });
+    </script>
+</body>
+</html>
